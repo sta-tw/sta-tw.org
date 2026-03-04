@@ -25,9 +25,9 @@ export default function Footer() {
 
       <footer className="bg-white border-t py-10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex flex-col md:flex-row md:justify-between md:items-start space-y-8 md:space-y-0">
-            <div className="flex flex-col space-y-2">
-              <div className="flex items-center space-x-2">
+          <div className="flex flex-col md:flex-row md:justify-between md:items-start">
+            <div className="flex flex-col space-y-2 items-center md:items-start">
+              <div className="flex flex-col items-center md:items-start">
                 <div className="w-8 h-8 bg-gray-200 rounded-full" />
                 <span className="font-semibold text-xl">S.T.A</span>
               </div>
@@ -36,7 +36,7 @@ export default function Footer() {
               </p>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-8">
+            <div className="mt-8 w-full md:mt-0 grid grid-cols-1 sm:grid-cols-3 gap-8">
               <div>
                 <h3 className="text-gray-800 font-semibold mb-2">社群媒體</h3>
                 <ul className="space-y-1 text-gray-600 text-sm">
@@ -45,7 +45,7 @@ export default function Footer() {
                       Instagram
                     </a>
                   </li>
-                  <li className="flex items-center space-x-1">
+                  <li>
                     <a href="#" className="hover:underline">
                       Discord
                     </a>
