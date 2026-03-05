@@ -10,7 +10,7 @@ export const metadata: Metadata = {
   title: "116 特殊選才資源網",
   description: "Special Talent Acquisition",
   applicationName: "sta-web",
-  authors: [{ name: "Aaron-Kao", url: "https://sta-tw.org" }],
+  authors: [{ name: "Aaron-Kao", url: "https://ronkao.tw" }],
   keywords: ["特殊選才", "特殊選才資源", "STA-Web", "簡章"],
   openGraph: {
     images: [
