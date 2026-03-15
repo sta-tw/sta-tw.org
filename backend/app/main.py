@@ -9,7 +9,7 @@ from starlette.requests import Request
 
 from app.config import settings
 from app.database import engine
-from app.routers import auth, channels, messages, users, search, verification, tickets, admin, admissions, portfolio
+from app.routers import auth, channels, messages, users, search, verification, tickets, admin, admissions, portfolio, public
 from app.services import search_service
 from app.utils.security import decode_token
 from app.ws.manager import manager
@@ -65,6 +65,7 @@ app.include_router(tickets.router, prefix="/api/v1/tickets", tags=["tickets"])
 app.include_router(admin.router, prefix="/api/v1/admin", tags=["admin"])
 app.include_router(admissions.router, prefix="/api/v1/admissions", tags=["admissions"])
 app.include_router(portfolio.router, prefix="/api/v1/portfolio", tags=["portfolio"])
+app.include_router(public.router, prefix="/api/v1/public", tags=["public"])
 
 
 @app.get("/health", tags=["health"])
