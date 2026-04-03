@@ -1,5 +1,4 @@
 "use client";
-
 import { useState } from "react";
 
 export default function NavBar() {
@@ -9,19 +8,19 @@ export default function NavBar() {
     <nav className="w-full bg-white shadow-sm">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex h-16 items-center justify-between">
-          {/* left side: logo + title + placeholder box */}
           <div className="flex items-center space-x-4">
-            <div className="w-8 h-8 bg-gray-200 rounded-full" />
+            <p className="w-8 h-8">✿</p>
             <span className="font-semibold text-lg">S.T.A</span>
             <div className="w-24 h-8 border-2 border-dashed border-gray-400" />
           </div>
 
-          {/* mobile menu button */}
           <div className="md:hidden">
             <button
+              type="button"
               onClick={() => setOpen(!open)}
-              className="inline-flex items-center justify-center p-2 rounded-md text-gray-700 hover:text-gray-900 focus:outline-none"
+              className="inline-flex items-center justify-center rounded-md p-2 text-gray-700 hover:text-gray-900 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0"
               aria-label="Toggle menu"
+              style={{ WebkitTapHighlightColor: "transparent" }}
             >
               <svg
                 className="h-6 w-6"
@@ -49,9 +48,8 @@ export default function NavBar() {
             </button>
           </div>
 
-          {/* center links */}
           <div className="hidden md:flex space-x-6">
-            <a href="#" className="text-gray-700 hover:text-gray-900">
+            <a href="/articlemain" className="text-gray-700 hover:text-gray-900">
               關於特殊選才
             </a>
             <a href="#" className="text-gray-700 hover:text-gray-900">
@@ -65,7 +63,6 @@ export default function NavBar() {
             </a>
           </div>
 
-          {/* right button */}
           <div className="hidden md:block">
             <button className="px-4 py-2 bg-gray-800 text-white rounded-md hover:bg-gray-700">
               登入 | 註冊
@@ -79,7 +76,7 @@ export default function NavBar() {
         <div className="md:hidden bg-white border-t">
           <div className="px-2 pt-2 pb-3 space-y-1">
             <a
-              href="#"
+              href="/articlemain"
               className="block px-3 py-2 rounded-md text-base font-medium text-gray-700 hover:bg-gray-100"
             >
               關於特殊選才
