@@ -17,7 +17,7 @@ export default function Info() {
 
       <div className="relative z-10 max-w-6xl mx-auto px-8" style={{ fontFamily: "ChenYuluoyan" }}>
         <div className="mb-6 md:mb-16">
-          <h2 className="text-5xl md:text-6xl text-gray-300 italic inline-block relative">
+          <h2 className="text-6xl md:text-8xl text-gray-300 italic inline-block relative">
             Dream it,
             <div className="absolute -bottom-1 md:bottom-[-8px] left-0 w-full h-[3px] md:h-1"></div>
           </h2>
@@ -35,7 +35,7 @@ export default function Info() {
         </div>
 
         <div className="mt-12 md:mt-16 text-right">
-          <h2 className="text-4xl md:text-6xl text-gray-300 italic leading-none whitespace-nowrap">
+          <h2 className="text-5xl md:text-7xl text-gray-300 italic leading-none whitespace-nowrap">
             and make it possible.
           </h2>
         </div>

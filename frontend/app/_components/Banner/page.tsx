@@ -2,7 +2,7 @@ import Link from "next/link";
 
 export default function Banner() {
   return (
-    <div className="relative w-full h-[650px] md:h-[450px] flex items-center justify-center overflow-hidden bg-white">
+    <div className="relative mb-6 w-full h-[650px] md:h-[450px] flex items-center justify-center overflow-hidden bg-white">
       <div 
         className="absolute inset-0 z-0 opacity-10"
         style={{
@@ -24,8 +24,8 @@ export default function Banner() {
         className="relative z-20 flex flex-col items-center text-[#374151] px-6 w-full text-center"
         style={{ fontFamily: "ChenYuluoyan" }}
       >
-        <h1 className="text-6xl md:text-7xl mb-8 md:mb-2 tracking-[0.2em] font-normal leading-tight">
-          特殊選才<span className="md:hidden"><br /></span>資源網
+        <h1 className="text-5xl md:text-7xl mb-8 md:mb-2 tracking-[0.12em] font-normal leading-tight">
+          S.T.A |<span className="md:hidden"><br /></span> 特殊選才資源網
         </h1>
 
         <div className="flex flex-col items-start md:items-center w-fit md:w-full text-4xl md:text-5xl mb-12 md:mb-12 tracking-widest leading-[1.4] md:leading-normal">
