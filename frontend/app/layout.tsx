@@ -7,15 +7,15 @@ import Footer from "./_components/Footer/pages";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "116 特殊選才資源網",
+  title: "S.T.A | 特殊選才資源網",
   description: "Special Talent Acquisition",
-  applicationName: "sta-web",
-  authors: [{ name: "Aaron-Kao", url: "https://ronkao.tw" }],
+  applicationName: "S.T.A | 特殊選才資源網",
+  authors: [{ name: "Aaron-Kao", url: "https://sta-tw.org" }],
   keywords: ["特殊選才", "特殊選才資源", "STA-Web", "簡章"],
   openGraph: {
     images: [
       {
-        url: "/sta.png",
+        url: "./sta.png",
         width: 1200,
         height: 630,
         alt: "STA‑Web Open Graph",
@@ -25,7 +25,7 @@ export const metadata: Metadata = {
     type: "website",
   },
   icons: {
-    icon: "/sta.ico",
+    icon: "./favicon.ico",
   },
 };
 
