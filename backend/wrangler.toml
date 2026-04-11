@@ -1,0 +1,33 @@
+name = "sta-backend"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+FRONTEND_URL = "https://sta-tw.pages.dev"
+ACCESS_TOKEN_EXPIRE_MINUTES = "15"
+REFRESH_TOKEN_EXPIRE_DAYS = "30"
+R2_BUCKET_NAME = "sta-verification"
+MEILI_URL = "https://your-meilisearch.example.com"
+EMAIL_FROM = "noreply@sta.tw"
+
+# 在 wrangler secret 設定以下機密變數：
+# DATABASE_URL       = "postgresql://..."   (Neon 連線字串)
+# JWT_SECRET         = "..."
+# R2_ACCOUNT_ID      = "..."
+# R2_ACCESS_KEY_ID   = "..."
+# R2_SECRET_ACCESS_KEY = "..."
+# MEILI_MASTER_KEY   = "..."
+# RESEND_API_KEY     = "..."               (用於發送 Email)
+# GOOGLE_CLIENT_ID   = "..."
+# GOOGLE_CLIENT_SECRET = "..."
+# DISCORD_CLIENT_ID  = "..."
+# DISCORD_CLIENT_SECRET = "..."
+
+[[durable_objects.bindings]]
+name = "CHAT_ROOM"
+class_name = "ChatRoom"
+
+[[migrations]]
+tag = "v1"
+new_classes = ["ChatRoom"]
