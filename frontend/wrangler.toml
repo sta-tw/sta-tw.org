@@ -1,5 +1,4 @@
 name = "sta-tw"
-account_id = "0c62fb20d9329ac4434d5f6fd4bf9190"
 pages_build_output_dir = ".vercel/output/static"
 compatibility_date = "2024-12-01"
 compatibility_flags = ["nodejs_compat"]
