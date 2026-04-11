@@ -2,6 +2,7 @@ name = "sta-backend"
 main = "src/index.ts"
 compatibility_date = "2024-12-01"
 compatibility_flags = ["nodejs_compat"]
+account_id = "0c62fb20d9329ac4434d5f6fd4bf9190"
 
 [vars]
 FRONTEND_URL = "https://sta-tw.pages.dev"
@@ -30,4 +31,4 @@ class_name = "ChatRoom"
 
 [[migrations]]
 tag = "v1"
-new_classes = ["ChatRoom"]
+new_sqlite_classes = ["ChatRoom"]
