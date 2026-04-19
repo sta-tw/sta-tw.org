@@ -64,10 +64,9 @@ export default function NavBar() {
           </div>
 
           <div className="hidden md:block">
-            {/* Demo 版暫時註解掉 */}
-            {/* <button className="px-4 py-2 bg-gray-800 text-white rounded-md hover:bg-gray-700">
+            <button className="px-4 py-2 bg-gray-800 text-white rounded-md hover:bg-gray-700">
               登入 | 註冊
-            </button> */}
+            </button>
           </div>
         </div>
       </div>
@@ -100,10 +99,9 @@ export default function NavBar() {
             >
               學習網站
             </a>
-            {/* Demo 版暫時註解掉 */}
-            {/* <button className="w-full text-left px-3 py-2 rounded-md text-base font-medium text-gray-800 bg-gray-200 hover:bg-gray-300">
+            <button className="w-full text-left px-3 py-2 rounded-md text-base font-medium text-gray-800 bg-gray-200 hover:bg-gray-300">
               登入 | 註冊
-            </button> */}
+            </button>
           </div>
         </div>
       )}

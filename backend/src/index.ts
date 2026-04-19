@@ -19,6 +19,7 @@ import admissionsRouter from './routes/admissions'
 import portfolioRouter from './routes/portfolio'
 import adminRouter from './routes/admin'
 import publicRouter from './routes/public'
+import openapiRouter from './routes/openapi'
 
 export { ChatRoom }
 
@@ -71,6 +72,7 @@ app.route('/api/v1/admissions', admissionsRouter)
 app.route('/api/v1/portfolio', portfolioRouter)
 app.route('/api/v1/admin', adminRouter)
 app.route('/api/v1/public', publicRouter)
+app.route('/', openapiRouter)
 
 // ── Health check ───────────────────────────────────────────────
 

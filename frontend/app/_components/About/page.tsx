@@ -20,10 +20,9 @@ export default function About() {
               漢皇重色思傾國，御宇多年求不得。楊家有女初長成，養在深閨人未識。天生麗質難自棄，一朝選在君王側。迴眸一笑百媚生，六宮粉黛無顏色。，溫泉水滑洗凝脂。侍兒扶起嬌無力，始是新承恩澤時。雲鬢花顏金步搖，芙蓉帳暖度春宵。春宵苦短日高起，從此君王不早朝。
             </p>
             <div className="pt-2">
-              {/* Demo 版暫時註解掉 */}
-              {/* <button className="bg-[#333333] text-white px-8 py-2 rounded-xl italic tracking-widest text-xl" style={{ fontFamily: "ChenYuluoyan" }}>
+              <button className="bg-[#333333] text-white px-8 py-2 rounded-xl italic tracking-widest text-xl" style={{ fontFamily: "ChenYuluoyan" }}>
                 MORE INFO
-              </button> */}
+              </button>
             </div>
           </div>
           <div className="flex-1 w-full">
@@ -46,10 +45,9 @@ export default function About() {
               特殊選才資源網致力於透過線上資源匯集檢減少特選資源分布不均等其情況，並輔以論壇功能，讓大家有問題都能及時發問。
             </p>
             <div className="pt-2">
-              {/* Demo 版暫時註解掉 */}
-              {/* <button className="bg-[#333333] text-white px-8 py-2 rounded-xl italic tracking-widest text-xl" style={{ fontFamily: "ChenYuluoyan" }}>
+              <button className="bg-[#333333] text-white px-8 py-2 rounded-xl italic tracking-widest text-xl" style={{ fontFamily: "ChenYuluoyan" }}>
                 MORE INFO
-              </button> */}
+              </button>
             </div>
           </div>
           <div className="flex-1 w-full">

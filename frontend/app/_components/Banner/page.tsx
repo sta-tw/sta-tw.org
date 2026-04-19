@@ -34,13 +34,12 @@ export default function Banner() {
           <p className="md:inline md:ml-3">Admission</p>
         </div>
 
-        {/* Demo 版暫時註解掉 */}
-        {/* <Link
+        <Link
           href="/articlemain"
           className="hidden md:block bg-[#333333] text-white px-14 py-5 tracking-widest rounded-xl text-4xl transition-all hover:bg-[#444] hover:scale-105 active:scale-95 shadow-md"
         >
           按下按鈕，前途在手
-        </Link> */}
+        </Link>
       </div>
     </div>
   );
