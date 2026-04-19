@@ -64,7 +64,8 @@ export default function ApiDocsPage() {
     let cancelled = false;
     async function load() {
       try {
-        const response = await fetch("http://localhost:12004/openapi.json", { cache: "no-store" });
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:12004";
+        const response = await fetch(`${apiUrl}/openapi.json`, { cache: "no-store" });
         if (!response.ok) {
           throw new Error(`openapi.json request failed: ${response.status}`);
         }
