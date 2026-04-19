@@ -1,0 +1,303 @@
+.container {
+  display: flex;
+  min-height: 100vh;
+  background: #f5f5f5;
+}
+
+.sidebar {
+  width: 280px;
+  background: #1a1a1a;
+  color: #fff;
+  padding: 24px;
+  position: fixed;
+  height: 100vh;
+  overflow-y: auto;
+}
+
+.sidebarHeader {
+  margin-bottom: 32px;
+}
+
+.sidebarHeader h2 {
+  font-size: 24px;
+  font-weight: 700;
+  margin: 0 0 8px 0;
+}
+
+.version {
+  font-size: 12px;
+  color: #888;
+  background: #2a2a2a;
+  padding: 4px 8px;
+  border-radius: 4px;
+  display: inline-block;
+}
+
+.nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.navItem {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: transparent;
+  border: none;
+  color: #aaa;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  border-radius: 8px;
+  transition: all 0.2s;
+  text-align: left;
+  width: 100%;
+}
+
+.navItem:hover {
+  background: #2a2a2a;
+  color: #fff;
+}
+
+.navItem.active {
+  background: #3b82f6;
+  color: #fff;
+}
+
+.icon {
+  font-size: 18px;
+}
+
+.main {
+  margin-left: 280px;
+  flex: 1;
+  padding: 48px;
+}
+
+.content {
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.header {
+  margin-bottom: 48px;
+}
+
+.header h1 {
+  font-size: 36px;
+  font-weight: 700;
+  margin: 0 0 16px 0;
+  color: #1a1a1a;
+}
+
+.baseUrl {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  background: #fff;
+  border-radius: 8px;
+  border: 1px solid #e5e5e5;
+}
+
+.label {
+  font-weight: 600;
+  color: #666;
+  font-size: 14px;
+}
+
+.baseUrl code {
+  background: #f5f5f5;
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-family: 'Courier New', monospace;
+  font-size: 14px;
+  color: #3b82f6;
+}
+
+.section {
+  background: #fff;
+  padding: 32px;
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.section h2 {
+  font-size: 28px;
+  font-weight: 700;
+  margin: 0 0 24px 0;
+  color: #1a1a1a;
+}
+
+.section h3 {
+  font-size: 20px;
+  font-weight: 600;
+  margin: 32px 0 16px 0;
+  color: #333;
+}
+
+.endpoint {
+  margin-bottom: 32px;
+  padding-bottom: 32px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.endpoint:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+.endpointHeader {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.method {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 700;
+  background: #10b981;
+  color: #fff;
+}
+
+.method:has-text("POST") {
+  background: #3b82f6;
+}
+
+.method:has-text("PATCH") {
+  background: #f59e0b;
+}
+
+.method:has-text("DELETE") {
+  background: #ef4444;
+}
+
+.methodWs {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 700;
+  background: #8b5cf6;
+  color: #fff;
+}
+
+.endpointHeader code {
+  font-family: 'Courier New', monospace;
+  font-size: 14px;
+  color: #1a1a1a;
+  font-weight: 600;
+}
+
+.description {
+  color: #666;
+  font-size: 14px;
+  margin: 0 0 16px 0;
+  line-height: 1.6;
+}
+
+.codeBlock {
+  background: #1a1a1a;
+  border-radius: 8px;
+  padding: 16px;
+  overflow-x: auto;
+  margin: 16px 0;
+}
+
+.codeBlock pre {
+  margin: 0;
+  font-family: 'Courier New', monospace;
+  font-size: 13px;
+  color: #e5e5e5;
+  line-height: 1.6;
+}
+
+.params {
+  background: #f9fafb;
+  padding: 16px;
+  border-radius: 8px;
+  margin: 16px 0;
+}
+
+.params p {
+  margin: 0 0 8px 0;
+  font-weight: 600;
+  font-size: 14px;
+  color: #333;
+}
+
+.params ul {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.params li {
+  margin: 4px 0;
+  font-size: 14px;
+  color: #666;
+  line-height: 1.6;
+}
+
+.params code {
+  background: #fff;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-family: 'Courier New', monospace;
+  font-size: 13px;
+  color: #3b82f6;
+}
+
+.alert {
+  background: #fef3c7;
+  border-left: 4px solid #f59e0b;
+  padding: 12px 16px;
+  border-radius: 4px;
+  margin-bottom: 24px;
+  font-size: 14px;
+  color: #92400e;
+}
+
+.alert code {
+  background: #fde68a;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-family: 'Courier New', monospace;
+  font-size: 13px;
+}
+
+@media (max-width: 1024px) {
+  .sidebar {
+    width: 240px;
+  }
+
+  .main {
+    margin-left: 240px;
+    padding: 32px 24px;
+  }
+}
+
+@media (max-width: 768px) {
+  .sidebar {
+    display: none;
+  }
+
+  .main {
+    margin-left: 0;
+    padding: 24px 16px;
+  }
+
+  .header h1 {
+    font-size: 28px;
+  }
+
+  .section {
+    padding: 24px 16px;
+  }
+}
