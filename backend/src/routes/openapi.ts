@@ -4,32 +4,100 @@ import type { Env } from '../types'
 const openapi = new Hono<{ Bindings: Env }>()
 
 openapi.get('/openapi.json', (c) => {
+  const baseUrl = new URL(c.req.url).origin
   const spec = {
     openapi: '3.0.0',
     info: {
       title: 'STA Platform API',
       version: '1.0.0',
-      description: 'STA 特殊選才資源網 API',
+      description: 'STA 特殊選才資源網 API - 支援 Hoppscotch 匯入',
+      contact: {
+        name: 'STA Platform',
+        url: 'https://sta-tw.org',
+      },
     },
     servers: [
-      { url: 'http://localhost:12004/api/v1', description: 'Local' },
+      { url: `${baseUrl}/api/v1`, description: 'Current Environment' },
+      { url: 'http://localhost:12004/api/v1', description: 'Local Development' },
     ],
+    components: {
+      securitySchemes: {
+        bearerAuth: {
+          type: 'http',
+          scheme: 'bearer',
+          bearerFormat: 'JWT',
+          description: 'JWT Access Token (有效期 15 分鐘)',
+        },
+      },
+      schemas: {
+        Error: {
+          type: 'object',
+          properties: {
+            detail: { type: 'string', example: '錯誤描述' },
+          },
+        },
+        UserOut: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+            username: { type: 'string', example: 'johndoe' },
+            email: { type: 'string', format: 'email', example: 'john@example.com' },
+            displayName: { type: 'string', example: 'John Doe' },
+            avatarUrl: { type: 'string', nullable: true },
+            role: { type: 'string', enum: ['visitor', 'prospective_student', 'student', 'senior', 'admin'] },
+            verificationStatus: { type: 'string', enum: ['none', 'pending', 'approved', 'rejected'] },
+            reputationScore: { type: 'integer', example: 150 },
+            bio: { type: 'string', nullable: true },
+            createdAt: { type: 'string', format: 'date-time' },
+          },
+        },
+        TokenResponse: {
+          type: 'object',
+          properties: {
+            access_token: { type: 'string', example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...' },
+            user: { $ref: '#/components/schemas/UserOut' },
+          },
+        },
+      },
+    },
+    security: [{ bearerAuth: [] }],
     paths: {
       '/auth/register': {
         post: {
           tags: ['Auth 認證'],
           summary: '註冊新用戶',
+          security: [],
           requestBody: {
+            required: true,
             content: {
               'application/json': {
                 schema: {
                   type: 'object',
+                  required: ['username', 'email', 'displayName', 'password'],
                   properties: {
-                    username: { type: 'string' },
-                    email: { type: 'string' },
-                    displayName: { type: 'string' },
-                    password: { type: 'string' },
+                    username: { type: 'string', example: 'johndoe' },
+                    email: { type: 'string', format: 'email', example: 'john@example.com' },
+                    displayName: { type: 'string', example: 'John Doe' },
+                    password: { type: 'string', format: 'password', example: 'mypassword123' },
                   },
+                },
+              },
+            },
+          },
+          responses: {
+            '201': {
+              description: '註冊成功',
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/TokenResponse' },
+                },
+              },
+            },
+            '400': {
+              description: '請求參數錯誤',
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/Error' },
                 },
               },
             },
@@ -40,24 +108,100 @@ openapi.get('/openapi.json', (c) => {
         post: {
           tags: ['Auth 認證'],
           summary: '用戶登入',
+          security: [],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['email', 'password'],
+                  properties: {
+                    email: { type: 'string', format: 'email', example: 'john@example.com' },
+                    password: { type: 'string', format: 'password', example: 'mypassword123' },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            '200': {
+              description: '登入成功',
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/TokenResponse' },
+                },
+              },
+            },
+            '401': {
+              description: '帳號或密碼錯誤',
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/Error' },
+                },
+              },
+            },
+          },
         },
       },
       '/auth/logout': {
         post: {
           tags: ['Auth 認證'],
           summary: '登出',
+          responses: {
+            '200': {
+              description: '登出成功',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      message: { type: 'string', example: 'logged out' },
+                    },
+                  },
+                },
+              },
+            },
+          },
         },
       },
       '/auth/refresh': {
         post: {
           tags: ['Auth 認證'],
           summary: '更新 Access Token',
+          security: [],
+          description: '使用 httpOnly Cookie 中的 refresh_token 更新 access_token',
+          responses: {
+            '200': {
+              description: '更新成功',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      access_token: { type: 'string', example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...' },
+                    },
+                  },
+                },
+              },
+            },
+          },
         },
       },
       '/auth/me': {
         get: {
           tags: ['Auth 認證'],
           summary: '取得當前用戶資料',
+          responses: {
+            '200': {
+              description: '成功',
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/UserOut' },
+                },
+              },
+            },
+          },
         },
       },
       '/users/me': {
