@@ -13,13 +13,16 @@ Monorepo for the STA backend and frontend.
 ### Hoppscotch (Recommended)
 Import OpenAPI spec directly into [Hoppscotch](https://hoppscotch.io/):
 ```
-http://localhost:12004/openapi.json
+https://sta-backend.sta-tw.workers.dev/openapi.json
 ```
+
+Or use this quick link: [Open in Hoppscotch](https://hoppscotch.io/?import=https://sta-backend.sta-tw.workers.dev/openapi.json)
 
 See [HOPPSCOTCH.md](./HOPPSCOTCH.md) for detailed setup guide.
 
 ### OpenAPI Spec
 Access the OpenAPI 3.0 specification at:
+- Production: `https://sta-backend.sta-tw.workers.dev/openapi.json`
 - Local: `http://localhost:12004/openapi.json`
 - Compatible with Swagger UI, Postman, Insomnia, and other API clients
 

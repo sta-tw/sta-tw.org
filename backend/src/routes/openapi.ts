@@ -17,6 +17,7 @@ openapi.get('/openapi.json', (c) => {
       },
     },
     servers: [
+      { url: 'https://sta-backend.sta-tw.workers.dev/api/v1', description: 'Production (CloudFlare Workers)' },
       { url: `${baseUrl}/api/v1`, description: 'Current Environment' },
       { url: 'http://localhost:12004/api/v1', description: 'Local Development' },
     ],

@@ -30,7 +30,13 @@ const app = new Hono<{ Bindings: Env }>()
 app.use('*', async (c, next) => {
   const origin = c.env.FRONTEND_URL || '*'
   return cors({
-    origin: [origin, 'http://localhost:3000', 'http://localhost:12003'],
+    origin: [
+      origin,
+      'http://localhost:3000',
+      'http://localhost:12003',
+      'https://hoppscotch.io',
+      'https://hoppscotch.com',
+    ],
     allowHeaders: ['Content-Type', 'Authorization'],
     allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     credentials: true,
