@@ -35,7 +35,7 @@ auth.post('/register', async (c) => {
   if (!username || !email || !displayName || !password) {
     return c.json({ detail: '缺少必要欄位' }, 422)
   }
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const existing = await db.select({ id: users.id }).from(users)
     .where(or(eq(users.email, email), eq(users.username, username)))
     .limit(1)
@@ -55,7 +55,7 @@ auth.post('/register', async (c) => {
 auth.post('/login', async (c) => {
   const body = await c.req.json()
   const { email, password } = body
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const [user] = await db.select().from(users)
     .where(or(eq(users.email, email), eq(users.username, email)))
     .limit(1)
@@ -96,7 +96,7 @@ auth.post('/logout', async (c) => {
     try {
       const payload = await decodeToken(refreshToken, 'refresh', c.env.JWT_SECRET)
       const sessionId = payload.jti as string
-      const db = createDb(c.env.DATABASE_URL)
+      const db = createDb(c.env.DB)
       await db.update(userSessions).set({ isRevoked: true })
         .where(eq(userSessions.id, sessionId))
     } catch { /* ignore */ }
@@ -113,7 +113,7 @@ auth.post('/refresh', async (c) => {
     const payload = await decodeToken(refreshToken, 'refresh', c.env.JWT_SECRET)
     const sessionId = payload.jti as string
     const userId = payload.sub as string
-    const db = createDb(c.env.DATABASE_URL)
+    const db = createDb(c.env.DB)
     const [session] = await db.select().from(userSessions)
       .where(eq(userSessions.id, sessionId)).limit(1)
     if (!session || session.isRevoked || !(await verifyPassword(refreshToken, session.refreshTokenHash))) {
@@ -132,7 +132,7 @@ auth.post('/refresh', async (c) => {
 // GET /me
 auth.get('/me', authMiddleware, async (c) => {
   const userId = c.get('userId')
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1)
   if (!user) return c.json({ detail: 'User not found' }, 404)
   return c.json(userOut(user))
@@ -143,7 +143,7 @@ auth.post('/verify-email', async (c) => {
   const { token } = await c.req.json()
   try {
     const payload = await decodeToken(token, 'email_verification', c.env.JWT_SECRET)
-    const db = createDb(c.env.DATABASE_URL)
+    const db = createDb(c.env.DB)
     await db.update(users).set({ isEmailVerified: true }).where(eq(users.id, payload.sub as string))
     return c.json({ message: '信箱驗證成功' })
   } catch {
@@ -154,7 +154,7 @@ auth.post('/verify-email', async (c) => {
 // POST /resend-verification
 auth.post('/resend-verification', async (c) => {
   const { email } = await c.req.json()
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const [user] = await db.select().from(users).where(eq(users.email, email)).limit(1)
   if (user && !user.isEmailVerified) {
     const token = await createEmailToken(user.id, 'email_verification', c.env.JWT_SECRET)
@@ -166,7 +166,7 @@ auth.post('/resend-verification', async (c) => {
 // POST /forgot-password
 auth.post('/forgot-password', async (c) => {
   const { email } = await c.req.json()
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const [user] = await db.select().from(users).where(eq(users.email, email)).limit(1)
   if (user) {
     const token = await createEmailToken(user.id, 'password_reset', c.env.JWT_SECRET, 1)
@@ -181,7 +181,7 @@ auth.post('/reset-password', async (c) => {
   try {
     const payload = await decodeToken(token, 'password_reset', c.env.JWT_SECRET)
     if (!password || password.length < 8) return c.json({ detail: '密碼至少 8 個字元' }, 422)
-    const db = createDb(c.env.DATABASE_URL)
+    const db = createDb(c.env.DB)
     await db.update(users).set({ hashedPassword: await hashPassword(password) })
       .where(eq(users.id, payload.sub as string))
     return c.json({ message: '密碼已重設成功' })
@@ -194,7 +194,7 @@ auth.post('/reset-password', async (c) => {
 auth.post('/change-password', authMiddleware, async (c) => {
   const userId = c.get('userId')
   const { currentPassword, newPassword } = await c.req.json()
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1)
   if (!user || !user.hashedPassword || !(await verifyPassword(currentPassword, user.hashedPassword))) {
     return c.json({ detail: '目前密碼不正確' }, 400)
@@ -215,7 +215,7 @@ auth.get('/sessions', authMiddleware, async (c) => {
       currentSessionId = p.jti as string
     } catch { /* ignore */ }
   }
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const sessions = await db.select().from(userSessions)
     .where(eq(userSessions.userId, userId))
   return c.json(sessions
@@ -233,7 +233,7 @@ auth.get('/sessions', authMiddleware, async (c) => {
 auth.delete('/sessions/:session_id', authMiddleware, async (c) => {
   const userId = c.get('userId')
   const sessionId = c.req.param('session_id')
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const [session] = await db.select().from(userSessions)
     .where(eq(userSessions.id, sessionId)).limit(1)
   if (!session || session.userId !== userId) return c.json({ detail: 'Session not found' }, 404)
@@ -252,7 +252,7 @@ auth.delete('/sessions', authMiddleware, async (c) => {
       keepId = p.jti as string
     } catch { /* ignore */ }
   }
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const sessions = await db.select().from(userSessions).where(eq(userSessions.userId, userId))
   for (const s of sessions) {
     if (!s.isRevoked && s.id !== keepId) {

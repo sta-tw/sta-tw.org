@@ -43,7 +43,7 @@ verificationRouter.get('/upload-url', authMiddleware, async (c) => {
 verificationRouter.post('/', authMiddleware, async (c) => {
   const userId = c.get('userId')
   const { fileKey, fileHash, fileKeys, docType } = await c.req.json()
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const id = randomUUID()
   await db.insert(verificationRequests).values({
     id, userId,
@@ -60,7 +60,7 @@ verificationRouter.post('/', authMiddleware, async (c) => {
 // GET /status
 verificationRouter.get('/status', authMiddleware, async (c) => {
   const userId = c.get('userId')
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const [vr] = await db.select().from(verificationRequests)
     .where(eq(verificationRequests.userId, userId))
     .orderBy(desc(verificationRequests.submittedAt))
@@ -71,7 +71,7 @@ verificationRouter.get('/status', authMiddleware, async (c) => {
 
 // GET /admin/queue
 verificationRouter.get('/admin/queue', authMiddleware, async (c) => {
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const pending = await db.select().from(verificationRequests)
     .where(eq(verificationRequests.status, 'pending'))
     .orderBy(desc(verificationRequests.submittedAt))
@@ -90,7 +90,7 @@ verificationRouter.patch('/admin/:request_id', authMiddleware, async (c) => {
   const requestId = c.req.param('request_id')
   const reviewerId = c.get('userId')
   const { status, adminNote, role } = await c.req.json()
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const [vr] = await db.select().from(verificationRequests)
     .where(eq(verificationRequests.id, requestId)).limit(1)
   if (!vr) return c.json({ detail: 'Request not found' }, 404)

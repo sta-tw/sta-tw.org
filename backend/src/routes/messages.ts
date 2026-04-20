@@ -27,7 +27,7 @@ messagesRouter.patch('/:message_id', authMiddleware, async (c) => {
   const msgId = c.req.param('message_id')
   const userId = c.get('userId')
   const { content } = await c.req.json()
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const [msg] = await db.select().from(messages).where(eq(messages.id, msgId)).limit(1)
   if (!msg) return c.json({ detail: 'Message not found' }, 404)
   if (msg.authorId !== userId) return c.json({ detail: 'Cannot edit another user\'s message' }, 403)
@@ -44,7 +44,7 @@ messagesRouter.patch('/:message_id', authMiddleware, async (c) => {
 messagesRouter.post('/:message_id/withdraw', authMiddleware, async (c) => {
   const msgId = c.req.param('message_id')
   const userId = c.get('userId')
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const [msg] = await db.select().from(messages).where(eq(messages.id, msgId)).limit(1)
   if (!msg) return c.json({ detail: 'Message not found' }, 404)
   if (msg.authorId !== userId) return c.json({ detail: 'Permission denied' }, 403)
@@ -57,7 +57,7 @@ messagesRouter.post('/:message_id/withdraw', authMiddleware, async (c) => {
 messagesRouter.delete('/:message_id', authMiddleware, async (c) => {
   const msgId = c.req.param('message_id')
   const userId = c.get('userId')
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const [msg] = await db.select().from(messages).where(eq(messages.id, msgId)).limit(1)
   if (!msg) return c.json({ detail: 'Message not found' }, 404)
   if (msg.authorId !== userId) return c.json({ detail: 'Permission denied' }, 403)
@@ -73,7 +73,7 @@ messagesRouter.post('/:message_id/reactions', authMiddleware, async (c) => {
   const { emoji } = await c.req.json()
   if (!ALLOWED_EMOJIS.has(emoji)) return c.json({ detail: 'Emoji not allowed' }, 400)
 
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const [existing] = await db.select().from(messageReactions)
     .where(and(
       eq(messageReactions.messageId, msgId),
@@ -94,7 +94,7 @@ messagesRouter.delete('/:message_id/reactions/:emoji', authMiddleware, async (c)
   const msgId = c.req.param('message_id')
   const userId = c.get('userId')
   const emoji = decodeURIComponent(c.req.param('emoji'))
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   await db.delete(messageReactions).where(and(
     eq(messageReactions.messageId, msgId),
     eq(messageReactions.userId, userId),
@@ -106,7 +106,7 @@ messagesRouter.delete('/:message_id/reactions/:emoji', authMiddleware, async (c)
 // POST /:message_id/pin
 messagesRouter.post('/:message_id/pin', authMiddleware, async (c) => {
   const msgId = c.req.param('message_id')
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const [msg] = await db.select().from(messages).where(eq(messages.id, msgId)).limit(1)
   if (!msg) return c.json({ detail: 'Message not found' }, 404)
   await db.update(messages).set({ isPinned: true }).where(eq(messages.id, msgId))
@@ -116,7 +116,7 @@ messagesRouter.post('/:message_id/pin', authMiddleware, async (c) => {
 // DELETE /:message_id/pin
 messagesRouter.delete('/:message_id/pin', authMiddleware, async (c) => {
   const msgId = c.req.param('message_id')
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const [msg] = await db.select().from(messages).where(eq(messages.id, msgId)).limit(1)
   if (!msg) return c.json({ detail: 'Message not found' }, 404)
   await db.update(messages).set({ isPinned: false }).where(eq(messages.id, msgId))
@@ -126,7 +126,7 @@ messagesRouter.delete('/:message_id/pin', authMiddleware, async (c) => {
 // GET /:message_id/thread
 messagesRouter.get('/:message_id/thread', authMiddleware, async (c) => {
   const msgId = c.req.param('message_id')
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const replies = await db.select().from(messages)
     .where(and(eq(messages.replyToId, msgId), ne(messages.status, 'deleted')))
     .orderBy(asc(messages.createdAt))
@@ -139,7 +139,7 @@ messagesRouter.post('/:message_id/forward', authMiddleware, async (c) => {
   const msgId = c.req.param('message_id')
   const userId = c.get('userId')
   const { channelId } = await c.req.json()
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const [src] = await db.select().from(messages).where(eq(messages.id, msgId)).limit(1)
   if (!src) return c.json({ detail: 'Message not found' }, 404)
 

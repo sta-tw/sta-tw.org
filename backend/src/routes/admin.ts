@@ -45,7 +45,7 @@ function channelOut(ch: typeof channels.$inferSelect) {
 // Middleware: check staff role
 adminRouter.use('*', authMiddleware, async (c, next) => {
   const userId = c.get('userId')
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1)
   if (!user || !requireStaff(user.role)) {
     return c.json({ detail: 'Insufficient role' }, 403)
@@ -55,7 +55,7 @@ adminRouter.use('*', authMiddleware, async (c, next) => {
 
 // GET /stats
 adminRouter.get('/stats', async (c) => {
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
 
   const userRoles = await db.select({ role: users.role, cnt: sql<number>`count(*)` })
     .from(users).groupBy(users.role)
@@ -90,7 +90,7 @@ adminRouter.get('/users', async (c) => {
   const role = c.req.query('role')
   const page = parseInt(c.req.query('page') ?? '1')
   const pageSize = Math.min(parseInt(c.req.query('page_size') ?? '20'), 100)
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
 
   const conditions = []
   if (q) conditions.push(or(ilike(users.username, `%${q}%`), ilike(users.email, `%${q}%`), ilike(users.displayName, `%${q}%`)))
@@ -108,7 +108,7 @@ adminRouter.get('/users', async (c) => {
 
 // GET /users/:user_id
 adminRouter.get('/users/:user_id', async (c) => {
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const [user] = await db.select().from(users).where(eq(users.id, c.req.param('user_id'))).limit(1)
   if (!user) return c.json({ detail: 'User not found' }, 404)
   return c.json(userAdminOut(user))
@@ -117,7 +117,7 @@ adminRouter.get('/users/:user_id', async (c) => {
 // PATCH /users/:user_id
 adminRouter.patch('/users/:user_id', async (c) => {
   const { role, isActive, managedSchoolCode, managedDeptName } = await c.req.json()
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const [user] = await db.select().from(users).where(eq(users.id, c.req.param('user_id'))).limit(1)
   if (!user) return c.json({ detail: 'User not found' }, 404)
   const updates: Partial<typeof users.$inferInsert> = {}
@@ -132,7 +132,7 @@ adminRouter.patch('/users/:user_id', async (c) => {
 
 // POST /users/:user_id/force-logout
 adminRouter.post('/users/:user_id/force-logout', async (c) => {
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   await db.update(userSessions).set({ isRevoked: true })
     .where(and(eq(userSessions.userId, c.req.param('user_id')), eq(userSessions.isRevoked, false)))
   return c.body(null, 204)
@@ -140,7 +140,7 @@ adminRouter.post('/users/:user_id/force-logout', async (c) => {
 
 // GET /channels
 adminRouter.get('/channels', async (c) => {
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const all = await db.select().from(channels).orderBy(asc(channels.orderIndex))
   return c.json(all.map(channelOut))
 })
@@ -148,7 +148,7 @@ adminRouter.get('/channels', async (c) => {
 // POST /channels
 adminRouter.post('/channels', async (c) => {
   const body = await c.req.json()
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const id = randomUUID()
   await db.insert(channels).values({
     id, name: body.name, description: body.description ?? null,
@@ -164,7 +164,7 @@ adminRouter.post('/channels', async (c) => {
 // PATCH /channels/:channel_id
 adminRouter.patch('/channels/:channel_id', async (c) => {
   const body = await c.req.json()
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const [ch] = await db.select().from(channels).where(eq(channels.id, c.req.param('channel_id'))).limit(1)
   if (!ch) return c.json({ detail: 'Channel not found' }, 404)
   const updates: Partial<typeof channels.$inferInsert> = {}
@@ -186,7 +186,7 @@ adminRouter.patch('/channels/:channel_id', async (c) => {
 
 // DELETE /channels/:channel_id
 adminRouter.delete('/channels/:channel_id', async (c) => {
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const [ch] = await db.select().from(channels).where(eq(channels.id, c.req.param('channel_id'))).limit(1)
   if (!ch) return c.json({ detail: 'Channel not found' }, 404)
   await db.delete(channels).where(eq(channels.id, c.req.param('channel_id')))
@@ -200,7 +200,7 @@ adminRouter.get('/audit-log', async (c) => {
   const correlationId = c.req.query('correlation_id')
   const page = parseInt(c.req.query('page') ?? '1')
   const pageSize = Math.min(parseInt(c.req.query('page_size') ?? '50'), 200)
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
 
   const conditions = []
   if (action) conditions.push(ilike(auditLogs.action, `%${action}%`))
@@ -231,7 +231,7 @@ adminRouter.get('/audit-log', async (c) => {
 // GET /audit-log/export
 adminRouter.get('/audit-log/export', async (c) => {
   const action = c.req.query('action')
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const rows = await db.select({ log: auditLogs, actorName: users.displayName })
     .from(auditLogs).leftJoin(users, eq(auditLogs.actorId, users.id))
     .where(action ? ilike(auditLogs.action, `%${action}%`) : undefined)
@@ -257,7 +257,7 @@ adminRouter.get('/audit-log/export', async (c) => {
 // GET /reputation/:user_id
 adminRouter.get('/reputation/:user_id', async (c) => {
   const userId = c.req.param('user_id')
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const [target] = await db.select().from(users).where(eq(users.id, userId)).limit(1)
   if (!target) return c.json({ detail: 'User not found' }, 404)
 
@@ -286,7 +286,7 @@ adminRouter.post('/reputation/:user_id/adjust', async (c) => {
   const { delta, reason } = await c.req.json()
   if (!delta) return c.json({ detail: 'delta must not be 0' }, 422)
   if (!reason?.trim()) return c.json({ detail: 'reason is required' }, 422)
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const [target] = await db.select().from(users).where(eq(users.id, userId)).limit(1)
   if (!target) return c.json({ detail: 'User not found' }, 404)
 
@@ -321,7 +321,7 @@ adminRouter.post('/reputation/:user_id/adjust', async (c) => {
 // ── Portfolio Rules ────────────────────────────────────────────
 
 adminRouter.get('/portfolio-rules', async (c) => {
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const rules = await db.select().from(portfolioScoringRules)
     .orderBy(asc(portfolioScoringRules.schoolName), asc(portfolioScoringRules.deptName))
   return c.json(rules.map(r => ({
@@ -333,7 +333,7 @@ adminRouter.get('/portfolio-rules', async (c) => {
 
 adminRouter.post('/portfolio-rules', async (c) => {
   const { schoolName, schoolAbbr, deptName, score, note } = await c.req.json()
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const id = randomUUID()
   await db.insert(portfolioScoringRules).values({ id, schoolName, schoolAbbr: schoolAbbr ?? null, deptName, score, note: note ?? null })
   const [rule] = await db.select().from(portfolioScoringRules).where(eq(portfolioScoringRules.id, id)).limit(1)
@@ -341,7 +341,7 @@ adminRouter.post('/portfolio-rules', async (c) => {
 })
 
 adminRouter.get('/portfolio-rules/export', async (c) => {
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const rules = await db.select().from(portfolioScoringRules)
     .orderBy(asc(portfolioScoringRules.schoolName), asc(portfolioScoringRules.deptName))
   const lines = ['schoolName,schoolAbbr,deptName,score,note']
@@ -357,7 +357,7 @@ adminRouter.get('/portfolio-rules/export', async (c) => {
 adminRouter.post('/portfolio-rules/import', async (c) => {
   const { rows } = await c.req.json()
   if (!rows?.length) return c.json({ detail: 'rows is empty' }, 422)
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   let created = 0, updated = 0
   const errors: string[] = []
   for (let i = 0; i < rows.length; i++) {
@@ -381,7 +381,7 @@ adminRouter.post('/portfolio-rules/import', async (c) => {
 
 adminRouter.patch('/portfolio-rules/:rule_id', async (c) => {
   const { schoolName, schoolAbbr, deptName, score, note } = await c.req.json()
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const [rule] = await db.select().from(portfolioScoringRules).where(eq(portfolioScoringRules.id, c.req.param('rule_id'))).limit(1)
   if (!rule) return c.json({ detail: 'Rule not found' }, 404)
   const updates: Partial<typeof portfolioScoringRules.$inferInsert> = { updatedAt: new Date() }
@@ -396,7 +396,7 @@ adminRouter.patch('/portfolio-rules/:rule_id', async (c) => {
 })
 
 adminRouter.delete('/portfolio-rules/:rule_id', async (c) => {
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const [rule] = await db.select().from(portfolioScoringRules).where(eq(portfolioScoringRules.id, c.req.param('rule_id'))).limit(1)
   if (!rule) return c.json({ detail: 'Rule not found' }, 404)
   await db.delete(portfolioScoringRules).where(eq(portfolioScoringRules.id, c.req.param('rule_id')))
@@ -406,7 +406,7 @@ adminRouter.delete('/portfolio-rules/:rule_id', async (c) => {
 // ── School Options ─────────────────────────────────────────────
 
 adminRouter.get('/school-options', async (c) => {
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const opts = await db.select().from(portfolioSchoolOptions)
     .where(eq(portfolioSchoolOptions.isActive, true))
     .orderBy(asc(portfolioSchoolOptions.sortOrder), asc(portfolioSchoolOptions.schoolName), asc(portfolioSchoolOptions.deptName))
@@ -415,7 +415,7 @@ adminRouter.get('/school-options', async (c) => {
 
 adminRouter.post('/school-options', async (c) => {
   const { schoolName, schoolCode, deptName, sortOrder } = await c.req.json()
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const id = randomUUID()
   await db.insert(portfolioSchoolOptions).values({ id, schoolName, schoolCode: schoolCode ?? null, deptName, sortOrder: sortOrder ?? 0 })
   const [opt] = await db.select().from(portfolioSchoolOptions).where(eq(portfolioSchoolOptions.id, id)).limit(1)
@@ -423,7 +423,7 @@ adminRouter.post('/school-options', async (c) => {
 })
 
 adminRouter.delete('/school-options/:option_id', async (c) => {
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const [opt] = await db.select().from(portfolioSchoolOptions).where(eq(portfolioSchoolOptions.id, c.req.param('option_id'))).limit(1)
   if (!opt) return c.json({ detail: 'Option not found' }, 404)
   await db.delete(portfolioSchoolOptions).where(eq(portfolioSchoolOptions.id, c.req.param('option_id')))
@@ -434,7 +434,7 @@ adminRouter.delete('/school-options/:option_id', async (c) => {
 
 adminRouter.get('/school-requests', async (c) => {
   const status = c.req.query('status')
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const rows = status
     ? await db.select().from(portfolioSchoolRequests).where(eq(portfolioSchoolRequests.status, status)).orderBy(desc(portfolioSchoolRequests.createdAt))
     : await db.select().from(portfolioSchoolRequests).orderBy(desc(portfolioSchoolRequests.createdAt))
@@ -453,7 +453,7 @@ adminRouter.get('/school-requests', async (c) => {
 adminRouter.patch('/school-requests/:request_id', async (c) => {
   const { status, reviewNote, addToOptions } = await c.req.json()
   const reviewerId = c.get('userId')
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const [sr] = await db.select().from(portfolioSchoolRequests).where(eq(portfolioSchoolRequests.id, c.req.param('request_id'))).limit(1)
   if (!sr) return c.json({ detail: 'Request not found' }, 404)
 

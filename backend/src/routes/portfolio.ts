@@ -89,7 +89,7 @@ portfolioRouter.get('/', authMiddleware, async (c) => {
   const category = c.req.query('category')
   const approvedOnly = c.req.query('approved_only') !== 'false'
 
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   let q = db.select().from(portfolioDocuments)
   const conditions = []
   if (approvedOnly) conditions.push(eq(portfolioDocuments.isApproved, true))
@@ -126,7 +126,7 @@ portfolioRouter.post('/', authMiddleware, async (c) => {
     fileKey, fileName, fileSize, resultType, admittedRank, totalAdmitted,
     waitlistRank, portfolioScore } = body
 
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const id = randomUUID()
   const autoTitle = title || `${schoolName} ${deptName} ${applicantName ?? ''}`
   await db.insert(portfolioDocuments).values({
@@ -147,7 +147,7 @@ portfolioRouter.post('/', authMiddleware, async (c) => {
 
 // GET /schools
 portfolioRouter.get('/schools', authMiddleware, async (c) => {
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const rows = await db.selectDistinct({ schoolName: portfolioSchoolOptions.schoolName })
     .from(portfolioSchoolOptions)
     .where(eq(portfolioSchoolOptions.isActive, true))
@@ -158,7 +158,7 @@ portfolioRouter.get('/schools', authMiddleware, async (c) => {
 // GET /schools/:school_name/depts
 portfolioRouter.get('/schools/:school_name/depts', authMiddleware, async (c) => {
   const schoolName = decodeURIComponent(c.req.param('school_name'))
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const rows = await db.select({ deptName: portfolioSchoolOptions.deptName })
     .from(portfolioSchoolOptions)
     .where(and(eq(portfolioSchoolOptions.schoolName, schoolName), eq(portfolioSchoolOptions.isActive, true)))
@@ -169,7 +169,7 @@ portfolioRouter.get('/schools/:school_name/depts', authMiddleware, async (c) => 
 // GET /:doc_id
 portfolioRouter.get('/:doc_id', authMiddleware, async (c) => {
   const docId = c.req.param('doc_id')
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const [doc] = await db.select().from(portfolioDocuments).where(eq(portfolioDocuments.id, docId)).limit(1)
   if (!doc) return c.json({ detail: 'Not found' }, 404)
   const [uploader] = await db.select().from(users).where(eq(users.id, doc.uploaderId)).limit(1)
@@ -182,7 +182,7 @@ portfolioRouter.get('/:doc_id', authMiddleware, async (c) => {
 // GET /:doc_id/download-url
 portfolioRouter.get('/:doc_id/download-url', authMiddleware, async (c) => {
   const docId = c.req.param('doc_id')
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const [doc] = await db.select().from(portfolioDocuments).where(eq(portfolioDocuments.id, docId)).limit(1)
   if (!doc) return c.json({ detail: 'Not found' }, 404)
   // Increment view count
@@ -197,7 +197,7 @@ portfolioRouter.get('/:doc_id/download-url', authMiddleware, async (c) => {
 portfolioRouter.delete('/:doc_id', authMiddleware, async (c) => {
   const docId = c.req.param('doc_id')
   const userId = c.get('userId')
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const [doc] = await db.select().from(portfolioDocuments).where(eq(portfolioDocuments.id, docId)).limit(1)
   if (!doc) return c.json({ detail: 'Not found' }, 404)
   if (doc.uploaderId !== userId) return c.json({ detail: 'Permission denied' }, 403)
@@ -209,7 +209,7 @@ portfolioRouter.delete('/:doc_id', authMiddleware, async (c) => {
 portfolioRouter.post('/:doc_id/long-view', authMiddleware, async (c) => {
   const docId = c.req.param('doc_id')
   const userId = c.get('userId')
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const [log] = await db.select().from(portfolioViewLogs)
     .where(and(eq(portfolioViewLogs.docId, docId), eq(portfolioViewLogs.userId, userId))).limit(1)
 
@@ -230,7 +230,7 @@ portfolioRouter.post('/:doc_id/long-view', authMiddleware, async (c) => {
 portfolioRouter.post('/:doc_id/share-view', authMiddleware, async (c) => {
   const docId = c.req.param('doc_id')
   const userId = c.get('userId')
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const [doc] = await db.select().from(portfolioDocuments).where(eq(portfolioDocuments.id, docId)).limit(1)
   if (!doc || !doc.isApproved || doc.uploaderId === userId) return c.json({ granted: false })
 
@@ -259,7 +259,7 @@ portfolioRouter.post('/:doc_id/share-view', authMiddleware, async (c) => {
 portfolioRouter.post('/:doc_id/heartbeat', authMiddleware, async (c) => {
   const docId = c.req.param('doc_id')
   const userId = c.get('userId')
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const [doc] = await db.select().from(portfolioDocuments).where(eq(portfolioDocuments.id, docId)).limit(1)
   if (!doc || !doc.isApproved) return c.json({ message: 'ok' })
 
@@ -320,7 +320,7 @@ portfolioRouter.post('/:doc_id/heartbeat', authMiddleware, async (c) => {
 portfolioRouter.patch('/:doc_id/approve', authMiddleware, async (c) => {
   const docId = c.req.param('doc_id')
   const { approved } = await c.req.json()
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const [doc] = await db.select().from(portfolioDocuments).where(eq(portfolioDocuments.id, docId)).limit(1)
   if (!doc) return c.json({ detail: 'Not found' }, 404)
   await db.update(portfolioDocuments).set({ isApproved: !!approved, updatedAt: new Date() })
@@ -337,7 +337,7 @@ portfolioRouter.patch('/:doc_id/approve', authMiddleware, async (c) => {
 portfolioRouter.post('/school-request', authMiddleware, async (c) => {
   const userId = c.get('userId')
   const { schoolName, deptName, note } = await c.req.json()
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const id = randomUUID()
   await db.insert(portfolioSchoolRequests).values({
     id, requesterId: userId, schoolName, deptName, note: note ?? null,

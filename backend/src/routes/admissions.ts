@@ -23,7 +23,7 @@ function admissionOut(doc: typeof admissionDocuments.$inferSelect) {
 admissionsRouter.get('/', authMiddleware, async (c) => {
   const schoolName = c.req.query('school_name')
   const academicYear = c.req.query('academic_year')
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
 
   let docs
   if (schoolName || academicYear) {
@@ -40,7 +40,7 @@ admissionsRouter.get('/', authMiddleware, async (c) => {
 // GET /:document_id
 admissionsRouter.get('/:document_id', authMiddleware, async (c) => {
   const id = c.req.param('document_id')
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const [doc] = await db.select().from(admissionDocuments).where(eq(admissionDocuments.id, id)).limit(1)
   if (!doc) return c.json({ detail: 'Document not found' }, 404)
   return c.json(admissionOut(doc))
@@ -49,7 +49,7 @@ admissionsRouter.get('/:document_id', authMiddleware, async (c) => {
 // GET /:document_id/pdf  — redirect to R2 presigned URL
 admissionsRouter.get('/:document_id/pdf', authMiddleware, async (c) => {
   const id = c.req.param('document_id')
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const [doc] = await db.select().from(admissionDocuments).where(eq(admissionDocuments.id, id)).limit(1)
   if (!doc) return c.json({ detail: 'Document not found' }, 404)
   // sourceUrl is the direct PDF URL
@@ -62,7 +62,7 @@ admissionsRouter.post('/import-url', authMiddleware, async (c) => {
   const { url, schoolName, academicYear, title, schoolCode } = await c.req.json()
   if (!url) return c.json({ detail: 'url is required' }, 422)
 
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const [existing] = await db.select().from(admissionDocuments)
     .where(eq(admissionDocuments.sourceUrl, url)).limit(1)
   if (existing) return c.json(admissionOut(existing))
@@ -85,7 +85,7 @@ admissionsRouter.post('/import-file', authMiddleware, async (c) => {
   const { fileUrl, schoolName, academicYear, title, schoolCode } = await c.req.json()
   if (!fileUrl) return c.json({ detail: 'fileUrl is required' }, 422)
 
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const id = randomUUID()
   await db.insert(admissionDocuments).values({
     id, sourceUrl: fileUrl, title: title ?? null,
@@ -101,7 +101,7 @@ admissionsRouter.post('/import-file', authMiddleware, async (c) => {
 // DELETE /:document_id
 admissionsRouter.delete('/:document_id', authMiddleware, async (c) => {
   const id = c.req.param('document_id')
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const [doc] = await db.select().from(admissionDocuments).where(eq(admissionDocuments.id, id)).limit(1)
   if (!doc) return c.json({ detail: 'Document not found' }, 404)
   await db.delete(admissionDocuments).where(eq(admissionDocuments.id, id))

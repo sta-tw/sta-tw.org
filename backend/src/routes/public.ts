@@ -8,7 +8,7 @@ const publicRouter = new Hono<{ Bindings: Env }>()
 
 // GET /stats
 publicRouter.get('/stats', async (c) => {
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const [{ portfolioCount }] = await db.select({ portfolioCount: sql<number>`count(*)` })
     .from(portfolioDocuments).where(eq(portfolioDocuments.isApproved, true))
   const [{ admissionCount }] = await db.select({ admissionCount: sql<number>`count(*)` })
