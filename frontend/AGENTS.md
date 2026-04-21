@@ -21,6 +21,10 @@ When translating design values to code, normalize arbitrary numbers to the neare
 
 All files must use kebab-case (e.g. `my-component.tsx`, `use-auth.ts`). Component names inside the file remain PascalCase as per React convention.
 
+## Responsiveness
+
+Every UI component and layout must be responsive. Never produce content that is fixed-width, overflows on small screens, or breaks at any viewport size. Use Tailwind responsive prefixes (`sm:`, `md:`, `lg:`, etc.) and fluid layout primitives (flexbox, grid, `min-w-0`, etc.) to ensure the UI works from mobile to desktop.
+
 ## Development Servers
 
 Never start development servers unless explicitly told to do so by the user.
