@@ -2,7 +2,7 @@ import Button from "./button";
 
 export default function HeroSection() {
   return (
-    <section className="relative overflow-hidden bg-white min-h-[471px] flex items-center justify-center">
+    <section className="relative overflow-hidden bg-white flex items-center justify-center" style={{ minHeight: "calc(66.667vh - 4rem)" }}>
       {/* Yellow decorative circle — intentionally overflows top-left */}
       <div
         className="absolute rounded-full bg-[#FFE184] pointer-events-none"
