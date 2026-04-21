@@ -11,4 +11,6 @@ https://www.figma.com/design/GCQpcLkx0PW9TOLu2X5zhJ/%E7%89%B9%E9%81%B8%E7%B6%B2%
 
 The result should look the same as the design, but the design is a reference, not a rulebook. During implementation, always apply UX judgment and web development best practices. Do not follow the design blindly: extract reusable components where appropriate, use flexible and responsive layout primitives such as flexbox, keep the UI accessible and maintainable, and make decisions like a web developer building a production site.
 
+Simplify frame and div structure whenever best practice calls for it. Figma frames map to DOM elements mechanically, but the HTML should reflect semantic meaning and layout intent — not the design tool's layer hierarchy. Flatten unnecessary wrapper elements, use semantic HTML tags (`<section>`, `<nav>`, `<article>`, etc.) over generic `<div>`s where appropriate, and collapse redundant nesting that exists only as a Figma organizational artifact.
+
 Always use Radix UI primitives when possible for accessible, composable UI behavior.
