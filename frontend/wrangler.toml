@@ -1,3 +1,7 @@
 name = "sta-web"
+main = ".open-next/worker.js"
 compatibility_date = "2026-04-21"
-pages_build_output_dir = ".open-next"
+compatibility_flags = ["nodejs_compat"]
+
+[site]
+bucket = ".open-next/assets"
