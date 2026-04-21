@@ -25,7 +25,7 @@ export default function Navbar() {
               height={32}
               className="rounded-lg"
             />
-            <span className="font-[family-name:var(--font-noto-serif-tc)] text-[28px] font-normal leading-tight tracking-[-0.64px] text-[#363535] whitespace-nowrap">
+            <span className="font-serif text-[28px] font-normal leading-tight tracking-[-0.64px] text-[#363535] whitespace-nowrap">
               S.T.A&nbsp;&nbsp;|&nbsp;&nbsp;特殊選才資源網
             </span>
           </Link>
@@ -37,7 +37,7 @@ export default function Navbar() {
                   <NavigationMenu.Link asChild>
                     <Link
                       href={link.href}
-                      className="font-[family-name:var(--font-instrument-sans)] text-[20px] tracking-[-0.1px] text-[rgba(54,53,53,0.75)] transition-colors hover:text-[#363535]"
+                      className="font-sans text-[20px] tracking-[-0.1px] text-[rgba(54,53,53,0.75)] transition-colors hover:text-[#363535]"
                     >
                       {link.label}
                     </Link>

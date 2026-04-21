@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
-import { Instrument_Sans, Noto_Serif_TC } from "next/font/google";
+import { Noto_Sans_TC, Noto_Serif_TC } from "next/font/google";
 import "./globals.css";
 import Navbar from "./components/navbar";
 
-const instrumentSans = Instrument_Sans({
-  variable: "--font-instrument-sans",
+const notoSansTC = Noto_Sans_TC({
+  variable: "--font-noto-sans-tc",
   subsets: ["latin"],
+  weight: ["400", "500", "700"],
 });
 
 const notoSerifTC = Noto_Serif_TC({
@@ -27,7 +28,7 @@ export default function RootLayout({
   return (
     <html
       lang="zh-TW"
-      className={`${instrumentSans.variable} ${notoSerifTC.variable} h-full antialiased`}
+      className={`${notoSansTC.variable} ${notoSerifTC.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
         <Navbar />
