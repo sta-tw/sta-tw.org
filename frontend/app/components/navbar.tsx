@@ -48,7 +48,7 @@ export default function Navbar() {
           </NavigationMenu.Root>
         </div>
 
-        <Button asChild className="w-[179px]">
+        <Button asChild>
           <Link href="/login">登入 | 註冊</Link>
         </Button>
       </div>

@@ -15,6 +15,13 @@ Simplify frame and div structure whenever best practice calls for it. Figma fram
 
 Always use Radix UI primitives when possible for accessible, composable UI behavior.
 
+When translating design values to code, normalize arbitrary numbers to the nearest semantic Tailwind utility (e.g. `h-12` instead of `h-[49px]`, `text-xl` instead of `text-[19px]`). Only use arbitrary values when no standard token is close enough to matter visually.
+
 ## File Naming
 
 All files must use kebab-case (e.g. `my-component.tsx`, `use-auth.ts`). Component names inside the file remain PascalCase as per React convention.
+
+## Development Servers
+
+Never start development servers unless explicitly told to do so by the user.
+
