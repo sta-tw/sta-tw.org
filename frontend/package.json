@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "opennextjs-cloudflare build",
+    "build": "next build",
+    "postbuild": "opennextjs-cloudflare",
     "start": "next start",
     "lint": "next lint"
   },
