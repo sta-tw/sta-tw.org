@@ -18,12 +18,17 @@
   --font-size-hero-subtitle: clamp(1.5rem, 4.8vw, 4rem);
   --font-size-watermark: clamp(4.5rem, 8vw, 6.9375rem);
   --font-size-stat-number: clamp(4rem, 6vw, 4.9375rem);
+  --font-size-feature-title: clamp(2rem, 5vw, 2.9375rem);
+  --font-size-feature-body: clamp(1rem, 2vw, 1.25rem);
   --line-height-brand: 1.25;
   --line-height-nav: 1.5;
   --line-height-hero-title: 1.08;
   --line-height-hero-subtitle: 1.16;
   --line-height-watermark: 1.45;
   --line-height-stat-number: 1.15;
+  --line-height-feature-title: 1.2;
+  --line-height-feature-body: 1.45;
+  --copy-muted: rgba(54, 53, 53, 0.7);
 }
 
 @theme inline {
@@ -38,6 +43,7 @@
   --color-accent-yellow: var(--accent-yellow);
   --color-accent-green: var(--accent-green);
   --color-accent-green-strong: var(--accent-green-strong);
+  --color-copy-muted: var(--copy-muted);
   --text-brand: var(--font-size-brand);
   --text-brand--line-height: var(--line-height-brand);
   --text-nav: var(--font-size-nav);
@@ -50,6 +56,10 @@
   --text-watermark--line-height: var(--line-height-watermark);
   --text-stat-number: var(--font-size-stat-number);
   --text-stat-number--line-height: var(--line-height-stat-number);
+  --text-feature-title: var(--font-size-feature-title);
+  --text-feature-title--line-height: var(--line-height-feature-title);
+  --text-feature-body: var(--font-size-feature-body);
+  --text-feature-body--line-height: var(--line-height-feature-body);
   --font-sans: var(--font-noto-sans-tc);
   --font-serif: var(--font-noto-serif-tc);
 }
