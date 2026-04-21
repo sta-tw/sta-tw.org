@@ -2,14 +2,10 @@
   "name": "sta-tw-monorepo",
   "version": "1.0.0",
   "private": true,
-  "workspaces": [
-    "frontend",
-    "backend"
-  ],
   "scripts": {
-    "dev:frontend": "npm run dev --workspace=frontend",
-    "dev:backend": "npm run dev --workspace=backend",
-    "build:frontend": "npm run build --workspace=frontend",
-    "deploy:backend": "npm run deploy --workspace=backend"
+    "dev:frontend": "npm run dev --prefix frontend",
+    "dev:backend": "npm run dev --prefix backend",
+    "build:frontend": "npm run build --prefix frontend",
+    "deploy:backend": "npm run deploy --prefix backend"
   }
 }
