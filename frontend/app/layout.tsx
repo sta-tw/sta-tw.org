@@ -1,32 +1,24 @@
-import "./globals.css";
-
-// import components
-import NavBar from "./_components/NavBar/pages";
-import Footer from "./_components/Footer/pages";
-
 import type { Metadata } from "next";
+import { Noto_Sans_TC, Noto_Serif_TC } from "next/font/google";
+import "./globals.css";
+import Navbar from "./components/navbar";
+import Footer from "./components/footer";
+
+const notoSansTC = Noto_Sans_TC({
+  variable: "--font-noto-sans-tc",
+  subsets: ["latin"],
+  weight: ["400", "500", "700"],
+});
+
+const notoSerifTC = Noto_Serif_TC({
+  variable: "--font-noto-serif-tc",
+  subsets: ["latin"],
+  weight: ["400", "600"],
+});
 
 export const metadata: Metadata = {
-  title: "S.T.A | 特殊選才資源網",
-  description: "Special Talent Acquisition",
-  applicationName: "S.T.A | 特殊選才資源網",
-  authors: [{ name: "Aaron-Kao", url: "https://sta-tw.org" }],
-  keywords: ["特殊選才", "特殊選才資源", "STA-Web", "簡章"],
-  openGraph: {
-    images: [
-      {
-        url: "./sta.png",
-        width: 1200,
-        height: 630,
-        alt: "STA‑Web Open Graph",
-      },
-    ],
-    locale: "zh-TW",
-    type: "website",
-  },
-  icons: {
-    icon: "./favicon.ico",
-  },
+  title: "S.T.A 特殊選才資源網",
+  description: "特殊選才資源網 - 提供文章、簡章搜尋、論壇等服務",
 };
 
 export default function RootLayout({
@@ -35,11 +27,14 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
-      <body>
-        <NavBar />
+    <html
+      lang="zh-TW"
+      className={`${notoSansTC.variable} ${notoSerifTC.variable} h-full antialiased`}
+    >
+      <body className="min-h-full flex flex-col">
+        <Navbar />
         {children}
-        <Footer /> 
+        <Footer />
       </body>
     </html>
   );

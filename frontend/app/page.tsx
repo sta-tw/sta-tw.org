@@ -1,15 +1,15 @@
-"use client";
-
-import Banner from "./_components/Banner/page";
-import Info from "./_components/Info/page";
-import About from "./_components/About/page";
+import HeroSection from "./components/hero-section";
+import DataSection from "./components/data-section";
+import FeatureSection from "./components/feature-section";
+import JoinDiscordSection from "./components/join-discord-section";
 
 export default function Home() {
   return (
-    <>
-      <Banner />
-      <Info />
-      <About />
-    </>
+    <main>
+      <HeroSection />
+      <DataSection />
+      <FeatureSection />
+      <JoinDiscordSection />
+    </main>
   );
 }
