@@ -15,8 +15,7 @@ export default function DataSection() {
       </p>
       <p
         aria-hidden
-        className="pointer-events-none absolute left-[40%] select-none whitespace-nowrap font-serif text-watermark text-ink/20"
-        style={{ top: 376 }}
+        className="pointer-events-none absolute bottom-4 left-[40%] select-none whitespace-nowrap font-serif text-watermark text-ink/20"
       >
         and make it possible.
       </p>
