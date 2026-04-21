@@ -1,12 +1,11 @@
 import Image from "next/image";
 import Link from "next/link";
-
-const DISCORD_INVITE_URL = "https://discord.gg/3XAvXnG4rx";
+import { DISCORD_INVITE_URL } from "../lib/site-links";
 
 export default function JoinDiscordSection() {
   return (
-    <section className="bg-surface px-5 pt-2 pb-16 sm:px-6 sm:pb-20 lg:px-16 lg:pb-24" aria-labelledby="join-discord-heading">
-      <div className="mx-auto max-w-screen-xl">
+    <section className="bg-surface pt-2 pb-16 sm:pb-20 lg:pb-24" aria-labelledby="join-discord-heading">
+      <div className="mx-auto max-w-screen-xl px-5 sm:px-6 lg:px-16">
         <h2 id="join-discord-heading" className="sr-only">
           加入 Discord 社群
         </h2>
