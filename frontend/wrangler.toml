@@ -1,7 +1,6 @@
 name = "sta-web"
 compatibility_date = "2026-04-21"
+pages_build_output_dir = ".worker-next"
 
 [build]
-command = "npm run build"
-
-pages_build_output_dir = ".worker-next"
+command = "npm run build:worker"
