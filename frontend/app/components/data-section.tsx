@@ -6,31 +6,31 @@ const stats = [
 
 export default function DataSection() {
   return (
-    <section className="relative overflow-hidden bg-white min-h-[530px]">
+    <section className="relative min-h-[530px] overflow-hidden bg-surface">
       <p
         aria-hidden
-        className="absolute top-5 left-0 font-serif text-[111px] leading-[145%] text-black/20 whitespace-nowrap pointer-events-none select-none"
+        className="pointer-events-none absolute top-5 left-0 select-none whitespace-nowrap font-serif text-watermark text-ink/20"
       >
         Dream it,
       </p>
       <p
         aria-hidden
-        className="absolute left-[40%] font-serif text-[111px] leading-[145%] text-black/20 whitespace-nowrap pointer-events-none select-none"
+        className="pointer-events-none absolute left-[40%] select-none whitespace-nowrap font-serif text-watermark text-ink/20"
         style={{ top: 376 }}
       >
         and make it possible.
       </p>
 
-      <div className="relative flex justify-around items-center max-w-[1275px] mx-auto pt-[105px] pb-16">
+      <div className="relative mx-auto flex max-w-[1275px] flex-col items-center justify-around gap-8 px-5 pt-[105px] pb-16 sm:px-6 lg:flex-row lg:px-16">
         {stats.map((stat, i) => (
           <div
             key={i}
-            className="relative flex items-center justify-center w-72 h-72 rounded-full bg-[#BADAAF]"
+            className="relative flex h-64 w-64 items-center justify-center rounded-full bg-accent-green-strong sm:h-72 sm:w-72"
           >
-            <div className="absolute w-64 h-64 rounded-full bg-[#D9EDBF]" />
+            <div className="absolute h-56 w-56 rounded-full bg-accent-green sm:h-64 sm:w-64" />
             <div className="relative flex flex-col items-center">
-              <span className="font-serif text-[79px] leading-[145%] text-black">{stat.number}</span>
-              <span className="font-serif text-3xl leading-[145%] text-black">{stat.label}</span>
+              <span className="font-serif text-stat-number text-ink">{stat.number}</span>
+              <span className="font-serif text-3xl leading-[1.45] text-ink">{stat.label}</span>
             </div>
           </div>
         ))}
