@@ -1,6 +1,7 @@
 import HeroSection from "./components/hero-section";
 import DataSection from "./components/data-section";
 import FeatureSection from "./components/feature-section";
+import JoinDiscordSection from "./components/join-discord-section";
 
 export default function Home() {
   return (
@@ -8,6 +9,7 @@ export default function Home() {
       <HeroSection />
       <DataSection />
       <FeatureSection />
+      <JoinDiscordSection />
     </main>
   );
 }
