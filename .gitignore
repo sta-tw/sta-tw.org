@@ -18,6 +18,7 @@ dist-ssr/
 
 # Next.js (frontend)
 /frontend/.next/
+/frontend/.open-next/
 /frontend/out/
 /frontend/.vercel
 /frontend/.pnp
