@@ -25,7 +25,7 @@ export default function ArticleSearchBar({
     >
       <Form.Field name="article-search" className="flex flex-col gap-3">
         <Form.Label className="sr-only">搜尋文章</Form.Label>
-        <div className="flex items-center gap-3 rounded-[calc(var(--radius-panel)-0.5rem)] border border-ink/10 bg-white px-4 py-3 shadow-[0_18px_40px_rgba(16,24,40,0.06)] sm:px-5 sm:py-4">
+        <div className="flex items-center gap-3 rounded-[calc(var(--radius-panel)-0.5rem)] border border-ink/10 bg-white px-4 py-3 shadow-[var(--shadow-card)] sm:px-5 sm:py-4">
           <Search className="h-5 w-5 shrink-0 text-ink/45" strokeWidth={2.25} />
 
           <Form.Control asChild>

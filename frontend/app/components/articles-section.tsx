@@ -54,7 +54,7 @@ export default function ArticlesSection({ articles }: ArticlesSectionProps) {
             ))}
           </div>
         ) : (
-          <div className="rounded-[var(--radius-panel)] border border-dashed border-ink/15 bg-white/75 px-6 py-12 text-center shadow-[0_16px_40px_rgba(16,24,40,0.04)] sm:px-10">
+          <div className="rounded-[var(--radius-panel)] border border-dashed border-ink/15 bg-white/75 px-6 py-12 text-center shadow-[var(--shadow-card)] sm:px-10">
             <h3 className="font-serif text-3xl leading-tight text-ink">找不到符合的文章</h3>
             <p className="mx-auto mt-3 max-w-xl font-sans text-base leading-7 font-medium text-copy-muted">
               試試看更短的關鍵字，例如「備審」、「面試」或「作品集」，通常會比完整句子更容易找到對應內容。

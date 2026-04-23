@@ -60,7 +60,7 @@ export default function ArticlesCarousel({ slides }: ArticlesCarouselProps) {
     <section
       aria-roledescription="carousel"
       aria-label="精選文章輪播"
-      className="group relative overflow-hidden rounded-t-none rounded-b-[var(--radius-panel)] bg-[#163043]"
+      className="group relative overflow-hidden bg-[#163043]"
       onMouseEnter={() => setIsPaused(true)}
       onMouseLeave={() => setIsPaused(false)}
       onFocusCapture={() => setIsPaused(true)}
@@ -115,7 +115,7 @@ export default function ArticlesCarousel({ slides }: ArticlesCarouselProps) {
                   aria-label={`前往第 ${index + 1} 張`}
                   aria-pressed={index === activeIndex}
                   className={twMerge(
-                    "h-4 w-4 rounded-full bg-white/80 transition-all duration-200 hover:bg-white focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white",
+                    "h-4 w-4 cursor-pointer rounded-full bg-white/80 transition-all duration-200 hover:bg-white focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white",
                     index === activeIndex && "scale-110 bg-[#f6c24d]"
                   )}
                   onClick={() => goToSlide(index)}

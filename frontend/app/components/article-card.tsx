@@ -10,7 +10,7 @@ type ArticleCardProps = {
 
 export default function ArticleCard({ article }: ArticleCardProps) {
   return (
-    <article className="group flex h-full flex-col overflow-hidden rounded-[var(--radius-panel)] border border-ink/10 bg-white shadow-[0_20px_50px_rgba(16,24,40,0.08)] transition-transform duration-300 hover:-translate-y-1">
+    <article className="group flex h-full cursor-pointer flex-col overflow-hidden rounded-[var(--radius-panel)] border border-ink/10 bg-white shadow-[var(--shadow-card)] transition-transform duration-300 hover:-translate-y-1">
       <div className="relative aspect-[16/10] overflow-hidden">
         <div className={twMerge("absolute inset-0 bg-gradient-to-br", article.coverTone)} />
         <Image
