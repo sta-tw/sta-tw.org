@@ -15,6 +15,7 @@
   --radius-control: 1rem;
   --radius-panel: 2rem;
   --radius-small: 0.75rem;
+  --shadow-card: 0 18px 40px rgba(16, 24, 40, 0.06), 0 8px 18px rgba(16, 24, 40, 0.04);
   --font-size-brand: 1.75rem;
   --font-size-nav: 1.25rem;
   --font-size-hero-title: clamp(2.75rem, 10vw, 6rem);
