@@ -24,7 +24,7 @@ export default function Navbar() {
               alt="S.T.A Logo"
               width={32}
               height={32}
-              className="shrink-0 rounded-lg"
+              className="shrink-0 rounded-[var(--radius-small)]"
             />
             <span className="min-w-0 font-serif text-lg leading-tight font-normal tracking-[-0.02em] text-ink sm:text-2xl lg:text-brand lg:whitespace-nowrap">
               <span>S.T.A</span>
@@ -57,7 +57,7 @@ export default function Navbar() {
           </div>
 
           <Collapsible.Trigger
-            className={`${styles.menuTrigger} inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-ink/15 text-ink transition-colors hover:bg-ink/5 lg:hidden`}
+            className={`${styles.menuTrigger} inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[var(--radius-control)] border border-ink/15 text-ink transition-colors hover:bg-ink/5 lg:hidden`}
             aria-label="切換導覽選單"
           >
             <span className="sr-only">切換導覽選單</span>
@@ -75,7 +75,7 @@ export default function Navbar() {
               <Link
                 key={link.href}
                 href={link.href}
-                className="rounded-xl px-3 py-3 font-sans text-lg tracking-[-0.1px] text-ink transition-colors hover:bg-ink/5"
+                className="rounded-[var(--radius-control)] px-3 py-3 font-sans text-lg tracking-[-0.1px] text-ink transition-colors hover:bg-ink/5"
               >
                 {link.label}
               </Link>
