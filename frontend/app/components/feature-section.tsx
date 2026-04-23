@@ -90,7 +90,7 @@ function FeatureImage({ feature, className }: { feature: Feature; className?: st
   return (
     <div
       className={twMerge(
-        "relative min-h-[18rem] overflow-hidden rounded-2xl bg-accent-green/40 sm:min-h-[24rem] lg:h-[432px] lg:min-h-0",
+        "relative min-h-[18rem] overflow-hidden rounded-[var(--radius-panel)] bg-accent-green/40 sm:min-h-[24rem] lg:h-[432px] lg:min-h-0",
         className
       )}
     >

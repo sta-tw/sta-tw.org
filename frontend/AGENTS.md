@@ -15,6 +15,8 @@ Simplify frame and div structure whenever best practice calls for it. Figma fram
 
 Always use Radix UI primitives when possible for accessible, composable UI behavior.
 
+For icons, prefer a tree-shakeable library with named imports over shipping custom icon systems or broad icon bundles. `lucide-react` is approved for this repo when a proper icon is needed.
+
 When translating design values to code, normalize arbitrary numbers to the nearest semantic Tailwind utility (e.g. `h-12` instead of `h-[49px]`, `text-xl` instead of `text-[19px]`). Only use arbitrary values when no standard token is close enough to matter visually.
 
 ## File Naming
@@ -28,4 +30,3 @@ Every UI component and layout must be responsive. Never produce content that is 
 ## Development Servers
 
 Never start development servers unless explicitly told to do so by the user.
-

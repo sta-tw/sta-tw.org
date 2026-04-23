@@ -10,7 +10,7 @@ export default function JoinDiscordSection() {
           加入 Discord 社群
         </h2>
 
-        <article className="overflow-hidden rounded-xl border border-black/10 bg-white shadow-[0_6px_12px_rgba(0,0,0,0.03),0_4px_8px_rgba(0,0,0,0.02)]">
+        <article className="overflow-hidden rounded-[var(--radius-panel)] border border-black/10 bg-white shadow-[0_6px_12px_rgba(0,0,0,0.03),0_4px_8px_rgba(0,0,0,0.02)]">
           <div className="grid grid-cols-1 md:grid-cols-[200px_minmax(0,1fr)] lg:grid-cols-[224px_minmax(0,1fr)]">
             <div aria-hidden className="relative min-h-44 overflow-hidden md:min-h-full">
               <Image

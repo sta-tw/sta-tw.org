@@ -12,6 +12,9 @@
   --accent-yellow: #ffe184;
   --accent-green: #d9edbf;
   --accent-green-strong: #badaaf;
+  --radius-control: 1rem;
+  --radius-panel: 2rem;
+  --radius-small: 0.75rem;
   --font-size-brand: 1.75rem;
   --font-size-nav: 1.25rem;
   --font-size-hero-title: clamp(2.75rem, 10vw, 6rem);
@@ -44,6 +47,9 @@
   --color-accent-green: var(--accent-green);
   --color-accent-green-strong: var(--accent-green-strong);
   --color-copy-muted: var(--copy-muted);
+  --radius-control: var(--radius-control);
+  --radius-panel: var(--radius-panel);
+  --radius-small: var(--radius-small);
   --text-brand: var(--font-size-brand);
   --text-brand--line-height: var(--line-height-brand);
   --text-nav: var(--font-size-nav);
