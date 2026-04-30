@@ -3,6 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { ChevronDown } from "lucide-react";
+import { useState } from "react";
 import { Accordion, Collapsible, HoverCard } from "radix-ui";
 import { relatedSites } from "../lib/related-sites";
 import Button from "./button";
@@ -17,12 +18,20 @@ const navLinks = [
 ];
 
 export default function Navbar() {
+    const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+    const closeMobileMenu = () => setIsMobileMenuOpen(false);
+
     return (
         <header className="sticky top-0 z-50 w-full border-b border-ink/10 bg-surface/95 backdrop-blur-sm">
-            <Collapsible.Root className="mx-auto max-w-screen-xl px-4 sm:px-6 lg:px-16">
+            <Collapsible.Root
+                className="mx-auto max-w-screen-xl px-4 sm:px-6 lg:px-16"
+                open={isMobileMenuOpen}
+                onOpenChange={setIsMobileMenuOpen}
+            >
                 <div className="flex items-center justify-between gap-4 py-3 sm:py-4">
                     <Link
                         href="/"
+                        onClick={closeMobileMenu}
                         className="flex min-w-0 flex-1 items-center gap-3 pr-2 lg:flex-none lg:pr-0"
                     >
                         <Image
@@ -60,7 +69,7 @@ export default function Navbar() {
                     </Collapsible.Trigger>
                 </div>
 
-                <MobileNavigation />
+                <MobileNavigation onNavigate={closeMobileMenu} />
             </Collapsible.Root>
         </header>
     );
@@ -122,7 +131,7 @@ function RelatedSitesDesktopMenu() {
     );
 }
 
-function MobileNavigation() {
+function MobileNavigation({ onNavigate }: { onNavigate: () => void }) {
     return (
         <Collapsible.Content
             className={`${styles.menuContent} border-t border-ink/10 pb-4 lg:hidden`}
@@ -132,22 +141,25 @@ function MobileNavigation() {
                     <Link
                         key={link.href}
                         href={link.href}
+                        onClick={onNavigate}
                         className="rounded-[var(--radius-control)] px-3 py-3 font-sans text-lg tracking-[-0.1px] text-ink transition-colors hover:bg-ink/5"
                     >
                         {link.label}
                     </Link>
                 ))}
-                <RelatedSitesMobileMenu />
+                <RelatedSitesMobileMenu onNavigate={onNavigate} />
             </nav>
 
             <Button asChild className="mt-4 w-full">
-                <Link href="/login">登入 | 註冊</Link>
+                <Link href="/login" onClick={onNavigate}>
+                    登入 | 註冊
+                </Link>
             </Button>
         </Collapsible.Content>
     );
 }
 
-function RelatedSitesMobileMenu() {
+function RelatedSitesMobileMenu({ onNavigate }: { onNavigate: () => void }) {
     return (
         <Accordion.Root type="single" collapsible>
             <Accordion.Item value="related-sites">
@@ -166,6 +178,7 @@ function RelatedSitesMobileMenu() {
                             <Link
                                 key={site.href}
                                 href={site.href}
+                                onClick={onNavigate}
                                 className="rounded-[var(--radius-control)] px-3 py-2.5 font-sans text-base tracking-[-0.1px] text-ink/75 transition-colors hover:bg-ink/5 hover:text-ink"
                             >
                                 {site.label}
