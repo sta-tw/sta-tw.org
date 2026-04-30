@@ -4,7 +4,7 @@ import { Collapsible, NavigationMenu } from "radix-ui";
 import Button from "./button";
 import styles from "./navbar.module.css";
 
-const logoIcon = "/logo.png";
+const logoIcon = "/logo.svg";
 
 const navLinks = [
     { label: "文章總覽", href: "/articles" },
@@ -27,7 +27,7 @@ export default function Navbar() {
                             alt="S.T.A Logo"
                             width={32}
                             height={32}
-                            className="shrink-0 rounded-[var(--radius-small)]"
+                            className="shrink-0"
                         />
                         <span className="min-w-0 font-serif text-lg leading-tight font-normal tracking-[-0.02em] text-ink sm:text-2xl lg:text-brand lg:whitespace-nowrap">
                             <span>S.T.A</span>
