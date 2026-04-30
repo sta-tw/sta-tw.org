@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { relatedSites } from "../lib/related-sites";
 import { DISCORD_INVITE_URL, GITHUB_REPOSITORY_URL } from "../lib/site-links";
 
 const footerSections = [
@@ -13,10 +14,7 @@ const footerSections = [
     {
         id: "related",
         title: "相關網站",
-        links: [
-            { label: "綠洲計畫", href: "/links" },
-            { label: "長浪計畫", href: "/links" }
-        ]
+        links: relatedSites
     },
     {
         id: "about",
