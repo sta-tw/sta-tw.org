@@ -3,8 +3,9 @@ import type { users } from './db/schema'
 import type { InferSelectModel } from 'drizzle-orm'
 
 export type Env = {
+  // D1 Database
+  DB: D1Database
   // Secrets
-  DATABASE_URL: string
   JWT_SECRET: string
   R2_ACCOUNT_ID: string
   R2_ACCESS_KEY_ID: string

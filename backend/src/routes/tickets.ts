@@ -39,7 +39,7 @@ async function ticketOut(ticket: typeof tickets.$inferSelect, db: ReturnType<typ
 // GET /
 ticketsRouter.get('/', authMiddleware, async (c) => {
   const userId = c.get('userId')
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const myTickets = await db.select().from(tickets)
     .where(eq(tickets.userId, userId)).orderBy(desc(tickets.updatedAt))
   return c.json(await Promise.all(myTickets.map(t => ticketOut(t, db))))
@@ -51,7 +51,7 @@ ticketsRouter.post('/', authMiddleware, async (c) => {
   const { category, subject, message } = await c.req.json()
   if (!category || !subject || !message) return c.json({ detail: '缺少必要欄位' }, 422)
 
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const ticketId = randomUUID()
   await db.insert(tickets).values({ id: ticketId, userId, category, subject })
   await db.insert(ticketMessages).values({
@@ -65,7 +65,7 @@ ticketsRouter.post('/', authMiddleware, async (c) => {
 ticketsRouter.get('/:ticket_id', authMiddleware, async (c) => {
   const ticketId = c.req.param('ticket_id')
   const userId = c.get('userId')
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const [ticket] = await db.select().from(tickets).where(eq(tickets.id, ticketId)).limit(1)
   if (!ticket || ticket.userId !== userId) return c.json({ detail: 'Ticket not found' }, 404)
   return c.json(await ticketOut(ticket, db))
@@ -76,7 +76,7 @@ ticketsRouter.post('/:ticket_id/messages', authMiddleware, async (c) => {
   const ticketId = c.req.param('ticket_id')
   const userId = c.get('userId')
   const { content } = await c.req.json()
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const [ticket] = await db.select().from(tickets).where(eq(tickets.id, ticketId)).limit(1)
   if (!ticket || ticket.userId !== userId) return c.json({ detail: 'Ticket not found' }, 404)
   await db.insert(ticketMessages).values({
@@ -94,7 +94,7 @@ ticketsRouter.post('/:ticket_id/messages', authMiddleware, async (c) => {
 // GET /admin/all
 ticketsRouter.get('/admin/all', authMiddleware, async (c) => {
   const status = c.req.query('status')
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   let query = db.select().from(tickets).orderBy(desc(tickets.updatedAt))
   if (status) {
     query = db.select().from(tickets)
@@ -110,7 +110,7 @@ ticketsRouter.patch('/admin/:ticket_id', authMiddleware, async (c) => {
   const ticketId = c.req.param('ticket_id')
   const { status, assigneeId, message } = await c.req.json()
   const userId = c.get('userId')
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const [ticket] = await db.select().from(tickets).where(eq(tickets.id, ticketId)).limit(1)
   if (!ticket) return c.json({ detail: 'Ticket not found' }, 404)
 

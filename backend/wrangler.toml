@@ -3,6 +3,12 @@ main = "src/index.ts"
 compatibility_date = "2024-12-01"
 compatibility_flags = ["nodejs_compat"]
 
+[[d1_databases]]
+binding = "DB"
+database_name = "sta-db"
+database_id = "b993d70f-a1f7-4222-9b2f-370ab6a06649"
+migrations_dir = "drizzle"
+
 [vars]
 FRONTEND_URL = "https://sta-tw.pages.dev"
 ACCESS_TOKEN_EXPIRE_MINUTES = "15"

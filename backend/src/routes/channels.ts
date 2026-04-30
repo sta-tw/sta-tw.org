@@ -22,7 +22,7 @@ function channelOut(ch: typeof channels.$inferSelect) {
 
 // GET /
 channelsRouter.get('/', authMiddleware, async (c) => {
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const all = await db.select().from(channels).orderBy(asc(channels.orderIndex))
   return c.json(all.map(channelOut))
 })
@@ -30,7 +30,7 @@ channelsRouter.get('/', authMiddleware, async (c) => {
 // GET /:channel_id
 channelsRouter.get('/:channel_id', authMiddleware, async (c) => {
   const channelId = c.req.param('channel_id')
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const [ch] = await db.select().from(channels).where(eq(channels.id, channelId)).limit(1)
   if (!ch) return c.json({ detail: 'Channel not found' }, 404)
   return c.json(channelOut(ch))
@@ -41,7 +41,7 @@ channelsRouter.get('/:channel_id/messages', authMiddleware, async (c) => {
   const channelId = c.req.param('channel_id')
   const cursor = c.req.query('cursor')
   const limit = Math.min(parseInt(c.req.query('limit') ?? '50'), 100)
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
 
   let query = db.select().from(messages)
     .where(and(eq(messages.channelId, channelId), ne(messages.status, 'deleted')))
@@ -73,7 +73,7 @@ channelsRouter.get('/:channel_id/messages', authMiddleware, async (c) => {
 // GET /:channel_id/pinned
 channelsRouter.get('/:channel_id/pinned', authMiddleware, async (c) => {
   const channelId = c.req.param('channel_id')
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const pinned = await db.select().from(messages)
     .where(and(eq(messages.channelId, channelId), eq(messages.isPinned, true), ne(messages.status, 'deleted')))
   const out = await buildMessagesWithMeta(pinned, db)
@@ -87,7 +87,7 @@ channelsRouter.post('/:channel_id/messages', authMiddleware, async (c) => {
   const { content, replyToId } = await c.req.json()
   if (!content?.trim()) return c.json({ detail: 'Content is required' }, 422)
 
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const id = randomUUID()
   await db.insert(messages).values({
     id, channelId, authorId: userId, content, replyToId: replyToId ?? null,

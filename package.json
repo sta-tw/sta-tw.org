@@ -1,0 +1,11 @@
+{
+  "name": "sta-tw-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev:frontend": "pnpm --dir frontend dev",
+    "dev:backend": "npm run dev --prefix backend",
+    "build:frontend": "pnpm --dir frontend build",
+    "deploy:backend": "npm run deploy --prefix backend"
+  }
+}

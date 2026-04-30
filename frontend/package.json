@@ -2,9 +2,14 @@
     "name": "frontend",
     "version": "0.1.0",
     "private": true,
+    "packageManager": "pnpm@10.20.0",
+    "engines": {
+        "node": "20.x"
+    },
     "scripts": {
         "dev": "next dev",
         "build": "next build",
+        "build:worker": "next build && pnpm exec opennextjs-cloudflare build --skipNextBuild",
         "start": "next start",
         "lint": "eslint .",
         "lint:fix": "eslint . --fix && prettier . --write",
@@ -19,6 +24,7 @@
         "tailwind-merge": "^3.5.0"
     },
     "devDependencies": {
+        "@opennextjs/cloudflare": "^1.19.3",
         "@tailwindcss/postcss": "^4",
         "@types/node": "^20",
         "@types/react": "^19",
@@ -29,6 +35,7 @@
         "prettier-plugin-tailwindcss": "^0.6.11",
         "radix-ui": "^1.4.3",
         "tailwindcss": "^4",
-        "typescript": "^5"
+        "typescript": "^5",
+        "wrangler": "^4"
     }
 }

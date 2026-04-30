@@ -22,7 +22,7 @@ function userOut(u: typeof users.$inferSelect) {
 // GET /me
 usersRouter.get('/me', authMiddleware, async (c) => {
   const userId = c.get('userId')
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1)
   if (!user) return c.json({ detail: 'User not found' }, 404)
   return c.json(userOut(user))
@@ -32,7 +32,7 @@ usersRouter.get('/me', authMiddleware, async (c) => {
 usersRouter.patch('/me', authMiddleware, async (c) => {
   const userId = c.get('userId')
   const body = await c.req.json()
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const updates: Partial<typeof users.$inferInsert> = {}
   if (body.displayName !== undefined) updates.displayName = body.displayName
   if (body.bio !== undefined) updates.bio = body.bio
@@ -60,7 +60,7 @@ usersRouter.get('/me/avatar-upload-url', authMiddleware, async (c) => {
 // GET /:username
 usersRouter.get('/:username', authMiddleware, async (c) => {
   const username = c.req.param('username')
-  const db = createDb(c.env.DATABASE_URL)
+  const db = createDb(c.env.DB)
   const [user] = await db.select().from(users).where(eq(users.username, username)).limit(1)
   if (!user) return c.json({ detail: 'User not found' }, 404)
   return c.json(userOut(user))
