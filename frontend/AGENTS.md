@@ -1,7 +1,9 @@
 <!-- BEGIN:nextjs-agent-rules -->
+
 # This is NOT the Next.js you know
 
 This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` before writing any code. Heed deprecation notices.
+
 <!-- END:nextjs-agent-rules -->
 
 ## Design Reference
@@ -14,6 +16,8 @@ The result should look the same as the design, but the design is a reference, no
 Simplify frame and div structure whenever best practice calls for it. Figma frames map to DOM elements mechanically, but the HTML should reflect semantic meaning and layout intent — not the design tool's layer hierarchy. Flatten unnecessary wrapper elements, use semantic HTML tags (`<section>`, `<nav>`, `<article>`, etc.) over generic `<div>`s where appropriate, and collapse redundant nesting that exists only as a Figma organizational artifact.
 
 Always use Radix UI primitives when possible for accessible, composable UI behavior.
+
+For icons, prefer a tree-shakeable library with named imports over shipping custom icon systems or broad icon bundles. `lucide-react` is approved for this repo when a proper icon is needed.
 
 When translating design values to code, normalize arbitrary numbers to the nearest semantic Tailwind utility (e.g. `h-12` instead of `h-[49px]`, `text-xl` instead of `text-[19px]`). Only use arbitrary values when no standard token is close enough to matter visually.
 
@@ -28,4 +32,3 @@ Every UI component and layout must be responsive. Never produce content that is 
 ## Development Servers
 
 Never start development servers unless explicitly told to do so by the user.
-

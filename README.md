@@ -39,6 +39,8 @@ Default ports:
 - Backend: `http://localhost:12004`
 
 ## Frontend
+The frontend uses pnpm as its primary package manager. Run frontend commands from `frontend/` with `pnpm`, and keep `frontend/pnpm-lock.yaml` as the only frontend lockfile.
+
 See `frontend/README.md` for app-specific details.
 
 ## Backend

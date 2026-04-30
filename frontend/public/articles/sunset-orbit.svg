@@ -1,0 +1,58 @@
+<svg width="1600" height="650" viewBox="0 0 1600 650" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1600" height="650" fill="#101D35"/>
+  <rect width="1600" height="650" fill="url(#sky)"/>
+  <ellipse cx="800" cy="215" rx="420" ry="205" fill="#7EF6EF" opacity="0.22"/>
+  <ellipse cx="260" cy="286" rx="280" ry="190" fill="#D25B2C" opacity="0.28"/>
+  <ellipse cx="1346" cy="235" rx="250" ry="180" fill="#53DAD8" opacity="0.22"/>
+  <circle cx="1206" cy="146" r="72" fill="#FFE5A4"/>
+  <ellipse cx="1206" cy="146" rx="112" ry="28" stroke="#FFE5A4" stroke-width="8" opacity="0.65"/>
+  <ellipse cx="1206" cy="146" rx="132" ry="34" stroke="#FFE5A4" stroke-width="3" opacity="0.4"/>
+  <ellipse cx="800" cy="520" rx="650" ry="118" fill="url(#water)" opacity="0.75"/>
+  <ellipse cx="800" cy="458" rx="600" ry="44" fill="#F0B35C" opacity="0.3"/>
+  <g fill="#FFF1D3" opacity="0.9">
+    <circle cx="115" cy="106" r="2"/>
+    <circle cx="171" cy="136" r="2"/>
+    <circle cx="244" cy="80" r="3"/>
+    <circle cx="327" cy="121" r="2"/>
+    <circle cx="419" cy="90" r="2"/>
+    <circle cx="485" cy="149" r="3"/>
+    <circle cx="568" cy="98" r="2"/>
+    <circle cx="639" cy="127" r="2"/>
+    <circle cx="718" cy="86" r="2"/>
+    <circle cx="803" cy="121" r="3"/>
+    <circle cx="887" cy="77" r="2"/>
+    <circle cx="967" cy="141" r="2"/>
+    <circle cx="1051" cy="99" r="3"/>
+    <circle cx="1135" cy="87" r="2"/>
+    <circle cx="1321" cy="95" r="2"/>
+    <circle cx="1406" cy="131" r="3"/>
+    <circle cx="1492" cy="85" r="2"/>
+  </g>
+  <g opacity="0.82">
+    <circle cx="228" cy="244" r="15" fill="#FFF6E5"/>
+    <circle cx="410" cy="314" r="11" fill="#FFF6E5"/>
+    <circle cx="655" cy="224" r="12" fill="#FFF6E5"/>
+    <circle cx="936" cy="283" r="14" fill="#FFF6E5"/>
+    <circle cx="1078" cy="206" r="11" fill="#FFF6E5"/>
+    <circle cx="1387" cy="264" r="14" fill="#FFF6E5"/>
+  </g>
+  <path d="M0 494C167 443 316 445 488 490C628 527 736 544 871 542C1018 540 1125 499 1241 470C1358 441 1474 441 1600 477V650H0V494Z" fill="#0C3947"/>
+  <path d="M652 383C694 356 742 339 802 338C861 338 910 355 952 383" stroke="#FFCF6A" stroke-width="6" stroke-linecap="round" opacity="0.9"/>
+  <path d="M646 382C685 414 733 430 802 432C872 430 920 414 959 382" stroke="#FFCF6A" stroke-width="6" stroke-linecap="round" opacity="0.6"/>
+  <ellipse cx="802" cy="382" rx="19" ry="19" fill="#FFCF6A"/>
+  <g opacity="0.22">
+    <ellipse cx="802" cy="544" rx="310" ry="22" fill="#A3FBFF"/>
+    <ellipse cx="802" cy="578" rx="226" ry="10" fill="#A3FBFF"/>
+  </g>
+  <defs>
+    <linearGradient id="sky" x1="800" y1="0" x2="800" y2="650" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#18253D"/>
+      <stop offset="0.5" stop-color="#174B60"/>
+      <stop offset="1" stop-color="#0F8095"/>
+    </linearGradient>
+    <radialGradient id="water" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(800 520) rotate(90) scale(118 650)">
+      <stop stop-color="#75FFF2"/>
+      <stop offset="1" stop-color="#75FFF2" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+</svg>

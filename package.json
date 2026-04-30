@@ -3,9 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev:frontend": "npm run dev --prefix frontend",
+    "dev:frontend": "pnpm --dir frontend dev",
     "dev:backend": "npm run dev --prefix backend",
-    "build:frontend": "npm run build --prefix frontend",
+    "build:frontend": "pnpm --dir frontend build",
     "deploy:backend": "npm run deploy --prefix backend"
   }
 }
