@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { ChevronDown, Menu } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import { Accordion, Collapsible, HoverCard } from "radix-ui";
 import { relatedSites } from "../lib/related-sites";
 import Button from "./button";
@@ -42,10 +42,21 @@ export default function Navbar() {
                     <DesktopNavigation />
 
                     <Collapsible.Trigger
-                        className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[var(--radius-control)] border border-ink/15 text-ink transition-colors hover:bg-ink/5 lg:hidden"
+                        className={`${styles.menuTrigger} inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[var(--radius-control)] border border-ink/15 text-ink transition-colors hover:bg-ink/5 lg:hidden`}
                         aria-label="切換導覽選單"
                     >
-                        <Menu aria-hidden className="h-5 w-5" />
+                        <span className="sr-only">切換導覽選單</span>
+                        <span className="relative h-4 w-5">
+                            <span
+                                className={`${styles.menuTriggerBar} absolute top-0 left-0 block h-0.5 w-5 rounded-full bg-current`}
+                            />
+                            <span
+                                className={`${styles.menuTriggerBar} absolute top-[7px] left-0 block h-0.5 w-5 rounded-full bg-current`}
+                            />
+                            <span
+                                className={`${styles.menuTriggerBar} absolute top-[14px] left-0 block h-0.5 w-5 rounded-full bg-current`}
+                            />
+                        </span>
                     </Collapsible.Trigger>
                 </div>
 
@@ -113,7 +124,9 @@ function RelatedSitesDesktopMenu() {
 
 function MobileNavigation() {
     return (
-        <Collapsible.Content className="border-t border-ink/10 pb-4 lg:hidden">
+        <Collapsible.Content
+            className={`${styles.menuContent} border-t border-ink/10 pb-4 lg:hidden`}
+        >
             <nav aria-label="Mobile navigation" className="flex flex-col gap-1 pt-4">
                 {navLinks.map((link) => (
                     <Link

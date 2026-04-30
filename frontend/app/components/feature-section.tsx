@@ -80,7 +80,7 @@ function FeatureCopy({ feature, className }: { feature: Feature; className?: str
             </div>
 
             <Button asChild className="h-14 w-fit min-w-40 px-4 text-2xl leading-snug">
-                <Link href={feature.href}>MORE INFO</Link>
+                <Link href={feature.href}>更多資訊</Link>
             </Button>
         </div>
     );
