@@ -14,7 +14,7 @@ export default function ForumPage() {
             description="我們正在規劃適合提問、交流與整理回覆的討論區。正式上線前，歡迎先加入 Discord，和其他準備特殊選才的同學交流。"
             actions={[
                 { label: "回到首頁", href: "/", variant: "primary" },
-                { label: "瀏覽文章", href: "/articles", variant: "secondary" }
+                { label: "簡章搜尋", href: "/search", variant: "secondary" }
             ]}
         />
     );

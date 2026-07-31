@@ -14,14 +14,6 @@ type Feature = {
 
 const features: Feature[] = [
     {
-        title: "點亮特選之路",
-        body: "從備審方向、校系資料到申請時程，整理特殊選才需要掌握的資訊，讓準備過程更有脈絡，也更容易找到下一步。",
-        href: "/articles",
-        image: "/features/feature-road.png",
-        imageAlt: "由點狀路徑組成的抽象探索圖像",
-        imagePosition: "right"
-    },
-    {
         title: "只要有才華，\n不必擔心資訊差",
         body: "特殊選才資源網致力於透過線上資源匯集，減少特選資源分布不均等情況，並輔以論壇功能，讓大家有問題都能即時發問。",
         href: "/forum",
@@ -38,22 +30,21 @@ export default function FeatureSection() {
                 特殊選才資源網特色
             </h2>
             <div className="mx-auto flex max-w-screen-xl flex-col">
-                {features.map((feature, index) => (
-                    <FeatureRow key={feature.title} feature={feature} isFirst={index === 0} />
+                {features.map((feature) => (
+                    <FeatureRow key={feature.title} feature={feature} />
                 ))}
             </div>
         </section>
     );
 }
 
-function FeatureRow({ feature, isFirst }: { feature: Feature; isFirst: boolean }) {
+function FeatureRow({ feature }: { feature: Feature }) {
     const imageFirst = feature.imagePosition === "left";
 
     return (
         <article
             className={twMerge(
-                "grid grid-cols-1 items-center gap-8 px-5 py-12 sm:gap-10 sm:px-6 sm:py-16 lg:grid-cols-2 lg:gap-16 lg:px-16",
-                isFirst ? "lg:pt-[120px] lg:pb-10" : "lg:pt-10 lg:pb-[120px]"
+                "grid grid-cols-1 items-center gap-8 px-5 py-12 sm:gap-10 sm:px-6 sm:py-16 lg:grid-cols-2 lg:gap-16 lg:px-16 lg:py-[120px]"
             )}
         >
             <FeatureCopy feature={feature} className={imageFirst ? "lg:order-2" : undefined} />

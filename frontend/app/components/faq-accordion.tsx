@@ -28,11 +28,7 @@ const faqItems: FaqItem[] = [
                 <Link href="/search" className="underline underline-offset-4 hover:text-ink">
                     簡章搜尋
                 </Link>
-                查看歷屆簡章，或到
-                <Link href="/articles" className="underline underline-offset-4 hover:text-ink">
-                    文章總覽
-                </Link>
-                參考學長姐經驗與備審準備方向。
+                查看歷屆簡章，並參考學長姐經驗與備審準備方向。
             </>
         )
     },
