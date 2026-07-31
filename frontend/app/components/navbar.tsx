@@ -12,6 +12,7 @@ import styles from "./navbar.module.css";
 const logoIcon = "/logo.svg";
 
 const navLinks = [
+    { label: "文章總覽", href: "/articlemain" },
     { label: "簡章搜尋", href: "/search" },
     { label: "論壇", href: "/forum" }
 ];
