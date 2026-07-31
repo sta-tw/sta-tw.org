@@ -7,6 +7,7 @@ import { useMemo, useState } from "react";
 import { twMerge } from "tailwind-merge";
 import { articles, type Article } from "../data/articles";
 import { publicPath } from "../lib/public-path";
+import FaqAccordion from "./faq-accordion";
 
 const slides = [
     {
@@ -171,7 +172,7 @@ export default function ArticleOverview() {
 
                     <section
                         aria-labelledby="article-faq-title"
-                        className="relative mt-20 min-h-80 sm:mt-24 sm:min-h-96 lg:min-h-[31rem]"
+                        className="mt-20 sm:mt-24"
                     >
                         <h2
                             id="article-faq-title"
@@ -179,12 +180,17 @@ export default function ArticleOverview() {
                         >
                             常見問題
                         </h2>
-                        <Link
-                            href="/faq"
-                            className="absolute right-0 bottom-0 text-base font-medium text-ink underline-offset-4 hover:underline focus-visible:ring-2 focus-visible:ring-ink focus-visible:outline-none sm:text-lg"
-                        >
-                            &gt;&gt; 查看完整常見問題
-                        </Link>
+                        <div className="mt-8 sm:mt-10">
+                            <FaqAccordion />
+                        </div>
+                        <div className="mt-8 text-right sm:mt-10">
+                            <Link
+                                href="/faq"
+                                className="text-base font-medium text-ink underline-offset-4 hover:underline focus-visible:ring-2 focus-visible:ring-ink focus-visible:outline-none sm:text-lg"
+                            >
+                                &gt;&gt; 查看完整常見問題
+                            </Link>
+                        </div>
                     </section>
                 </div>
             </div>
