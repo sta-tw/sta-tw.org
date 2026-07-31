@@ -1,5 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
+import { publicPath } from "../lib/public-path";
 import { DISCORD_INVITE_URL } from "../lib/site-links";
 
 export default function JoinDiscordSection() {
@@ -20,7 +21,7 @@ export default function JoinDiscordSection() {
                             className="relative min-h-44 overflow-hidden md:min-h-full"
                         >
                             <Image
-                                src="/features/discord-admission.webp"
+                                src={publicPath("/features/discord-admission.webp")}
                                 alt=""
                                 fill
                                 sizes="(min-width: 1024px) 224px, (min-width: 768px) 200px, 100vw"

@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { twMerge } from "tailwind-merge";
+import { publicPath } from "../lib/public-path";
 import Button from "./button";
 
 type Feature = {
@@ -17,7 +18,7 @@ const features: Feature[] = [
         title: "只要有才華，\n不必擔心資訊差",
         body: "特殊選才資源網致力於透過線上資源匯集，減少特選資源分布不均等情況，並輔以論壇功能，讓大家有問題都能即時發問。",
         href: "/forum",
-        image: "/features/feature-community.png",
+        image: publicPath("/features/feature-community.png"),
         imageAlt: "柔和色塊交疊的抽象社群圖像",
         imagePosition: "left"
     }

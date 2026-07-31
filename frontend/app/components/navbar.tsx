@@ -5,11 +5,12 @@ import Link from "next/link";
 import { ChevronDown } from "lucide-react";
 import { useState } from "react";
 import { Accordion, Collapsible, HoverCard } from "radix-ui";
+import { publicPath } from "../lib/public-path";
 import { relatedSites } from "../lib/related-sites";
 import Button from "./button";
 import styles from "./navbar.module.css";
 
-const logoIcon = "/logo.svg";
+const logoIcon = publicPath("/logo.svg");
 
 const navLinks = [
     { label: "文章總覽", href: "/articlemain" },

@@ -6,18 +6,19 @@ import { ChevronLeft, ChevronRight, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 import { twMerge } from "tailwind-merge";
 import { articles, type Article } from "../data/articles";
+import { publicPath } from "../lib/public-path";
 
 const slides = [
     {
-        image: "/articlemain/starlit-boat-hero.png",
+        image: publicPath("/articlemain/starlit-boat-hero.png"),
         alt: "小船載著展翅的學生航行在星空與海面之間"
     },
     {
-        image: "/articlemain/starlit-boat-hero.png",
+        image: publicPath("/articlemain/starlit-boat-hero.png"),
         alt: "小船載著展翅的學生航行在星空與海面之間"
     },
     {
-        image: "/articlemain/starlit-boat-hero.png",
+        image: publicPath("/articlemain/starlit-boat-hero.png"),
         alt: "小船載著展翅的學生航行在星空與海面之間"
     }
 ];

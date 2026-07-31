@@ -1,5 +1,8 @@
 name: Deploy static site to GitHub Pages
 
+env:
+  NEXT_PUBLIC_BASE_PATH: /sta-tw.org
+
 on:
   push:
     branches: [main]
