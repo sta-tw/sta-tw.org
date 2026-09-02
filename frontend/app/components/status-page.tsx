@@ -18,7 +18,7 @@ type StatusPageProps = {
 
 const defaultActions: StatusPageAction[] = [
     { label: "回到首頁", href: "/", variant: "primary" },
-    { label: "簡章搜尋", href: "/search", variant: "secondary" }
+    { label: "簡章搜尋", href: "/bochures", variant: "secondary" }
 ];
 
 export default function StatusPage({
