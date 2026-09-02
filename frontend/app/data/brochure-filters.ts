@@ -1,5 +1,7 @@
+export type BrochureFilterId = "skills-test" | "interview" | "portfolio";
+
 export type BrochureFilter = {
-    id: "skills-test" | "interview" | "portfolio";
+    id: BrochureFilterId;
     label: string;
     options: Array<{
         label: string;

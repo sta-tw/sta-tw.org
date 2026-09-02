@@ -14,7 +14,7 @@ export default function NotFound() {
             description="網址可能輸入錯誤，或內容已經移動。你可以回到首頁重新開始，或使用簡章搜尋尋找特殊選才相關資訊。"
             actions={[
                 { label: "回到首頁", href: "/", variant: "primary" },
-                { label: "簡章搜尋", href: "/search", variant: "secondary" }
+                { label: "簡章搜尋", href: "/bochures", variant: "secondary" }
             ]}
         />
     );
