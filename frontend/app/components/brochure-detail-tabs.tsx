@@ -1,8 +1,16 @@
 "use client";
 
-import { Download, ExternalLink, Heart } from "lucide-react";
+import {
+    Award,
+    CalendarPlus,
+    CalendarSearch,
+    ClipboardPenLine,
+    Download,
+    ExternalLink,
+    Heart
+} from "lucide-react";
 import { Tabs } from "radix-ui";
-import type { Brochure, BrochureFact } from "../data/brochures";
+import type { Brochure, BrochureFact, BrochureTimelineItem } from "../data/brochures";
 import type { OpenGraphPreview } from "../lib/open-graph";
 
 type BrochureDetailTabsProps = {
@@ -69,7 +77,7 @@ export default function BrochureDetailTabs({
                 <ExternalLinksTab previews={externalLinkPreviews} />
             </Tabs.Content>
             <Tabs.Content value="registration" className="outline-none">
-                <RegistrationTab items={brochure.registration} />
+                <RegistrationTab items={brochure.registrationTimeline} />
             </Tabs.Content>
             <Tabs.Content value="history" className="outline-none">
                 <HistoryTab brochure={brochure} />
@@ -146,20 +154,87 @@ function ExternalLinksTab({ previews }: { previews: OpenGraphPreview[] }) {
     );
 }
 
-function RegistrationTab({ items }: { items: BrochureFact[] }) {
+function RegistrationTab({ items }: { items: BrochureTimelineItem[] }) {
     return (
-        <div className="mt-8 max-w-2xl overflow-x-auto rounded-[var(--radius-small)] border border-ink/15 bg-surface/65 sm:mt-10">
-            <dl className="min-w-125 divide-y divide-ink/15">
+        <section className="mt-8 max-w-3xl sm:mt-10" aria-labelledby="admission-timeline-title">
+            <div className="flex flex-col gap-4 border-b border-ink/10 pb-5 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                    <h2
+                        id="admission-timeline-title"
+                        className="font-sans text-xl font-medium text-ink sm:text-2xl"
+                    >
+                        招生時程
+                    </h2>
+                    <p className="mt-1 font-sans text-sm text-ink/60">
+                        勾選重要日期後，可在行事曆功能啟用時快速加入。
+                    </p>
+                </div>
+                <button
+                    type="button"
+                    className="inline-flex h-10 w-fit cursor-pointer items-center gap-2 rounded-full bg-accent-yellow px-3.5 font-sans text-sm font-medium text-ink transition-colors hover:bg-[#f6bd42] focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2 focus-visible:outline-none"
+                >
+                    <CalendarPlus aria-hidden className="h-4 w-4" />
+                    新增至日曆
+                </button>
+            </div>
+
+            <ol className="relative mt-7 ml-10 border-l border-ink/20 sm:mt-9 sm:ml-12">
                 {items.map((item) => (
-                    <div key={item.label} className="grid grid-cols-[11rem_minmax(0,1fr)]">
-                        <dt className="border-r border-ink/15 bg-ink/3 px-4 py-3 font-sans font-medium text-ink">
-                            {item.label}
-                        </dt>
-                        <dd className="px-4 py-3 font-sans text-ink/75">{item.value}</dd>
-                    </div>
+                    <TimelineItem key={item.id} item={item} />
                 ))}
-            </dl>
-        </div>
+            </ol>
+        </section>
+    );
+}
+
+const timelineAppearance = {
+    application: {
+        icon: ClipboardPenLine,
+        className: "border-ink/25 bg-surface text-ink/70"
+    },
+    assessment: {
+        icon: CalendarSearch,
+        className: "border-[#f6bd42] bg-accent-yellow text-ink"
+    },
+    admission: {
+        icon: Award,
+        className: "border-accent-green-strong bg-accent-green text-ink"
+    }
+} satisfies Record<BrochureTimelineItem["phase"], { icon: typeof Award; className: string }>;
+
+function TimelineItem({ item }: { item: BrochureTimelineItem }) {
+    const appearance = timelineAppearance[item.phase];
+    const Icon = appearance.icon;
+
+    return (
+        <li className="relative pb-7 pl-8 last:pb-0 sm:pb-8 sm:pl-10">
+            <input
+                id={`timeline-${item.id}`}
+                type="checkbox"
+                name="calendar-events"
+                value={item.id}
+                className="absolute top-3 -left-[3.3rem] h-4 w-4 cursor-pointer accent-button focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2 focus-visible:outline-none sm:-left-[3.8rem]"
+            />
+            <label
+                htmlFor={`timeline-${item.id}`}
+                className="absolute top-0 -left-5 flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border-2 sm:-left-6 sm:h-12 sm:w-12"
+            >
+                <span
+                    className={`flex h-8 w-8 items-center justify-center rounded-full ${appearance.className}`}
+                >
+                    <Icon aria-hidden className="h-4 w-4" />
+                </span>
+                <span className="sr-only">選擇 {item.title}</span>
+            </label>
+            <div className="min-w-0 pt-1.5 sm:pt-2">
+                <h3 className="font-sans text-base leading-snug font-medium text-ink sm:text-lg">
+                    {item.title}
+                </h3>
+                <p className="mt-1 font-sans text-sm leading-relaxed text-ink/70 sm:text-base">
+                    {item.date}
+                </p>
+            </div>
+        </li>
     );
 }
 

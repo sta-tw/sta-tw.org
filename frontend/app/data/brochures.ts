@@ -14,6 +14,13 @@ export type BrochureHistory = {
     applicants: string;
 };
 
+export type BrochureTimelineItem = {
+    id: string;
+    title: string;
+    date: string;
+    phase: "application" | "assessment" | "admission";
+};
+
 export type Brochure = {
     slug: string;
     university: string;
@@ -28,7 +35,7 @@ export type Brochure = {
     timeline: string;
     requirements: Record<BrochureFilterId, "required" | "not-required">;
     externalLinks: ExternalLink[];
-    registration: BrochureFact[];
+    registrationTimeline: BrochureTimelineItem[];
     history: BrochureHistory[];
 };
 
@@ -74,11 +81,67 @@ export const brochures: Brochure[] = [
                 fallbackTitle: "國立陽明交通大學資訊工程學系｜招生資訊"
             }
         ],
-        registration: [
-            { label: "報名期間", value: "待簡章公告" },
-            { label: "放榜日期", value: "待簡章公告" },
-            { label: "報考校系限制", value: "依當年度簡章規定" },
-            { label: "其他限制", value: "依當年度簡章規定" }
+        registrationTimeline: [
+            {
+                id: "online-registration",
+                title: "網路登錄報名",
+                date: "114 / 10 / 13（Mon.）9:00 ～ 114 / 10 / 20（Mon.）17:00",
+                phase: "application"
+            },
+            {
+                id: "application-status",
+                title: "上網查詢報名狀態（含考生編號）",
+                date: "114 年 10 月 27 日（一）下午 3:00 起",
+                phase: "application"
+            },
+            {
+                id: "first-round-result",
+                title: "初試結果公告",
+                date: "114 年 12 月 5 日（五）",
+                phase: "assessment"
+            },
+            {
+                id: "first-round-score",
+                title: "初試成績單下載",
+                date: "114 年 12 月 6 日（六）",
+                phase: "assessment"
+            },
+            {
+                id: "second-round-fee",
+                title: "複試繳費期限",
+                date: "114 年 12 月 9 日（二）下午 5:00 止",
+                phase: "assessment"
+            },
+            {
+                id: "second-round",
+                title: "複試",
+                date: "114 年 12 月 12 日（五）～ 114 年 12 月 24 日（三）",
+                phase: "assessment"
+            },
+            {
+                id: "admission-list",
+                title: "榜單公告",
+                date: "115 年 1 月 9 日（五）上午 9:00 起",
+                phase: "admission"
+            },
+            {
+                id: "second-round-score",
+                title: "複試成績單下載",
+                date: "115 年 1 月 10 日（六）",
+                phase: "admission"
+            },
+            {
+                id: "admission-confirmation",
+                title: "正取生（登錄報到）及備取生（登錄就讀意願）",
+                date: "115 年 1 月 14 日（三）",
+                phase: "admission"
+            },
+            {
+                id: "waitlist-deadline",
+                title: "備取遞補截止",
+                date: "115 年 3 月 3 日（二）下午 5:00 止",
+                phase: "admission"
+            }
         ],
         history: [
             { year: "115", admitted: "2", waitlisted: "2", candidates: "40", applicants: "－" },
@@ -110,11 +173,16 @@ export const brochures: Brochure[] = [
             portfolio: "not-required"
         },
         externalLinks: [],
-        registration: [
-            { label: "報名期間", value: "待簡章公告" },
-            { label: "放榜日期", value: "待簡章公告" },
-            { label: "報考校系限制", value: "依當年度簡章規定" },
-            { label: "其他限制", value: "須完成線上報名程序" }
+        registrationTimeline: [
+            { id: "registration", title: "網路登錄報名", date: "待簡章公告", phase: "application" },
+            {
+                id: "document-review",
+                title: "書面資料審查",
+                date: "待簡章公告",
+                phase: "assessment"
+            },
+            { id: "interview", title: "複試面試", date: "待簡章公告", phase: "assessment" },
+            { id: "admission", title: "錄取公告", date: "待簡章公告", phase: "admission" }
         ],
         history: [
             { year: "115", admitted: "2", waitlisted: "1", candidates: "28", applicants: "－" },
@@ -146,11 +214,16 @@ export const brochures: Brochure[] = [
             portfolio: "required"
         },
         externalLinks: [],
-        registration: [
-            { label: "報名期間", value: "待簡章公告" },
-            { label: "放榜日期", value: "待簡章公告" },
-            { label: "報考校系限制", value: "依當年度簡章規定" },
-            { label: "其他限制", value: "複試須攜帶原作或指定材料" }
+        registrationTimeline: [
+            { id: "registration", title: "網路登錄報名", date: "待簡章公告", phase: "application" },
+            {
+                id: "portfolio-review",
+                title: "作品集審查",
+                date: "待簡章公告",
+                phase: "assessment"
+            },
+            { id: "skills-test", title: "術科與面試", date: "待簡章公告", phase: "assessment" },
+            { id: "admission", title: "錄取公告", date: "待簡章公告", phase: "admission" }
         ],
         history: [
             { year: "115", admitted: "3", waitlisted: "2", candidates: "36", applicants: "－" },
@@ -182,11 +255,15 @@ export const brochures: Brochure[] = [
             portfolio: "not-required"
         },
         externalLinks: [],
-        registration: [
-            { label: "報名期間", value: "待簡章公告" },
-            { label: "放榜日期", value: "待簡章公告" },
-            { label: "報考校系限制", value: "依當年度簡章規定" },
-            { label: "其他限制", value: "無須複試" }
+        registrationTimeline: [
+            { id: "registration", title: "網路登錄報名", date: "待簡章公告", phase: "application" },
+            {
+                id: "document-review",
+                title: "書面資料審查",
+                date: "待簡章公告",
+                phase: "assessment"
+            },
+            { id: "admission", title: "錄取公告", date: "待簡章公告", phase: "admission" }
         ],
         history: [
             { year: "115", admitted: "2", waitlisted: "1", candidates: "19", applicants: "－" },
