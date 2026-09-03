@@ -1,0 +1,7 @@
+target-version = "py313"
+line-length = 120
+
+[lint]
+# Bug-focused, not style: pyflakes (unused/undefined names, bad f-strings) plus
+# syntax errors. Widen this once the tree is clean under stricter rules.
+select = ["E9", "F"]

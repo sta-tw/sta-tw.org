@@ -1,0 +1,226 @@
+# Single-host STA backend stack.
+#
+#   cd deploy
+#   cp .env.example .env
+#   docker compose up -d --build            # HTTP extraction transport
+#   docker compose --profile rabbitmq up -d --build   # + RabbitMQ transport
+#
+# One-shot jobs:
+#   docker compose run --rm migrate
+#   docker compose run --rm api bootstrap-admin -username <existing-user>
+#   docker compose --profile maintenance run --rm annual-maintenance -academic-year 114
+#
+# `migrate` runs automatically as an init dependency of `api`.
+
+name: sta-backend
+
+x-app-image: &app-image
+  image: sta-backend:local
+  build:
+    context: ..
+    dockerfile: Dockerfile
+  env_file: [.env]
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-sta}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sta}
+      POSTGRES_DB: ${POSTGRES_DB:-sta}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:${STA_COMPOSE_POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-sta-minio-root}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-sta-minio-secret}
+    volumes:
+      - minio-data:/data
+    ports:
+      - "127.0.0.1:${STA_COMPOSE_MINIO_PORT:-9000}:9000"
+      - "127.0.0.1:${STA_COMPOSE_MINIO_CONSOLE_PORT:-9001}:9001"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MC_HOST_local: http://${MINIO_ROOT_USER:-sta-minio-root}:${MINIO_ROOT_PASSWORD:-sta-minio-secret}@minio:9000
+      MINIO_BUCKET: ${STA_OBJECT_STORAGE_BUCKET:-sta-private}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - mc mb --ignore-existing "local/$$MINIO_BUCKET" && mc anonymous set none "local/$$MINIO_BUCKET"
+    restart: "no"
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    profiles: ["rabbitmq"]
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-sta}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:-sta}
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    ports:
+      - "127.0.0.1:${STA_COMPOSE_RABBITMQ_PORT:-5672}:5672"
+      - "127.0.0.1:${STA_COMPOSE_RABBITMQ_MGMT_PORT:-15672}:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  clamav:
+    image: clamav/clamav:stable
+    volumes:
+      - clamav-signatures:/var/lib/clamav
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/clamdcheck.sh"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 180s
+
+  mailhog:
+    image: mailhog/mailhog:latest
+    ports:
+      - "127.0.0.1:${STA_COMPOSE_MAILHOG_UI_PORT:-8025}:8025"
+
+  searxng:
+    image: searxng/searxng:latest
+    environment:
+      SEARXNG_BASE_URL: http://searxng:8080/
+    volumes:
+      - ./searxng:/etc/searxng:ro
+    ports:
+      - "127.0.0.1:${STA_COMPOSE_SEARXNG_PORT:-8888}:8080"
+
+  migrate:
+    <<: *app-image
+    command: ["migrate", "-dir", "migrations", "-include-telegram"]
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    <<: *app-image
+    command: ["api"]
+    ports:
+      - "127.0.0.1:${STA_COMPOSE_API_PORT:-8080}:8080"
+    stop_grace_period: 20s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "/app/healthcheck", "/readyz"]
+      interval: 10s
+      timeout: 6s
+      retries: 6
+      start_period: 20s
+    restart: unless-stopped
+
+  chat-worker:
+    <<: *app-image
+    command: ["chat-worker"]
+    stop_grace_period: 20s
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  notification-worker:
+    <<: *app-image
+    command: ["notification-worker"]
+    stop_grace_period: 20s
+    depends_on:
+      api:
+        condition: service_healthy
+      mailhog:
+        condition: service_started
+    restart: unless-stopped
+
+  support-worker:
+    <<: *app-image
+    command: ["support-worker"]
+    stop_grace_period: 20s
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  ingestion-worker:
+    <<: *app-image
+    profiles: ["rabbitmq"]
+    command: ["ingestion-worker"]
+    environment:
+      STA_RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER:-sta}:${RABBITMQ_DEFAULT_PASS:-sta}@rabbitmq:5672/
+    stop_grace_period: 20s
+    depends_on:
+      api:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+  python-worker:
+    image: sta-worker:local
+    build:
+      context: ../worker
+      dockerfile: Dockerfile
+    command: ["worker.sta_worker.main"]
+    env_file: [.env]
+    stop_grace_period: 15s
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  discovery-worker:
+    image: sta-worker:local
+    build:
+      context: ../worker
+      dockerfile: Dockerfile
+    command: ["worker.sta_worker.discovery"]
+    env_file: [.env]
+    stop_grace_period: 15s
+    depends_on:
+      api:
+        condition: service_healthy
+      searxng:
+        condition: service_started
+    restart: unless-stopped
+
+  annual-maintenance:
+    <<: *app-image
+    profiles: ["maintenance"]
+    command: ["annual-maintenance"]
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
+  minio-data:
+  rabbitmq-data:
+  clamav-signatures:

@@ -1,0 +1,33 @@
+run:
+  timeout: 5m
+  build-tags:
+    - integration
+
+linters:
+  disable-all: true
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - bodyclose
+    - rowserrcheck
+    - sqlclosecheck
+    - misspell
+    - unconvert
+
+linters-settings:
+  errcheck:
+    check-type-assertions: true
+  misspell:
+    locale: US
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - errcheck
+        - bodyclose

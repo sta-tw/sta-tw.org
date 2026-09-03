@@ -1,0 +1,22 @@
+# Keep the build context small and deterministic.
+.git
+.tools
+.venv
+test-env
+temporary-console
+docs
+skills
+worker
+*.md
+.env
+.env.*
+!.env.example
+.github
+.idea
+.vscode
+coverage.out
+*.prof
+**/__pycache__
+**/*_test.go
+bin
+dist

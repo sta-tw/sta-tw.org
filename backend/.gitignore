@@ -1,0 +1,27 @@
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# Build output
+/bin/
+/dist/
+
+# Project-local toolchains
+.tools/
+
+# Coverage and profiling
+coverage.out
+*.prof
+
+# Local IDE files
+.idea/
+.vscode/
+
+# OS files
+.DS_Store
+
+# Python cache
+__pycache__/
+*.pyc
+.venv/
