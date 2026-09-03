@@ -1,6 +1,8 @@
 package security
 
 import (
+	"net/http"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -39,9 +41,36 @@ func NewFixedWindowLimiter(limit int, window time.Duration, maxKeys int) *FixedW
 	}
 }
 
+// Result is the outcome of one Take call, shaped for X-RateLimit-* headers.
+type Result struct {
+	Allowed   bool
+	Limit     int
+	Remaining int
+	Reset     time.Time // when the current window ends
+}
+
+// RetryAfter is how long a denied caller should wait, rounded up to whole
+// seconds (minimum 1). Zero when the call was allowed.
+func (r Result) RetryAfter(now time.Time) int {
+	if r.Allowed {
+		return 0
+	}
+	d := r.Reset.Sub(now)
+	if d <= 0 {
+		return 1
+	}
+	return int((d + time.Second - 1) / time.Second)
+}
+
 func (l *FixedWindowLimiter) Allow(key string, now time.Time) bool {
+	return l.Take(key, now).Allowed
+}
+
+// Take records one hit against key and reports the resulting window state.
+// A nil limiter always allows (Limit 0).
+func (l *FixedWindowLimiter) Take(key string, now time.Time) Result {
 	if l == nil {
-		return true
+		return Result{Allowed: true}
 	}
 	if key == "" {
 		key = "unknown"
@@ -56,14 +85,31 @@ func (l *FixedWindowLimiter) Allow(key string, now time.Time) bool {
 			l.evictOldest()
 		}
 		l.entries[key] = windowEntry{started: now, count: 1}
-		return true
+		return Result{Allowed: true, Limit: l.limit, Remaining: l.limit - 1, Reset: now.Add(l.window)}
 	}
+	reset := entry.started.Add(l.window)
 	if entry.count >= l.limit {
-		return false
+		return Result{Allowed: false, Limit: l.limit, Remaining: 0, Reset: reset}
 	}
 	entry.count++
 	l.entries[key] = entry
-	return true
+	return Result{Allowed: true, Limit: l.limit, Remaining: l.limit - entry.count, Reset: reset}
+}
+
+// WriteRateLimitHeaders sets X-RateLimit-Limit/Remaining/Reset from r, and
+// Retry-After when r denied the request. It is a no-op for a zero Result
+// (nil limiter), so callers can pass it unconditionally.
+func WriteRateLimitHeaders(w http.ResponseWriter, r Result, now time.Time) {
+	if r.Limit == 0 {
+		return
+	}
+	h := w.Header()
+	h.Set("X-RateLimit-Limit", strconv.Itoa(r.Limit))
+	h.Set("X-RateLimit-Remaining", strconv.Itoa(max(r.Remaining, 0)))
+	h.Set("X-RateLimit-Reset", strconv.FormatInt(r.Reset.Unix(), 10))
+	if !r.Allowed {
+		h.Set("Retry-After", strconv.Itoa(r.RetryAfter(now)))
+	}
 }
 
 func (l *FixedWindowLimiter) evictOldest() {

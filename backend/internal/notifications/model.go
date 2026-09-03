@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"sta-backend/internal/pagination"
 )
 
 var (
@@ -40,7 +41,7 @@ type Repository interface {
 	CreateInApp(context.Context, uuid.UUID, string, string, string, string) (Notification, error)
 	EnqueueEmailForAccount(context.Context, uuid.UUID, string, string, string, string) error
 	EnqueueEmailTo(context.Context, uuid.UUID, []byte, string, string, string) error
-	List(context.Context, uuid.UUID, int, int) ([]Notification, error)
+	List(context.Context, uuid.UUID, int, pagination.Cursor) ([]Notification, string, error)
 	MarkRead(context.Context, uuid.UUID, uuid.UUID) error
 }
 

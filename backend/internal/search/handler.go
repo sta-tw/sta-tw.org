@@ -45,7 +45,10 @@ func (h *Handler) search(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_query", "q must be 1-200 characters")
 		return
 	}
-	if !h.limiter.Allow(clientKey(r), time.Now()) {
+	now := time.Now()
+	rl := h.limiter.Take(clientKey(r), now)
+	security.WriteRateLimitHeaders(w, rl, now)
+	if !rl.Allowed {
 		writeError(w, http.StatusTooManyRequests, "rate_limited", "too many search requests")
 		return
 	}

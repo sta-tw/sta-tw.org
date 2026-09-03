@@ -166,13 +166,14 @@ func (h *Handler) addUserMessage(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	allowed, limiterErr := h.allowMessage(r.Context(), session.Session.Account.ID.String(), time.Now().UTC())
+	rlNow := time.Now().UTC()
+	rl, limiterErr := h.allowMessage(r.Context(), session.Session.Account.ID.String(), rlNow)
 	if limiterErr != nil {
 		writeSupportError(w, http.StatusServiceUnavailable, "rate_limit_unavailable", "request protection is temporarily unavailable")
 		return
 	}
-	if !allowed {
-		w.Header().Set("Retry-After", "60")
+	security.WriteRateLimitHeaders(w, rl, rlNow)
+	if !rl.Allowed {
 		writeSupportError(w, http.StatusTooManyRequests, "rate_limited", "too many support messages")
 		return
 	}
@@ -312,13 +313,14 @@ func (h *Handler) addAdminMessage(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	allowed, limiterErr := h.allowMessage(r.Context(), session.Session.Account.ID.String(), time.Now().UTC())
+	rlNow := time.Now().UTC()
+	rl, limiterErr := h.allowMessage(r.Context(), session.Session.Account.ID.String(), rlNow)
 	if limiterErr != nil {
 		writeSupportError(w, http.StatusServiceUnavailable, "rate_limit_unavailable", "request protection is temporarily unavailable")
 		return
 	}
-	if !allowed {
-		w.Header().Set("Retry-After", "60")
+	security.WriteRateLimitHeaders(w, rl, rlNow)
+	if !rl.Allowed {
 		writeSupportError(w, http.StatusTooManyRequests, "rate_limited", "too many support messages")
 		return
 	}
@@ -650,14 +652,23 @@ func (h *Handler) requireAdminMutation(w http.ResponseWriter, r *http.Request) (
 	return session, true
 }
 
-func (h *Handler) allowMessage(ctx context.Context, key string, now time.Time) (bool, error) {
-	if h.messageLimiter != nil && !h.messageLimiter.Allow(key, now) {
-		return false, nil
+func (h *Handler) allowMessage(ctx context.Context, key string, now time.Time) (security.Result, error) {
+	local := h.messageLimiter.Take(key, now)
+	if !local.Allowed {
+		return local, nil
 	}
 	if h.distributedLimiter == nil {
-		return true, nil
+		return local, nil
 	}
-	return h.distributedLimiter.Allow(ctx, "support-messages", key, 30, time.Minute, now)
+	allowed, err := h.distributedLimiter.Allow(ctx, "support-messages", key, 30, time.Minute, now)
+	if err != nil {
+		return security.Result{}, err
+	}
+	if !allowed {
+		local.Allowed = false
+		local.Remaining = 0
+	}
+	return local, nil
 }
 
 func (h *Handler) writeAttachmentUploadError(w http.ResponseWriter, err error) bool {

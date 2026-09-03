@@ -10,15 +10,17 @@ import (
 
 	"github.com/google/uuid"
 	"sta-backend/internal/auth"
+	"sta-backend/internal/security"
 	"sta-backend/internal/storage"
 )
 
 type Handler struct {
-	authService *auth.Service
-	service     *Service
-	repository  Repository
-	blobStore   storage.BlobStore
-	scanner     storage.Scanner
+	authService   *auth.Service
+	service       *Service
+	repository    Repository
+	blobStore     storage.BlobStore
+	scanner       storage.Scanner
+	uploadLimiter *security.FixedWindowLimiter
 }
 
 func NewHandler(authService *auth.Service, service *Service, repository Repository, blobStore storage.BlobStore) (*Handler, error) {
@@ -29,7 +31,14 @@ func NewHandlerWithScanner(authService *auth.Service, service *Service, reposito
 	if authService == nil || service == nil || repository == nil {
 		return nil, errors.New("verification handler dependencies are missing")
 	}
-	return &Handler{authService: authService, service: service, repository: repository, blobStore: blobStore, scanner: scanner}, nil
+	return &Handler{
+		authService:   authService,
+		service:       service,
+		repository:    repository,
+		blobStore:     blobStore,
+		scanner:       scanner,
+		uploadLimiter: security.NewFixedWindowLimiter(20, time.Minute, 10000),
+	}, nil
 }
 
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
@@ -128,6 +137,13 @@ func (h *Handler) uploadDocument(w http.ResponseWriter, r *http.Request) {
 	}
 	if h.blobStore == nil {
 		writeVerificationError(w, http.StatusServiceUnavailable, "storage_unavailable", "verification storage is unavailable")
+		return
+	}
+	now := time.Now()
+	rl := h.uploadLimiter.Take(session.Session.Account.ID.String(), now)
+	security.WriteRateLimitHeaders(w, rl, now)
+	if !rl.Allowed {
+		writeVerificationError(w, http.StatusTooManyRequests, "rate_limited", "too many uploads")
 		return
 	}
 	requestID, err := uuid.Parse(r.PathValue("requestID"))

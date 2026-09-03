@@ -14,14 +14,16 @@ import (
 
 	"github.com/google/uuid"
 	"sta-backend/internal/auth"
+	"sta-backend/internal/security"
 	"sta-backend/internal/storage"
 )
 
 type Handler struct {
-	authService *auth.Service
-	repository  Repository
-	blobStore   storage.BlobStore
-	scanner     storage.Scanner
+	authService   *auth.Service
+	repository    Repository
+	blobStore     storage.BlobStore
+	scanner       storage.Scanner
+	uploadLimiter *security.FixedWindowLimiter
 }
 
 func NewHandler(authService *auth.Service, repository Repository, blobStore storage.BlobStore) (*Handler, error) {
@@ -32,7 +34,13 @@ func NewHandlerWithScanner(authService *auth.Service, repository Repository, blo
 	if authService == nil || repository == nil || blobStore == nil {
 		return nil, errors.New("portfolio handler dependencies are missing")
 	}
-	return &Handler{authService: authService, repository: repository, blobStore: blobStore, scanner: scanner}, nil
+	return &Handler{
+		authService:   authService,
+		repository:    repository,
+		blobStore:     blobStore,
+		scanner:       scanner,
+		uploadLimiter: security.NewFixedWindowLimiter(20, time.Minute, 10000),
+	}, nil
 }
 
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
@@ -106,6 +114,13 @@ func (h *Handler) createProject(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) uploadFile(w http.ResponseWriter, r *http.Request) {
 	session, ok := h.requireVerified(w, r)
 	if !ok {
+		return
+	}
+	now := time.Now()
+	rl := h.uploadLimiter.Take(session.Session.Account.ID.String(), now)
+	security.WriteRateLimitHeaders(w, rl, now)
+	if !rl.Allowed {
+		writePortfolioError(w, http.StatusTooManyRequests, "rate_limited", "too many uploads")
 		return
 	}
 	projectID, err := uuid.Parse(r.PathValue("projectID"))

@@ -64,6 +64,20 @@ docker compose run --rm api reindex
 
 # validate the environment without starting the server
 docker compose run --rm api api -check-config
+
+# rotate the AES field-encryption key: add the new key to
+# STA_FIELD_ENCRYPTION_KEYS, point STA_FIELD_ENCRYPTION_PRIMARY_VERSION at it,
+# restart, then migrate data at rest (dry run first)
+docker compose run --rm api reencrypt
+docker compose run --rm api reencrypt -apply
+
+# GDPR: export one account's data as JSON (read-only)
+docker compose run --rm api account-tool -mode export -account <uuid|username> -out /tmp/export.json
+
+# GDPR: erase one account (dry run first; add -yes to apply). Prints the
+# object-storage keys you must delete separately.
+docker compose run --rm api account-tool -mode erase -account <uuid|username> -reason "user request 2026-..."
+docker compose run --rm api account-tool -mode erase -account <uuid|username> -reason "user request 2026-..." -yes
 ```
 
 ## Ports

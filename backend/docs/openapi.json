@@ -1776,6 +1776,48 @@
         }
       }
     },
+    "/api/v1/admin/audit-log": {
+      "get": {
+        "operationId": "get_api_v1_admin_audit_log",
+        "summary": "Get admin audit log",
+        "tags": [
+          "admin-audit-log"
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "csrf": [],
+            "adminMFA": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/admin/experience-revisions/{revisionID}/review": {
       "post": {
         "operationId": "post_api_v1_admin_experience_revisions_revisionID_review",
@@ -2933,6 +2975,48 @@
             }
           }
         },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/stats": {
+      "get": {
+        "operationId": "get_api_v1_admin_stats",
+        "summary": "Get admin stats",
+        "tags": [
+          "admin-stats"
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "csrf": [],
+            "adminMFA": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
+          }
+        ],
         "responses": {
           "200": {
             "description": "OK",

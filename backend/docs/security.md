@@ -6,6 +6,12 @@
 
 - 密碼使用 Argon2id；資料庫只保存編碼後的 hash，不保存原始密碼。
 - Email 使用 AES-256-GCM 加密保存，使用 HMAC-SHA-256 lookup hash 做唯一查找。
+- 欄位加密支援金鑰輪替：ciphertext 前綴一個 byte 的 key version，`FieldCipher`
+  可同時持有多把金鑰（舊金鑰保留供讀取，primary 供寫入），未加版本的舊資料以
+  legacy key 作 fallback。以 `STA_FIELD_ENCRYPTION_KEYS` /
+  `STA_FIELD_ENCRYPTION_PRIMARY_VERSION` 設定，換金鑰後執行 `reencrypt -apply`
+  把靜態資料搬到新金鑰，再淘汰舊金鑰。HMAC lookup hash 由正規化明文推導，不在
+  此流程內輪替。
 - session、CSRF、OAuth state 與 OAuth provider subject 不保存明文值。
 - OAuth 使用 state 與 PKCE；callback 一次性消耗 state。
 - 原生帳號先建立；OAuth 未綁定時只拒絕登入，不自動建立帳號。
@@ -39,7 +45,8 @@
 
 ## 正式環境仍需由部署與維運完成
 
-- 以正式 secret manager 注入並輪替 AES／HMAC key。
+- 以正式 secret manager 注入 AES／HMAC key；AES key 輪替走
+  `STA_FIELD_ENCRYPTION_KEYS` + `reencrypt`。
 - 實際套用 migration 並驗證 append-only trigger、備份與還原。
 - 維護 ClamAV 病毒庫、隔離網路與解壓縮資源限制；signature 與 ClamAV 仍不等同完整滲透測試。
 - 完成最小權限、稽核告警與年度驗證文件清理演練。

@@ -5,12 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"sta-backend/internal/auth"
+	"sta-backend/internal/pagination"
 )
 
 type eventPublisher interface {
@@ -157,16 +159,26 @@ func getMessage(ctx context.Context, tx dbTx, messageID uuid.UUID) (Message, err
 	return message, err
 }
 
-func (r *PostgresRepository) ListMessages(ctx context.Context, limit, offset int) ([]Message, error) {
+func (r *PostgresRepository) ListMessages(ctx context.Context, limit int, after pagination.Cursor) ([]Message, string, error) {
+	limit = pagination.ClampLimit(limit, 50, 100)
+	var afterTime *time.Time
+	var afterID *uuid.UUID
+	if !after.Zero() {
+		t := after.Time
+		id := after.UUID()
+		afterTime, afterID = &t, &id
+	}
 	rows, err := r.pool.Query(ctx, `
 		SELECT m.id::text, m.body, m.source_platform, m.status, m.created_at, m.edited_at
 		FROM chat_messages m
 		JOIN chat_channels c ON c.id = m.channel_id AND c.channel_key = 'lounge'
 		WHERE m.status <> 'deleted'
-		ORDER BY m.created_at DESC LIMIT $1 OFFSET $2
-	`, limit, offset)
+		  AND ($2::timestamptz IS NULL OR (m.created_at, m.id) < ($2::timestamptz, $3::uuid))
+		ORDER BY m.created_at DESC, m.id DESC
+		LIMIT $1
+	`, limit, afterTime, afterID)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	defer rows.Close()
 	result := make([]Message, 0)
@@ -174,15 +186,23 @@ func (r *PostgresRepository) ListMessages(ctx context.Context, limit, offset int
 		var message Message
 		var idText string
 		if err := rows.Scan(&idText, &message.Body, &message.SourcePlatform, &message.Status, &message.CreatedAt, &message.EditedAt); err != nil {
-			return nil, err
+			return nil, "", err
 		}
 		message.ID, err = uuid.Parse(idText)
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
 		result = append(result, message)
 	}
-	return result, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, "", err
+	}
+	var next string
+	if n := len(result); n > 0 {
+		last := result[n-1]
+		next = pagination.Next(n, limit, last.CreatedAt, last.ID)
+	}
+	return result, next, nil
 }
 
 func (r *PostgresRepository) ClaimOutbox(ctx context.Context, limit int) ([]OutboxTask, error) {

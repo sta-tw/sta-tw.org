@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"sta-backend/internal/auth"
+	"sta-backend/internal/pagination"
 )
 
 type Handler struct {
@@ -91,12 +92,16 @@ func (h *Handler) listThreads(w http.ResponseWriter, r *http.Request) {
 		writeContentError(w, http.StatusBadRequest, "invalid_space_id", "space id is invalid")
 		return
 	}
-	threads, err := h.repository.ListThreads(r.Context(), h.optionalAccountID(r), spaceID)
+	limit, cursor, ok := contentPageQuery(w, r)
+	if !ok {
+		return
+	}
+	threads, nextCursor, err := h.repository.ListThreads(r.Context(), h.optionalAccountID(r), spaceID, limit, cursor)
 	if err != nil {
 		h.writeRepositoryError(w, err)
 		return
 	}
-	writeContentJSON(w, http.StatusOK, map[string]any{"data": threads})
+	writeContentJSON(w, http.StatusOK, map[string]any{"data": threads, "next_cursor": nextCursor})
 }
 
 func (h *Handler) listPosts(w http.ResponseWriter, r *http.Request) {
@@ -105,12 +110,16 @@ func (h *Handler) listPosts(w http.ResponseWriter, r *http.Request) {
 		writeContentError(w, http.StatusBadRequest, "invalid_thread_id", "thread id is invalid")
 		return
 	}
-	posts, err := h.repository.ListPosts(r.Context(), h.optionalAccountID(r), threadID)
+	limit, cursor, ok := contentPageQuery(w, r)
+	if !ok {
+		return
+	}
+	posts, nextCursor, err := h.repository.ListPosts(r.Context(), h.optionalAccountID(r), threadID, limit, cursor)
 	if err != nil {
 		h.writeRepositoryError(w, err)
 		return
 	}
-	writeContentJSON(w, http.StatusOK, map[string]any{"data": posts})
+	writeContentJSON(w, http.StatusOK, map[string]any{"data": posts, "next_cursor": nextCursor})
 }
 
 func (h *Handler) createThread(w http.ResponseWriter, r *http.Request) {
@@ -166,24 +175,16 @@ func (h *Handler) createPost(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) listExperiences(w http.ResponseWriter, r *http.Request) {
-	limit, offset := 50, 0
-	var err error
-	if raw := r.URL.Query().Get("limit"); raw != "" {
-		limit, err = strconv.Atoi(raw)
-	}
-	if raw := r.URL.Query().Get("offset"); raw != "" {
-		offset, err = strconv.Atoi(raw)
-	}
-	if err != nil || limit < 1 || limit > 100 || offset < 0 || offset > 10000 {
-		writeContentError(w, http.StatusBadRequest, "invalid_query", "experience query is invalid")
+	limit, cursor, ok := contentPageQuery(w, r)
+	if !ok {
 		return
 	}
-	experiences, err := h.repository.ListPublishedExperiences(r.Context(), limit, offset)
+	experiences, nextCursor, err := h.repository.ListPublishedExperiences(r.Context(), limit, cursor)
 	if err != nil {
 		writeContentError(w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
 	}
-	writeContentJSON(w, http.StatusOK, map[string]any{"data": experiences})
+	writeContentJSON(w, http.StatusOK, map[string]any{"data": experiences, "next_cursor": nextCursor})
 }
 
 func (h *Handler) getExperience(w http.ResponseWriter, r *http.Request) {
@@ -411,4 +412,24 @@ func writeContentJSON(w http.ResponseWriter, status int, payload any) {
 
 func writeContentError(w http.ResponseWriter, status int, code, message string) {
 	writeContentJSON(w, status, contentErrorBody{Error: contentError{Code: code, Message: message}})
+}
+
+// contentPageQuery reads the shared ?limit=&cursor= keyset pagination inputs.
+// On invalid input it writes a 400 and returns ok=false.
+func contentPageQuery(w http.ResponseWriter, r *http.Request) (int, pagination.Cursor, bool) {
+	limit := 50
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 1 || parsed > 100 {
+			writeContentError(w, http.StatusBadRequest, "invalid_query", "list query is invalid")
+			return 0, pagination.Cursor{}, false
+		}
+		limit = parsed
+	}
+	cursor, err := pagination.Decode(r.URL.Query().Get("cursor"))
+	if err != nil {
+		writeContentError(w, http.StatusBadRequest, "invalid_query", "list query is invalid")
+		return 0, pagination.Cursor{}, false
+	}
+	return limit, cursor, true
 }

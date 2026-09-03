@@ -82,10 +82,21 @@ under `/api/v1/admin/…`:
 - `admin/telegram-cross-check/*`
 - `admin/experience-revisions/{id}/review`
 
-**Not present**: unified `/admin/stats`, generic user management
-(list/suspend/force-logout), a global audit-log query API (only per-entity
-`…/history`), a reputation system, portfolio-rule CRUD, public `/stats`. These
-are roadmap items.
+Cross-cutting operator routes (admin role + admin MFA, read-only, no CSRF):
+
+- `GET /api/v1/admin/stats` — one JSON snapshot: entity counts (accounts by
+  status/identity, applications, experiences, forum, chat, support tickets,
+  verification requests, result batches, audit-log total) plus the backlog of
+  every retry outbox (`pending` / `failed` / `abandoned` for email, chat sync,
+  support Discord, willingness notifications). `abandoned > 0` is the alert.
+- `GET /api/v1/admin/audit-log` — global query over the shared `audit_log`
+  (the per-domain `…/history` routes only ever show one entity). Filters:
+  `entity_type`, `entity_key`, `action`, `actor` (UUID), `since` / `until`
+  (RFC3339). Keyset pagination: `?limit=` (≤ 100) + `next_cursor` → `?cursor=`.
+
+**Not present**: generic user management (list/suspend/force-logout), a
+reputation system, portfolio-rule CRUD, public `/stats`. These are roadmap
+items.
 
 ## 5. Portfolio
 
@@ -115,19 +126,28 @@ route is not mounted. School master also still has `GET /api/v1/schools?q=`.
 
 - Errors: `{"error": {"code": "<snake_case>", "message": "<human text>"}}`.
   Branch on `code`; `message` is not stable and mixes English/Chinese.
-- Pagination: `?limit=` (≤ 100) `&offset=` (≤ 10000). Offset only for now;
-  cursor pagination for high-volume lists (forum, chat, notifications) is a
-  roadmap item.
+- Pagination:
+  - Keyset (opaque cursor) on the high-volume lists — chat lounge messages,
+    notifications, published experiences, forum threads, forum posts. Send
+    `?limit=` (≤ 100, default 50); the response carries `next_cursor` (a string).
+    When `next_cursor` is `""` there are no more rows; otherwise pass it back as
+    `?cursor=`. Cursors are opaque — do not parse them. `?offset=` is ignored on
+    these routes.
+  - Offset (`?limit=` ≤ 100 `&offset=` ≤ 10000) still applies to the remaining
+    admin/list routes (support tickets, admissions programs, sources, portfolio,
+    ingestion candidates).
 - `X-Request-ID`: sent back on every response; send your own to correlate.
-- No `X-RateLimit-*` headers yet (roadmap). `429` with `code: "rate_limited"`.
+- Rate limiting: `429` with `code: "rate_limited"`. The rate-limited routes
+  (search, chat and support messages, portfolio / verification / brochure
+  uploads, the `/internal/extraction/*` callbacks) send `X-RateLimit-Limit`,
+  `X-RateLimit-Remaining`, `X-RateLimit-Reset` (unix seconds) on every response
+  and `Retry-After` (seconds) on a `429`. Other routes are not yet limited.
 - Versioning: the team keeps changing `/api/v1` in coordination with the
   frontend; there is no `/api/v2` and no deprecation window.
 
 ## Roadmap (tracked separately)
 
-cursor pagination (forum / chat / notifications) · unified `/admin/stats` +
-user management + audit-log query API · account deletion / data export ·
-`X-RateLimit-*` response headers + broader rate-limit coverage · OpenTelemetry
-tracing across the job boundary · encryption key-version columns for AES/HMAC
-key rotation · message reactions / pins / threads · multi-channel chat · user
-profiles + avatars.
+generic user management (list / suspend / force-logout) · broader rate-limit
+coverage (auth, admin mutations) · OpenTelemetry tracing across the job
+boundary · HMAC lookup-hash key rotation · message reactions / pins / threads ·
+multi-channel chat · user profiles + avatars.

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"sta-backend/internal/admin"
 	"sta-backend/internal/admissions"
 	"sta-backend/internal/applications"
 	"sta-backend/internal/auth"
@@ -92,7 +93,11 @@ func run(logger *slog.Logger) error {
 		}
 		defer databasePool.Close()
 		eventHub = events.NewHub(hubCtx, databasePool, logger)
-		fieldCipher, err = auth.NewFieldCipher(cfg.EmailEncryptionKey)
+		if cfg.FieldEncryptionKeys != nil {
+			fieldCipher, err = auth.NewFieldCipherRing(cfg.FieldEncryptionPrimaryVersion, cfg.FieldEncryptionKeys, cfg.EmailEncryptionKey)
+		} else {
+			fieldCipher, err = auth.NewFieldCipher(cfg.EmailEncryptionKey)
+		}
 		if err != nil {
 			return err
 		}
@@ -328,6 +333,13 @@ func run(logger *slog.Logger) error {
 			return err
 		}
 		registrars = append(registrars, sseHandler.RegisterRoutes)
+	}
+	if authService != nil && databasePool != nil {
+		adminHandler, err := admin.NewHandler(authService, databasePool)
+		if err != nil {
+			return err
+		}
+		registrars = append(registrars, adminHandler.RegisterRoutes)
 	}
 	if authService != nil && databasePool != nil && cfg.MeilisearchURL != "" {
 		searchClient, err := search.NewClient(cfg.MeilisearchURL, cfg.MeilisearchKey)

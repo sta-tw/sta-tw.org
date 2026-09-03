@@ -69,13 +69,19 @@ type Config struct {
 	RequireAdminMFA                         bool
 	EmailEncryptionKey                      []byte
 	LookupHMACKey                           []byte
-	SessionTTL                              time.Duration
-	GoogleOAuth                             OAuthProviderConfig
-	DiscordOAuth                            OAuthProviderConfig
-	MaxJSONBodyBytes                        int64
-	ShutdownTimeout                         time.Duration
-	EnableDebugResponses                    bool
-	CookieSecure                            bool
+	// FieldEncryptionKeys, when set, turns FieldCipher into a rotating keyring.
+	// Format: STA_FIELD_ENCRYPTION_KEYS="1:<base64>,2:<base64>" and
+	// STA_FIELD_ENCRYPTION_PRIMARY_VERSION="2". EmailEncryptionKey stays the
+	// legacy (unversioned) read key.
+	FieldEncryptionKeys           map[byte][]byte
+	FieldEncryptionPrimaryVersion byte
+	SessionTTL                    time.Duration
+	GoogleOAuth                   OAuthProviderConfig
+	DiscordOAuth                  OAuthProviderConfig
+	MaxJSONBodyBytes              int64
+	ShutdownTimeout               time.Duration
+	EnableDebugResponses          bool
+	CookieSecure                  bool
 }
 
 type OAuthProviderConfig struct {
@@ -141,6 +147,9 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	if config.LookupHMACKey, err = decodeKey("STA_LOOKUP_HMAC_KEY"); err != nil {
+		return Config{}, err
+	}
+	if config.FieldEncryptionKeys, config.FieldEncryptionPrimaryVersion, err = decodeKeyRing(); err != nil {
 		return Config{}, err
 	}
 	config.GoogleOAuth = oauthProviderFromEnv("STA_GOOGLE_CLIENT_ID", "STA_GOOGLE_CLIENT_SECRET", "STA_GOOGLE_REDIRECT_URL")
@@ -254,6 +263,51 @@ func decodeKey(key string) ([]byte, error) {
 		return nil, fmt.Errorf("%s must be a base64-encoded 32-byte key", key)
 	}
 	return decoded, nil
+}
+
+// decodeKeyRing parses STA_FIELD_ENCRYPTION_KEYS ("1:<b64>,2:<b64>") plus
+// STA_FIELD_ENCRYPTION_PRIMARY_VERSION. Both empty means "no keyring" (the
+// single-key path stays in effect); a partial config is a hard error.
+func decodeKeyRing() (map[byte][]byte, byte, error) {
+	raw := strings.TrimSpace(os.Getenv("STA_FIELD_ENCRYPTION_KEYS"))
+	primaryRaw := strings.TrimSpace(os.Getenv("STA_FIELD_ENCRYPTION_PRIMARY_VERSION"))
+	if raw == "" && primaryRaw == "" {
+		return nil, 0, nil
+	}
+	if raw == "" || primaryRaw == "" {
+		return nil, 0, fmt.Errorf("STA_FIELD_ENCRYPTION_KEYS and STA_FIELD_ENCRYPTION_PRIMARY_VERSION must be set together")
+	}
+	primary, err := strconv.Atoi(primaryRaw)
+	if err != nil || primary < 1 || primary > 255 {
+		return nil, 0, fmt.Errorf("STA_FIELD_ENCRYPTION_PRIMARY_VERSION must be an integer 1-255")
+	}
+	keys := make(map[byte][]byte)
+	for _, pair := range strings.Split(raw, ",") {
+		pair = strings.TrimSpace(pair)
+		if pair == "" {
+			continue
+		}
+		version, encoded, ok := strings.Cut(pair, ":")
+		if !ok {
+			return nil, 0, fmt.Errorf("STA_FIELD_ENCRYPTION_KEYS entries must be \"<version>:<base64 key>\"")
+		}
+		v, err := strconv.Atoi(strings.TrimSpace(version))
+		if err != nil || v < 1 || v > 255 {
+			return nil, 0, fmt.Errorf("STA_FIELD_ENCRYPTION_KEYS version %q must be an integer 1-255", version)
+		}
+		decoded, err := base64.RawStdEncoding.DecodeString(strings.TrimSpace(encoded))
+		if err != nil {
+			decoded, err = base64.StdEncoding.DecodeString(strings.TrimSpace(encoded))
+		}
+		if err != nil || len(decoded) != 32 {
+			return nil, 0, fmt.Errorf("STA_FIELD_ENCRYPTION_KEYS version %d must be a base64-encoded 32-byte key", v)
+		}
+		keys[byte(v)] = decoded
+	}
+	if len(keys[byte(primary)]) != 32 {
+		return nil, 0, fmt.Errorf("STA_FIELD_ENCRYPTION_PRIMARY_VERSION %d has no matching key in STA_FIELD_ENCRYPTION_KEYS", primary)
+	}
+	return keys, byte(primary), nil
 }
 
 func oauthProviderFromEnv(clientIDKey, clientSecretKey, redirectURLKey string) OAuthProviderConfig {

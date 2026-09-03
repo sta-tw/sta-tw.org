@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"sta-backend/internal/pagination"
 )
 
 var (
@@ -79,15 +80,15 @@ type Repository interface {
 	ListSpaces(context.Context, *uuid.UUID) ([]Space, error)
 	JoinSpace(context.Context, uuid.UUID, uuid.UUID) error
 	LeaveSpace(context.Context, uuid.UUID, uuid.UUID) error
-	ListThreads(context.Context, *uuid.UUID, uuid.UUID) ([]Thread, error)
-	ListPosts(context.Context, *uuid.UUID, uuid.UUID) ([]Post, error)
+	ListThreads(context.Context, *uuid.UUID, uuid.UUID, int, pagination.Cursor) ([]Thread, string, error)
+	ListPosts(context.Context, *uuid.UUID, uuid.UUID, int, pagination.Cursor) ([]Post, string, error)
 	CreateThread(context.Context, uuid.UUID, uuid.UUID, string, string) (Thread, Post, error)
 	CreatePost(context.Context, uuid.UUID, uuid.UUID, string, *uuid.UUID) (Post, error)
 	CreateExperience(context.Context, uuid.UUID, CreateExperienceInput) (Experience, error)
 	CreateRevision(context.Context, uuid.UUID, uuid.UUID, CreateRevisionInput) (Experience, error)
 	SubmitRevision(context.Context, uuid.UUID, uuid.UUID) (Experience, error)
 	UnpublishExperience(context.Context, uuid.UUID, uuid.UUID) error
-	ListPublishedExperiences(context.Context, int, int) ([]Experience, error)
+	ListPublishedExperiences(context.Context, int, pagination.Cursor) ([]Experience, string, error)
 	GetExperience(context.Context, *uuid.UUID, uuid.UUID) (Experience, error)
 	ReviewExperience(context.Context, uuid.UUID, uuid.UUID, ReviewInput) (Experience, error)
 	IsAdmin(context.Context, uuid.UUID) (bool, error)

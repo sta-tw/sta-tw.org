@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"sta-backend/internal/auth"
+	"sta-backend/internal/pagination"
 	"sta-backend/internal/security"
 )
 
@@ -52,17 +53,17 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 }
 
 func (h *Handler) listMessages(w http.ResponseWriter, r *http.Request) {
-	limit, offset, err := pageQuery(r)
+	limit, cursor, err := pageQuery(r)
 	if err != nil {
 		writeChatError(w, http.StatusBadRequest, "invalid_query", "chat query is invalid")
 		return
 	}
-	messages, err := h.repository.ListMessages(r.Context(), limit, offset)
+	messages, nextCursor, err := h.repository.ListMessages(r.Context(), limit, cursor)
 	if err != nil {
 		writeChatError(w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
 	}
-	writeChatJSON(w, http.StatusOK, map[string]any{"data": messages})
+	writeChatJSON(w, http.StatusOK, map[string]any{"data": messages, "next_cursor": nextCursor})
 }
 
 func (h *Handler) createWebsiteMessage(w http.ResponseWriter, r *http.Request) {
@@ -75,13 +76,14 @@ func (h *Handler) createWebsiteMessage(w http.ResponseWriter, r *http.Request) {
 		writeChatError(w, http.StatusForbidden, "csrf_required", "request verification failed")
 		return
 	}
-	allowed, limiterErr := h.allowMessage(r.Context(), session.Session.Account.ID.String(), time.Now().UTC())
+	now := time.Now().UTC()
+	rl, limiterErr := h.allowMessage(r.Context(), session.Session.Account.ID.String(), now)
 	if limiterErr != nil {
 		writeChatError(w, http.StatusServiceUnavailable, "rate_limit_unavailable", "request protection is temporarily unavailable")
 		return
 	}
-	if !allowed {
-		w.Header().Set("Retry-After", "60")
+	security.WriteRateLimitHeaders(w, rl, now)
+	if !rl.Allowed {
 		writeChatError(w, http.StatusTooManyRequests, "rate_limited", "too many messages")
 		return
 	}
@@ -101,14 +103,23 @@ func (h *Handler) createWebsiteMessage(w http.ResponseWriter, r *http.Request) {
 	writeChatJSON(w, http.StatusCreated, map[string]any{"data": message})
 }
 
-func (h *Handler) allowMessage(ctx context.Context, key string, now time.Time) (bool, error) {
-	if h.messageLimiter != nil && !h.messageLimiter.Allow(key, now) {
-		return false, nil
+func (h *Handler) allowMessage(ctx context.Context, key string, now time.Time) (security.Result, error) {
+	local := h.messageLimiter.Take(key, now)
+	if !local.Allowed {
+		return local, nil
 	}
 	if h.distributedLimiter == nil {
-		return true, nil
+		return local, nil
 	}
-	return h.distributedLimiter.Allow(ctx, "chat-messages", key, 20, time.Minute, now)
+	allowed, err := h.distributedLimiter.Allow(ctx, "chat-messages", key, 20, time.Minute, now)
+	if err != nil {
+		return security.Result{}, err
+	}
+	if !allowed {
+		local.Allowed = false
+		local.Remaining = 0
+	}
+	return local, nil
 }
 
 func (h *Handler) discordWebhook(w http.ResponseWriter, r *http.Request) {
@@ -147,19 +158,20 @@ func (h *Handler) handleWebhook(w http.ResponseWriter, r *http.Request, platform
 	writeChatJSON(w, http.StatusOK, map[string]any{"data": message})
 }
 
-func pageQuery(r *http.Request) (int, int, error) {
-	limit, offset := 50, 0
-	var err error
+func pageQuery(r *http.Request) (int, pagination.Cursor, error) {
+	limit := 50
 	if raw := r.URL.Query().Get("limit"); raw != "" {
-		limit, err = strconv.Atoi(raw)
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 1 || parsed > 100 {
+			return 0, pagination.Cursor{}, ErrInvalidMessage
+		}
+		limit = parsed
 	}
-	if raw := r.URL.Query().Get("offset"); raw != "" {
-		offset, err = strconv.Atoi(raw)
+	cursor, err := pagination.Decode(r.URL.Query().Get("cursor"))
+	if err != nil {
+		return 0, pagination.Cursor{}, ErrInvalidMessage
 	}
-	if err != nil || limit < 1 || limit > 100 || offset < 0 || offset > 10000 {
-		return 0, 0, ErrInvalidMessage
-	}
-	return limit, offset, nil
+	return limit, cursor, nil
 }
 
 func decodeChatJSON(r *http.Request, destination any) error {

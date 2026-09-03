@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"sta-backend/internal/pagination"
 )
 
 var (
@@ -74,7 +75,7 @@ type ExternalMessage struct {
 type Repository interface {
 	CreateWebsiteMessage(context.Context, uuid.UUID, string) (Message, error)
 	ApplyExternalMessage(context.Context, ExternalMessage, []byte) (Message, error)
-	ListMessages(context.Context, int, int) ([]Message, error)
+	ListMessages(context.Context, int, pagination.Cursor) ([]Message, string, error)
 }
 
 type Publisher interface {

@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"sta-backend/internal/auth"
+	"sta-backend/internal/pagination"
 )
 
 type Handler struct {
@@ -33,17 +34,17 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	limit, offset, err := notificationPageQuery(r)
+	limit, cursor, err := notificationPageQuery(r)
 	if err != nil {
 		writeNotificationError(w, http.StatusBadRequest, "invalid_query", "notification query is invalid")
 		return
 	}
-	items, err := h.repository.List(r.Context(), session.Session.Account.ID, limit, offset)
+	items, nextCursor, err := h.repository.List(r.Context(), session.Session.Account.ID, limit, cursor)
 	if err != nil {
 		writeNotificationError(w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
 	}
-	writeNotificationJSON(w, http.StatusOK, map[string]any{"data": items})
+	writeNotificationJSON(w, http.StatusOK, map[string]any{"data": items, "next_cursor": nextCursor})
 }
 
 func (h *Handler) markRead(w http.ResponseWriter, r *http.Request) {
@@ -80,19 +81,20 @@ func (h *Handler) authenticate(w http.ResponseWriter, r *http.Request) (auth.Req
 	return session, true
 }
 
-func notificationPageQuery(r *http.Request) (int, int, error) {
-	limit, offset := 50, 0
-	var err error
+func notificationPageQuery(r *http.Request) (int, pagination.Cursor, error) {
+	limit := 50
 	if raw := r.URL.Query().Get("limit"); raw != "" {
-		limit, err = strconv.Atoi(raw)
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 1 || parsed > 100 {
+			return 0, pagination.Cursor{}, errors.New("invalid notification page")
+		}
+		limit = parsed
 	}
-	if raw := r.URL.Query().Get("offset"); raw != "" {
-		offset, err = strconv.Atoi(raw)
+	cursor, err := pagination.Decode(r.URL.Query().Get("cursor"))
+	if err != nil {
+		return 0, pagination.Cursor{}, err
 	}
-	if err != nil || limit < 1 || limit > 100 || offset < 0 || offset > 10000 {
-		return 0, 0, errors.New("invalid notification page")
-	}
-	return limit, offset, nil
+	return limit, cursor, nil
 }
 
 type notificationErrorBody struct {
