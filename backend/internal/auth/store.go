@@ -92,6 +92,28 @@ type AdminRoleStore interface {
 	IsAdmin(context.Context, uuid.UUID) (bool, error)
 }
 
+// SessionSummary is a redacted view of one login session for the
+// session-management endpoints. IP and user agent are stored only as hashes, so
+// they are not exposed.
+type SessionSummary struct {
+	ID         uuid.UUID  `json:"id"`
+	CreatedAt  time.Time  `json:"created_at"`
+	LastSeenAt *time.Time `json:"last_seen_at,omitempty"`
+	ExpiresAt  time.Time  `json:"expires_at"`
+}
+
+// SessionManagementStore is the optional persistence for listing and revoking
+// an account's own sessions.
+type SessionManagementStore interface {
+	ListActiveSessions(ctx context.Context, accountID uuid.UUID, now time.Time) ([]SessionSummary, error)
+	// RevokeAccountSession revokes one session that belongs to accountID and
+	// reports whether a row was affected (false = not found / not theirs).
+	RevokeAccountSession(ctx context.Context, accountID, sessionID uuid.UUID, now time.Time) (bool, error)
+	// RevokeOtherAccountSessions revokes every active session for accountID
+	// except keepSessionID.
+	RevokeOtherAccountSessions(ctx context.Context, accountID, keepSessionID uuid.UUID, now time.Time) (int64, error)
+}
+
 type AdminMFARecord struct {
 	SecretCiphertext []byte
 	EnabledAt        *time.Time

@@ -13,9 +13,14 @@ import (
 	"sta-backend/internal/auth"
 )
 
+type eventPublisher interface {
+	PublishData(ctx context.Context, topic, kind string, data any) error
+}
+
 type PostgresRepository struct {
 	pool      *pgxpool.Pool
 	lookupKey []byte
+	publisher eventPublisher
 }
 
 func NewPostgresRepository(pool *pgxpool.Pool, lookupKey []byte) (*PostgresRepository, error) {
@@ -23,6 +28,23 @@ func NewPostgresRepository(pool *pgxpool.Pool, lookupKey []byte) (*PostgresRepos
 		return nil, errors.New("chat repository dependencies are missing")
 	}
 	return &PostgresRepository{pool: pool, lookupKey: append([]byte(nil), lookupKey...)}, nil
+}
+
+// SetEventPublisher wires an SSE hub so new lounge messages emit a live event.
+func (r *PostgresRepository) SetEventPublisher(p eventPublisher) { r.publisher = p }
+
+func (r *PostgresRepository) announce(ctx context.Context, message Message) {
+	if r.publisher == nil {
+		return
+	}
+	_ = r.publisher.PublishData(ctx, "chat:lounge", "chat.message", map[string]any{
+		"id":              message.ID,
+		"body":            message.Body,
+		"source_platform": message.SourcePlatform,
+		"status":          message.Status,
+		"created_at":      message.CreatedAt,
+		"edited_at":       message.EditedAt,
+	})
 }
 
 func (r *PostgresRepository) CreateWebsiteMessage(ctx context.Context, accountID uuid.UUID, body string) (Message, error) {
@@ -45,6 +67,7 @@ func (r *PostgresRepository) CreateWebsiteMessage(ctx context.Context, accountID
 	if err := tx.Commit(ctx); err != nil {
 		return Message{}, err
 	}
+	r.announce(ctx, message)
 	return message, nil
 }
 
@@ -84,6 +107,7 @@ func (r *PostgresRepository) ApplyExternalMessage(ctx context.Context, input Ext
 		if err := tx.Commit(ctx); err != nil {
 			return Message{}, err
 		}
+		r.announce(ctx, message)
 		return message, nil
 	} else if err != nil {
 		return Message{}, err
@@ -115,6 +139,7 @@ func (r *PostgresRepository) ApplyExternalMessage(ctx context.Context, input Ext
 	if err := tx.Commit(ctx); err != nil {
 		return Message{}, err
 	}
+	r.announce(ctx, message)
 	return message, nil
 }
 

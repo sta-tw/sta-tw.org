@@ -58,6 +58,12 @@ docker compose run --rm api bootstrap-admin -username <existing-username>
 
 # yearly cleanup for a specific 3-digit ROC academic year
 docker compose --profile maintenance run --rm annual-maintenance -academic-year 114
+
+# rebuild the Meilisearch indexes from PostgreSQL
+docker compose run --rm api reindex
+
+# validate the environment without starting the server
+docker compose run --rm api api -check-config
 ```
 
 ## Ports

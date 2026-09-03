@@ -13,6 +13,7 @@ import (
 	"sta-backend/internal/auth"
 	"sta-backend/internal/config"
 	"sta-backend/internal/db"
+	"sta-backend/internal/httpapi"
 	"sta-backend/internal/support"
 )
 
@@ -70,6 +71,11 @@ func run(logger *slog.Logger) error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	go func() {
+		if err := httpapi.RunWorkerHealth(ctx, os.Getenv("STA_WORKER_HEALTH_ADDR"), logger, databasePool.Ping); err != nil {
+			logger.Warn("worker health server stopped", "error", err)
+		}
+	}()
 
 	// Run the outbox sync worker and the Discord gateway together. If either
 	// exits with a non-context error, cancel the other and surface it rather

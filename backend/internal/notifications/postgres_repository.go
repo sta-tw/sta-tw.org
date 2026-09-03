@@ -14,9 +14,16 @@ import (
 	"sta-backend/internal/auth"
 )
 
+// eventPublisher is satisfied by *events.Hub. It lets a freshly created in-app
+// notification wake a live SSE stream without this package importing the hub.
+type eventPublisher interface {
+	PublishData(ctx context.Context, topic, kind string, data any) error
+}
+
 type PostgresRepository struct {
-	pool   *pgxpool.Pool
-	cipher *auth.FieldCipher
+	pool      *pgxpool.Pool
+	cipher    *auth.FieldCipher
+	publisher eventPublisher
 }
 
 func NewPostgresRepository(pool *pgxpool.Pool, cipher *auth.FieldCipher) (*PostgresRepository, error) {
@@ -25,6 +32,9 @@ func NewPostgresRepository(pool *pgxpool.Pool, cipher *auth.FieldCipher) (*Postg
 	}
 	return &PostgresRepository{pool: pool, cipher: cipher}, nil
 }
+
+// SetEventPublisher wires an SSE hub so CreateInApp emits a live event.
+func (r *PostgresRepository) SetEventPublisher(p eventPublisher) { r.publisher = p }
 
 func (r *PostgresRepository) CreateInApp(ctx context.Context, accountID uuid.UUID, kind, dedupKey, title, body string) (Notification, error) {
 	if strings.TrimSpace(kind) == "" || strings.TrimSpace(dedupKey) == "" || strings.TrimSpace(title) == "" || strings.TrimSpace(body) == "" {
@@ -60,6 +70,14 @@ func (r *PostgresRepository) CreateInApp(ctx context.Context, accountID uuid.UUI
 	notification.Body, err = r.cipher.Open(bodyCiphertext)
 	if err != nil {
 		return Notification{}, err
+	}
+	if r.publisher != nil {
+		// Best effort: never fail the write because the live channel is down.
+		_ = r.publisher.PublishData(ctx, "notifications:"+accountID.String(), "notification.created", map[string]any{
+			"id":         notification.ID,
+			"kind":       notification.Kind,
+			"created_at": notification.CreatedAt,
+		})
 	}
 	return notification, nil
 }

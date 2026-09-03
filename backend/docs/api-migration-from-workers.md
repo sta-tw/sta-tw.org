@@ -20,7 +20,7 @@ The authoritative route list is `GET /api/v1/openapi.json` (also
 | `POST /auth/forgot-password` / `reset-password` | `POST /api/v1/auth/password-reset/request` (always `202`, no account enumeration) → email token → `POST /api/v1/auth/password-reset/confirm` `{token, new_password}`. Confirming revokes every session |
 | `POST /auth/change-password` | `POST /api/v1/auth/password/change` `{current_password, new_password}` (logged in; revokes other sessions) |
 | `POST /auth/verify-email` / `resend-verification` | `POST /api/v1/auth/email-verification/confirm` `{token}` (works with just the emailed token, or with a session) / `POST /api/v1/auth/email-verification/resend` (session required) |
-| `GET /auth/sessions`, `DELETE /auth/sessions/:id`, `DELETE /auth/sessions` | **not yet implemented** — no session-list / remote-logout endpoints. On the roadmap |
+| `GET /auth/sessions`, `DELETE /auth/sessions/:id`, `DELETE /auth/sessions` | `GET /api/v1/auth/sessions` (redacted list; IP/UA are hash-only), `DELETE /api/v1/auth/sessions/{id}` (one other session), `DELETE /api/v1/auth/sessions` (all others). Current session is kept — use logout for it. |
 | `GET /auth/oauth/:provider` + callback | `GET /api/v1/auth/oauth/{provider}/start` + `GET /api/v1/auth/oauth/{provider}/callback`; bind an extra provider with `POST /api/v1/auth/oauth/{provider}/bind/start`. Providers: `google`, `discord` |
 
 **CSRF**: any state-changing request made with the session **cookie** must send
@@ -46,8 +46,10 @@ The Go backend has:
   `.../threads/{id}/posts`, join/leave. Threads + posts only.
 - **Experiences** (心得文章): `GET /api/v1/experiences`, revision workflow with
   admin review. Articles have no comments; forum posts may quote an experience.
-- **Realtime**: not yet. Clients poll today; Server-Sent Events for lounge +
-  notifications is the planned transport (roadmap).
+- **Realtime**: `GET /api/v1/events` is a Server-Sent Events stream (auth
+  required) carrying `chat.message` for the lounge and `notification.created`
+  for the caller. Backed by Postgres LISTEN/NOTIFY so it works across API
+  replicas. Reconnect with the browser `EventSource` default.
 
 Cross-platform sync (Discord / Telegram ↔ lounge) is handled by the
 `chat-worker` process and inbound webhooks, transparent to the frontend.
@@ -103,9 +105,11 @@ machine `hidden → pending_review → published` (+ `unpublished`, `rejected`).
 Old: `GET /search` (Meilisearch multi-search over messages/channels/users) +
 `POST /search/reindex`.
 
-Go backend: **no general search endpoint yet.** School master has fuzzy search
-(`GET /api/v1/schools?q=`). A Meilisearch-backed multi-resource search is a
-roadmap item (decision: Meilisearch, for typo tolerance).
+Go backend: `GET /api/v1/search?q=<term>&types=schools,programs,experiences`
+(public, rate-limited) runs a Meilisearch multi-search and returns hits grouped
+by index. `POST /api/v1/admin/search/reindex` (admin) or `cmd/reindex` rebuilds
+the indexes from PostgreSQL. Requires `STA_MEILISEARCH_URL`; when unset the
+route is not mounted. School master also still has `GET /api/v1/schools?q=`.
 
 ## 7. Conventions
 
@@ -121,8 +125,9 @@ roadmap item (decision: Meilisearch, for typo tolerance).
 
 ## Roadmap (tracked separately)
 
-SSE realtime · Meilisearch search + reindex · session-management endpoints ·
-cursor pagination · unified admin/stats + user management + audit-log API ·
-account deletion / data export · `X-RateLimit-*` headers · OpenTelemetry
-tracing across the job boundary · encryption key-version columns · bearer-token
-list/revoke.
+cursor pagination (forum / chat / notifications) · unified `/admin/stats` +
+user management + audit-log query API · account deletion / data export ·
+`X-RateLimit-*` response headers + broader rate-limit coverage · OpenTelemetry
+tracing across the job boundary · encryption key-version columns for AES/HMAC
+key rotation · message reactions / pins / threads · multi-channel chat · user
+profiles + avatars.
