@@ -60,7 +60,7 @@ func (r *PostgresRepository) List(ctx context.Context, adminID uuid.UUID, query 
 		       source_type, status, decision_mode, affiliation_confidence,
 		       discovery_method, evidence, first_seen_at, last_seen_at,
 		       last_crawled_at, last_discovery_at, discovery_needed,
-		       discovery_reason, rejected_reason, manual_note, created_by,
+		       COALESCE(discovery_reason, '') AS discovery_reason, COALESCE(rejected_reason, '') AS rejected_reason, COALESCE(manual_note, '') AS manual_note, created_by,
 		       updated_by, created_at, updated_at
 		FROM admissions_sources
 		WHERE %s
@@ -138,7 +138,7 @@ func (r *PostgresRepository) Update(ctx context.Context, adminID, sourceID uuid.
 		          source_type, status, decision_mode, affiliation_confidence,
 		          discovery_method, evidence, first_seen_at, last_seen_at,
 		          last_crawled_at, last_discovery_at, discovery_needed,
-		          discovery_reason, rejected_reason, manual_note, created_by,
+		          COALESCE(discovery_reason, '') AS discovery_reason, COALESCE(rejected_reason, '') AS rejected_reason, COALESCE(manual_note, '') AS manual_note, created_by,
 		          updated_by, created_at, updated_at
 	`, adminID, input.SchoolCode, input.AcademicYear, input.SourceURL, normalizedURL, hostname,
 		input.SourceType, input.Status, input.DecisionMode, input.AffiliationConfidence,
@@ -178,7 +178,7 @@ func (r *PostgresRepository) insert(ctx context.Context, adminID uuid.UUID, inpu
 		          source_type, status, decision_mode, affiliation_confidence,
 		          discovery_method, evidence, first_seen_at, last_seen_at,
 		          last_crawled_at, last_discovery_at, discovery_needed,
-		          discovery_reason, rejected_reason, manual_note, created_by,
+		          COALESCE(discovery_reason, '') AS discovery_reason, COALESCE(rejected_reason, '') AS rejected_reason, COALESCE(manual_note, '') AS manual_note, created_by,
 		          updated_by, created_at, updated_at
 	`, input.SchoolCode, input.AcademicYear, input.SourceURL, normalizedURL, hostname,
 		input.SourceType, input.Status, input.DecisionMode, input.AffiliationConfidence,

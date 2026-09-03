@@ -36,6 +36,9 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/auth/password-reset/request", h.requestPasswordReset)
 	mux.HandleFunc("POST /api/v1/auth/password-reset/confirm", h.confirmPasswordReset)
 	mux.HandleFunc("POST /api/v1/auth/password/change", h.changePassword)
+	mux.HandleFunc("GET /api/v1/auth/sessions", h.listSessions)
+	mux.HandleFunc("DELETE /api/v1/auth/sessions/{sessionID}", h.revokeSession)
+	mux.HandleFunc("DELETE /api/v1/auth/sessions", h.revokeOtherSessions)
 	mux.HandleFunc("GET /api/v1/auth/admin-mfa/status", h.adminMFAStatus)
 	mux.HandleFunc("POST /api/v1/auth/admin-mfa/setup", h.adminMFASetup)
 	mux.HandleFunc("POST /api/v1/auth/admin-mfa/enable", h.adminMFAEnable)
@@ -165,6 +168,60 @@ func (h *Handler) changePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeAuthJSON(w, http.StatusNoContent, nil)
+}
+
+func (h *Handler) listSessions(w http.ResponseWriter, r *http.Request) {
+	session, err := h.service.Authenticate(r.Context(), r)
+	if err != nil {
+		writeAuthError(w, http.StatusUnauthorized, "unauthorized", "authentication is required")
+		return
+	}
+	items, err := h.service.ListSessions(r.Context(), session)
+	if err != nil {
+		h.writeServiceError(w, err)
+		return
+	}
+	writeAuthJSON(w, http.StatusOK, map[string]any{"data": items})
+}
+
+func (h *Handler) revokeSession(w http.ResponseWriter, r *http.Request) {
+	session, err := h.service.Authenticate(r.Context(), r)
+	if err != nil {
+		writeAuthError(w, http.StatusUnauthorized, "unauthorized", "authentication is required")
+		return
+	}
+	if err := h.service.AuthorizeMutation(r, session); err != nil {
+		writeAuthError(w, http.StatusForbidden, "csrf_required", "request verification failed")
+		return
+	}
+	sessionID, err := uuid.Parse(r.PathValue("sessionID"))
+	if err != nil {
+		writeAuthError(w, http.StatusBadRequest, "invalid_request", "session id is invalid")
+		return
+	}
+	if err := h.service.RevokeSession(r.Context(), session, sessionID); err != nil {
+		h.writeServiceError(w, err)
+		return
+	}
+	writeAuthJSON(w, http.StatusNoContent, nil)
+}
+
+func (h *Handler) revokeOtherSessions(w http.ResponseWriter, r *http.Request) {
+	session, err := h.service.Authenticate(r.Context(), r)
+	if err != nil {
+		writeAuthError(w, http.StatusUnauthorized, "unauthorized", "authentication is required")
+		return
+	}
+	if err := h.service.AuthorizeMutation(r, session); err != nil {
+		writeAuthError(w, http.StatusForbidden, "csrf_required", "request verification failed")
+		return
+	}
+	revoked, err := h.service.RevokeOtherSessions(r.Context(), session)
+	if err != nil {
+		h.writeServiceError(w, err)
+		return
+	}
+	writeAuthJSON(w, http.StatusOK, map[string]any{"revoked": revoked})
 }
 
 func (h *Handler) adminMFAStatus(w http.ResponseWriter, r *http.Request) {
@@ -427,6 +484,8 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, err error) {
 		writeAuthError(w, http.StatusUnprocessableEntity, "verification_expired", "email verification token is invalid or expired")
 	case errors.Is(err, ErrInvalidToken):
 		writeAuthError(w, http.StatusUnprocessableEntity, "invalid_token", "the token is invalid or has expired")
+	case errors.Is(err, ErrNotFound):
+		writeAuthError(w, http.StatusNotFound, "not_found", "the resource was not found")
 	default:
 		// Keep provider/database details out of the HTTP log; errors can contain
 		// URLs, SQL fragments, or provider response data.

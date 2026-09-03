@@ -13,6 +13,7 @@ import (
 	"sta-backend/internal/config"
 	"sta-backend/internal/db"
 	"sta-backend/internal/email"
+	"sta-backend/internal/httpapi"
 	"sta-backend/internal/notifications"
 )
 
@@ -63,6 +64,11 @@ func run(logger *slog.Logger) error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	go func() {
+		if err := httpapi.RunWorkerHealth(ctx, os.Getenv("STA_WORKER_HEALTH_ADDR"), logger, databasePool.Ping); err != nil {
+			logger.Warn("worker health server stopped", "error", err)
+		}
+	}()
 	if err := worker.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		return err
 	}

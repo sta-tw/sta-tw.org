@@ -96,6 +96,22 @@ services:
       retries: 10
       start_period: 180s
 
+  meilisearch:
+    image: getmeili/meilisearch:v1.11
+    environment:
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-sta-local-meili-master-key}
+      MEILI_NO_ANALYTICS: "true"
+      MEILI_ENV: development
+    volumes:
+      - meili-data:/meili_data
+    ports:
+      - "127.0.0.1:${STA_COMPOSE_MEILI_PORT:-7700}:7700"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:7700/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
   mailhog:
     image: mailhog/mailhog:latest
     ports:
@@ -131,6 +147,8 @@ services:
         condition: service_completed_successfully
       migrate:
         condition: service_completed_successfully
+      meilisearch:
+        condition: service_started
     healthcheck:
       test: ["CMD", "/app/healthcheck", "/readyz"]
       interval: 10s
@@ -142,6 +160,14 @@ services:
   chat-worker:
     <<: *app-image
     command: ["chat-worker"]
+    environment:
+      STA_HEALTHCHECK_URL: http://127.0.0.1:9090/healthz
+    healthcheck:
+      test: ["CMD", "/app/healthcheck"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
     stop_grace_period: 20s
     depends_on:
       api:
@@ -151,6 +177,14 @@ services:
   notification-worker:
     <<: *app-image
     command: ["notification-worker"]
+    environment:
+      STA_HEALTHCHECK_URL: http://127.0.0.1:9090/healthz
+    healthcheck:
+      test: ["CMD", "/app/healthcheck"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
     stop_grace_period: 20s
     depends_on:
       api:
@@ -162,6 +196,14 @@ services:
   support-worker:
     <<: *app-image
     command: ["support-worker"]
+    environment:
+      STA_HEALTHCHECK_URL: http://127.0.0.1:9090/healthz
+    healthcheck:
+      test: ["CMD", "/app/healthcheck"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
     stop_grace_period: 20s
     depends_on:
       api:
@@ -174,6 +216,13 @@ services:
     command: ["ingestion-worker"]
     environment:
       STA_RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER:-sta}:${RABBITMQ_DEFAULT_PASS:-sta}@rabbitmq:5672/
+      STA_HEALTHCHECK_URL: http://127.0.0.1:9090/healthz
+    healthcheck:
+      test: ["CMD", "/app/healthcheck"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
     stop_grace_period: 20s
     depends_on:
       api:
@@ -224,3 +273,4 @@ volumes:
   minio-data:
   rabbitmq-data:
   clamav-signatures:
+  meili-data:

@@ -148,6 +148,11 @@ func ValidateInput(input Input) (Input, error) {
 	if len(input.Evidence) > 50 || len([]rune(input.SourceURL)) > 4000 || len([]rune(input.ManualNote)) > 4000 || len([]rune(input.DiscoveryReason)) > 1000 || len([]rune(input.RejectedReason)) > 2000 {
 		return Input{}, ErrInvalid
 	}
+	if input.Evidence == nil {
+		// Marshalling a nil slice yields JSON "null", which violates the
+		// evidence-is-an-array check constraint.
+		input.Evidence = []Evidence{}
+	}
 	for index := range input.Evidence {
 		input.Evidence[index].URL = strings.TrimSpace(input.Evidence[index].URL)
 		input.Evidence[index].Locator = strings.TrimSpace(input.Evidence[index].Locator)

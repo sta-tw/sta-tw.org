@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"log/slog"
 	"net/http"
 	"os"
@@ -19,6 +20,7 @@ import (
 	"sta-backend/internal/config"
 	"sta-backend/internal/content"
 	"sta-backend/internal/db"
+	"sta-backend/internal/events"
 	"sta-backend/internal/httpapi"
 	"sta-backend/internal/ingestion"
 	"sta-backend/internal/jobs"
@@ -27,8 +29,10 @@ import (
 	"sta-backend/internal/portfolio"
 	"sta-backend/internal/results"
 	"sta-backend/internal/schools"
+	"sta-backend/internal/search"
 	"sta-backend/internal/security"
 	"sta-backend/internal/sources"
+	"sta-backend/internal/sse"
 	"sta-backend/internal/storage"
 	"sta-backend/internal/support"
 	"sta-backend/internal/telegramcrosscheck"
@@ -37,6 +41,16 @@ import (
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	checkConfig := flag.Bool("check-config", false, "validate configuration from the environment and exit")
+	flag.Parse()
+	if *checkConfig {
+		if _, err := config.Load(); err != nil {
+			logger.Error("configuration is invalid", "error", err)
+			os.Exit(1)
+		}
+		logger.Info("configuration is valid")
+		return
+	}
 	if err := run(logger); err != nil {
 		logger.Error("api stopped with error", "error", err)
 		os.Exit(1)
@@ -61,9 +75,14 @@ func run(logger *slog.Logger) error {
 	var resultRepository *results.PostgresRepository
 	var discoveryHandler *brochurediscovery.Handler
 	var ingestionService *ingestion.Service
+	var eventHub *events.Hub
 	registrars := make([]httpapi.RouteRegistrar, 0, 2)
 	var readiness httpapi.ReadinessCheck
 	var readinessChecks []httpapi.NamedCheck
+
+	hubCtx, hubCancel := context.WithCancel(context.Background())
+	defer hubCancel()
+
 	if cfg.DatabaseURL != "" {
 		startupContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		databasePool, err = db.OpenPostgres(startupContext, cfg.DatabaseURL)
@@ -72,6 +91,7 @@ func run(logger *slog.Logger) error {
 			return err
 		}
 		defer databasePool.Close()
+		eventHub = events.NewHub(hubCtx, databasePool, logger)
 		fieldCipher, err = auth.NewFieldCipher(cfg.EmailEncryptionKey)
 		if err != nil {
 			return err
@@ -234,6 +254,9 @@ func run(logger *slog.Logger) error {
 			return err
 		}
 		authService.ConfigureEmailVerification(notificationRepository, cfg.PublicBaseURL)
+		if pg, ok := notificationRepository.(*notifications.PostgresRepository); ok {
+			pg.SetEventPublisher(eventHub)
+		}
 		notificationHandler, err := notifications.NewHandler(authService, notificationRepository)
 		if err != nil {
 			return err
@@ -291,12 +314,34 @@ func run(logger *slog.Logger) error {
 		if err != nil {
 			return err
 		}
+		chatRepository.SetEventPublisher(eventHub)
 		chatHandler, err := chat.NewHandler(authService, chatRepository, cfg.DiscordChatWebhookSecret, cfg.TelegramChatWebhookSecret, cfg.LookupHMACKey)
 		if err != nil {
 			return err
 		}
 		chatHandler.ConfigureDistributedLimiter(distributedLimiter)
 		registrars = append(registrars, chatHandler.RegisterRoutes)
+	}
+	if authService != nil && eventHub != nil {
+		sseHandler, err := sse.NewHandler(authService, eventHub)
+		if err != nil {
+			return err
+		}
+		registrars = append(registrars, sseHandler.RegisterRoutes)
+	}
+	if authService != nil && databasePool != nil && cfg.MeilisearchURL != "" {
+		searchClient, err := search.NewClient(cfg.MeilisearchURL, cfg.MeilisearchKey)
+		if err != nil {
+			return err
+		}
+		if searchClient != nil {
+			searchHandler, err := search.NewHandler(authService, searchClient, databasePool)
+			if err != nil {
+				return err
+			}
+			registrars = append(registrars, searchHandler.RegisterRoutes)
+			logger.Info("Meilisearch search enabled")
+		}
 	}
 	if cfg.RabbitMQURL != "" {
 		messageBroker, err = jobs.OpenBroker(jobs.BrokerConfig{

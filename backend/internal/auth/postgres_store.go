@@ -310,6 +310,52 @@ func (s *PostgresStore) ConsumeEmailVerificationToken(ctx context.Context, token
 	return tx.Commit(ctx)
 }
 
+// --- session management --------------------------------------------------
+
+func (s *PostgresStore) ListActiveSessions(ctx context.Context, accountID uuid.UUID, now time.Time) ([]SessionSummary, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, created_at, last_seen_at, expires_at
+		FROM account_sessions
+		WHERE account_id = $1 AND revoked_at IS NULL AND expires_at > $2
+		ORDER BY COALESCE(last_seen_at, created_at) DESC
+	`, accountID, now)
+	if err != nil {
+		return nil, fmt.Errorf("list sessions: %w", err)
+	}
+	defer rows.Close()
+	result := make([]SessionSummary, 0)
+	for rows.Next() {
+		var item SessionSummary
+		if err := rows.Scan(&item.ID, &item.CreatedAt, &item.LastSeenAt, &item.ExpiresAt); err != nil {
+			return nil, fmt.Errorf("scan session: %w", err)
+		}
+		result = append(result, item)
+	}
+	return result, rows.Err()
+}
+
+func (s *PostgresStore) RevokeAccountSession(ctx context.Context, accountID, sessionID uuid.UUID, now time.Time) (bool, error) {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE account_sessions SET revoked_at = COALESCE(revoked_at, $3)
+		WHERE id = $1 AND account_id = $2 AND revoked_at IS NULL
+	`, sessionID, accountID, now)
+	if err != nil {
+		return false, fmt.Errorf("revoke session: %w", err)
+	}
+	return tag.RowsAffected() > 0, nil
+}
+
+func (s *PostgresStore) RevokeOtherAccountSessions(ctx context.Context, accountID, keepSessionID uuid.UUID, now time.Time) (int64, error) {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE account_sessions SET revoked_at = COALESCE(revoked_at, $3)
+		WHERE account_id = $1 AND id <> $2 AND revoked_at IS NULL
+	`, accountID, keepSessionID, now)
+	if err != nil {
+		return 0, fmt.Errorf("revoke other sessions: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
 // --- password reset -------------------------------------------------------
 
 func (s *PostgresStore) LookupAccountIDByEmailHash(ctx context.Context, emailLookupHash []byte) (uuid.UUID, error) {

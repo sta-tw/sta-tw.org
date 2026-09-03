@@ -48,7 +48,9 @@ Phase 4～10 已加入：
 - Telegram-only 簡章 smoke bot：可用長輪詢驗證 Bot token、STA API healthz 與已上架簡章短效連結，不需要啟動 Discord worker。
 - 交叉查榜核心與 Telegram adapter 分層；核心只提供前端使用的查榜／意願 API。設定 `STA_TELEGRAM_CROSS_CHECK_TOKEN` 並套用可選 migration 後，`cmd/api` 才會掛載 Telegram adapter。
 
-Phase 13 為可上線化：CI（build／vet／golangci-lint／govulncheck／整合測試）、`Dockerfile` 與 `deploy/` 單機 compose、Prometheus `/metrics` 與 access log、深度 `/readyz`、worker graceful shutdown、outbox 重試上限與退避（migration `000027`）、RabbitMQ 斷線重連與有界 publish、`internal/dbtest` 整合測試骨架與 12 個 repository 的真 PostgreSQL 整合測試。整合測試過程中修掉數個 `jsonb_build_object($n)`／參數型別推斷過脆的 SQL（support ticket 建立、chat outbox、application service ticket、verification request、brochure discovery 事件），這些在預備語句模式下會直接回 42P08／42P18。
+Phase 13 為可上線化：CI（build／vet／golangci-lint／govulncheck／整合測試）、`Dockerfile` 與 `deploy/` 單機 compose、Prometheus `/metrics` 與 access log、深度 `/readyz`、worker graceful shutdown、outbox 重試上限與退避（migration `000027`）、RabbitMQ 斷線重連與有界 publish、`internal/dbtest` 整合測試骨架與 15 個 repository 的真 PostgreSQL 整合測試。整合測試過程中修掉數個型別推斷過脆的 SQL（`jsonb_build_object($n)`、`INSERT...SELECT` 參數推斷、nil 陣列被序列化成 `null`、nullable 文字欄位 scan 失敗），這些在預備語句模式下會直接回 42P08／42P18／23514／scan error。
+
+Phase 14 補前端整合與缺口：`GET /api/v1/openapi.json`（由 `docs/openapi/generate.py` 產生的 shallow spec）、忘記密碼／改密碼流程（migration `000028`，consume token 撤銷全部 session）、`GET|DELETE /api/v1/auth/sessions`（session 管理）、Admin MFA 改由每個 `requireAdmin` helper 明確強制（不再只靠 URL 前綴）、`cmd/api -check-config`、Go worker 的 `STA_WORKER_HEALTH_ADDR` 健康埠、SSE 即時串流 `GET /api/v1/events`（Postgres LISTEN/NOTIFY，跨副本）、Meilisearch 全文搜尋 `GET /api/v1/search` + `POST /api/v1/admin/search/reindex` + `cmd/reindex`。舊 Workers 後端的介面對照見 [docs/api-migration-from-workers.md](docs/api-migration-from-workers.md)。
 
 ## 開發
 

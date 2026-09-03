@@ -63,6 +63,8 @@ type Config struct {
 	SMTPFrom                                string
 	SMTPUseTLS                              bool
 	PublicBaseURL                           string
+	MeilisearchURL                          string
+	MeilisearchKey                          string
 	RequireEduEmail                         bool
 	RequireAdminMFA                         bool
 	EmailEncryptionKey                      []byte
@@ -123,6 +125,8 @@ func Load() (Config, error) {
 		SMTPFrom:                                strings.TrimSpace(os.Getenv("STA_SMTP_FROM")),
 		SMTPUseTLS:                              !strings.EqualFold(strings.TrimSpace(os.Getenv("STA_SMTP_USE_TLS")), "false"),
 		PublicBaseURL:                           strings.TrimRight(strings.TrimSpace(os.Getenv("STA_PUBLIC_BASE_URL")), "/"),
+		MeilisearchURL:                          strings.TrimSpace(os.Getenv("STA_MEILISEARCH_URL")),
+		MeilisearchKey:                          strings.TrimSpace(os.Getenv("STA_MEILISEARCH_KEY")),
 		RequireEduEmail:                         strings.EqualFold(valueOrDefault("STA_REQUIRE_EDU_EMAIL", "false"), "true"),
 		RequireAdminMFA:                         false,
 		MaxJSONBodyBytes:                        defaultMaxJSONBodyBytes,

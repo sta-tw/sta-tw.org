@@ -347,6 +347,60 @@ func (s *Service) ChangePassword(ctx context.Context, session RequestSession, cu
 	return store.UpdatePasswordForAccount(ctx, session.Session.Account.ID, newHash, session.Session.ID)
 }
 
+// SessionListItem is one entry returned by ListSessions, with a flag marking
+// the caller's current session.
+type SessionListItem struct {
+	SessionSummary
+	Current bool `json:"current"`
+}
+
+// ListSessions returns the caller's active sessions, newest activity first.
+func (s *Service) ListSessions(ctx context.Context, session RequestSession) ([]SessionListItem, error) {
+	store, ok := s.store.(SessionManagementStore)
+	if !ok {
+		return nil, ErrNotConfigured
+	}
+	summaries, err := store.ListActiveSessions(ctx, session.Session.Account.ID, s.now().UTC())
+	if err != nil {
+		return nil, err
+	}
+	items := make([]SessionListItem, 0, len(summaries))
+	for _, item := range summaries {
+		items = append(items, SessionListItem{SessionSummary: item, Current: item.ID == session.Session.ID})
+	}
+	return items, nil
+}
+
+// RevokeSession revokes one of the caller's other sessions. Revoking the
+// current session is rejected — use Logout for that.
+func (s *Service) RevokeSession(ctx context.Context, session RequestSession, sessionID uuid.UUID) error {
+	store, ok := s.store.(SessionManagementStore)
+	if !ok {
+		return ErrNotConfigured
+	}
+	if sessionID == session.Session.ID {
+		return ErrInvalidInput
+	}
+	revoked, err := store.RevokeAccountSession(ctx, session.Session.Account.ID, sessionID, s.now().UTC())
+	if err != nil {
+		return err
+	}
+	if !revoked {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// RevokeOtherSessions revokes every session for the caller except the current
+// one.
+func (s *Service) RevokeOtherSessions(ctx context.Context, session RequestSession) (int64, error) {
+	store, ok := s.store.(SessionManagementStore)
+	if !ok {
+		return 0, ErrNotConfigured
+	}
+	return store.RevokeOtherAccountSessions(ctx, session.Session.Account.ID, session.Session.ID, s.now().UTC())
+}
+
 func (s *Service) ConfigureOAuth(provider string, settings OAuthProviderSettings) error {
 	provider = strings.ToLower(strings.TrimSpace(provider))
 	if provider != "google" && provider != "discord" {
