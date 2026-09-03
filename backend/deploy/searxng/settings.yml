@@ -1,0 +1,27 @@
+# SearXNG settings for the STA brochure-discovery worker.
+# Only overrides what discovery needs; everything else inherits image defaults.
+use_default_settings: true
+
+server:
+  # Override in deploy/compose.env / your orchestrator for anything but local use.
+  secret_key: "sta-local-searxng-secret-change-me"
+  limiter: false
+  image_proxy: false
+  method: "GET"
+
+search:
+  # The discovery worker calls /search?format=json, so JSON must be allowed.
+  formats:
+    - html
+    - json
+  safe_search: 0
+  autocomplete: ""
+  default_lang: "zh-TW"
+
+engines:
+  - name: google
+    disabled: false
+  - name: bing
+    disabled: false
+  - name: duckduckgo
+    disabled: false

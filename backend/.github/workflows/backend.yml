@@ -1,0 +1,86 @@
+# Reference CI for the Go backend. GitHub only runs workflows from
+# .github/workflows at the REPOSITORY ROOT, so to activate this, move it there
+# and scope it to backend/, e.g.:
+#
+#   on:
+#     pull_request:
+#       paths: ["backend/**"]
+#   defaults:
+#     run:
+#       working-directory: backend
+#
+# Test jobs are omitted because *_test.go and worker/tests are not vendored into
+# this directory; run the full suite (unit + `-tags integration` against a
+# PostgreSQL service, STA_TEST_DATABASE_URL set) from the source repository.
+name: backend
+
+on:
+  push:
+    branches: [main, "backend-**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  GO_VERSION: "1.26.0"
+
+jobs:
+  build:
+    name: build / vet / fmt / openapi
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l ./cmd ./internal)
+          if [ -n "$unformatted" ]; then
+            echo "::error::gofmt needed on:"; echo "$unformatted"; exit 1
+          fi
+      - run: go build -buildvcs=false ./...
+      - run: go vet ./...
+      - name: openapi.json in sync with routes
+        run: |
+          python3 docs/openapi/generate.py
+          git diff --exit-code -- docs/openapi.json internal/httpapi/openapi.json \
+            || { echo "::error::openapi.json is stale — run python3 docs/openapi/generate.py"; exit 1; }
+
+  lint:
+    name: golangci-lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - uses: golangci/golangci-lint-action@v6
+        with:
+          version: v1.62.2
+          args: --timeout=5m
+
+  vuln:
+    name: govulncheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - run: go install golang.org/x/vuln/cmd/govulncheck@latest
+      - run: govulncheck ./...
+
+  ruff:
+    name: python lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pipx run ruff==0.8.4 check worker
