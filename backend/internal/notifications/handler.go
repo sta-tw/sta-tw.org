@@ -26,7 +26,39 @@ func NewHandler(authService *auth.Service, repository Repository) (*Handler, err
 
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/notifications", h.list)
+	mux.HandleFunc("GET /api/v1/notifications/unread-count", h.unreadCount)
+	mux.HandleFunc("POST /api/v1/notifications/read-all", h.markAllRead)
 	mux.HandleFunc("POST /api/v1/notifications/{notificationID}/read", h.markRead)
+}
+
+func (h *Handler) unreadCount(w http.ResponseWriter, r *http.Request) {
+	session, ok := h.authenticate(w, r)
+	if !ok {
+		return
+	}
+	count, err := h.repository.UnreadCount(r.Context(), session.Session.Account.ID)
+	if err != nil {
+		writeNotificationError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	writeNotificationJSON(w, http.StatusOK, map[string]any{"unread": count})
+}
+
+func (h *Handler) markAllRead(w http.ResponseWriter, r *http.Request) {
+	session, ok := h.authenticate(w, r)
+	if !ok {
+		return
+	}
+	if err := h.authService.AuthorizeMutation(r, session); err != nil {
+		writeNotificationError(w, http.StatusForbidden, "csrf_required", "request verification failed")
+		return
+	}
+	updated, err := h.repository.MarkAllRead(r.Context(), session.Session.Account.ID)
+	if err != nil {
+		writeNotificationError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	writeNotificationJSON(w, http.StatusOK, map[string]any{"marked_read": updated})
 }
 
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) {

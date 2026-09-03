@@ -42,7 +42,9 @@ type Repository interface {
 	EnqueueEmailForAccount(context.Context, uuid.UUID, string, string, string, string) error
 	EnqueueEmailTo(context.Context, uuid.UUID, []byte, string, string, string) error
 	List(context.Context, uuid.UUID, int, pagination.Cursor) ([]Notification, string, error)
+	UnreadCount(context.Context, uuid.UUID) (int, error)
 	MarkRead(context.Context, uuid.UUID, uuid.UUID) error
+	MarkAllRead(context.Context, uuid.UUID) (int64, error)
 }
 
 type EmailOutboxStore interface {

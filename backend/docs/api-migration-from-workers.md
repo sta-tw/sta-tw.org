@@ -50,6 +50,10 @@ The Go backend has:
   required) carrying `chat.message` for the lounge and `notification.created`
   for the caller. Backed by Postgres LISTEN/NOTIFY so it works across API
   replicas. Reconnect with the browser `EventSource` default.
+- **Notifications**: `GET /api/v1/notifications` (keyset paged, see below),
+  `GET /api/v1/notifications/unread-count` → `{"unread": n}`,
+  `POST /api/v1/notifications/read-all` → `{"marked_read": n}`,
+  `POST /api/v1/notifications/{id}/read`.
 
 Cross-platform sync (Discord / Telegram ↔ lounge) is handled by the
 `chat-worker` process and inbound webhooks, transparent to the frontend.

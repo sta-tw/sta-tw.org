@@ -32,19 +32,27 @@ import (
 type target struct {
 	table  string
 	column string
+	key    string // primary key column to page by (uuid); defaults to "id"
+}
+
+func (t target) keyColumn() string {
+	if t.key == "" {
+		return "id"
+	}
+	return t.key
 }
 
 var targets = []target{
-	{"accounts", "email_ciphertext"},
-	{"notifications", "title_ciphertext"},
-	{"notifications", "body_ciphertext"},
-	{"email_outbox", "recipient_ciphertext"},
-	{"email_outbox", "payload_ciphertext"},
-	{"account_admin_mfa", "secret_ciphertext"},
-	{"oauth_states", "code_verifier_ciphertext"},
-	{"applications", "candidate_number_ciphertext"},
-	{"verification_requests", "school_email_ciphertext"},
-	{"support_tickets", "requester_email_ciphertext"},
+	{table: "accounts", column: "email_ciphertext"},
+	{table: "notifications", column: "title_ciphertext"},
+	{table: "notifications", column: "body_ciphertext"},
+	{table: "email_outbox", column: "recipient_ciphertext"},
+	{table: "email_outbox", column: "payload_ciphertext"},
+	{table: "account_admin_mfa", column: "secret_ciphertext", key: "account_id"},
+	{table: "oauth_states", column: "code_verifier_ciphertext"},
+	{table: "applications", column: "candidate_number_ciphertext"},
+	{table: "verification_requests", column: "school_email_ciphertext"},
+	{table: "support_tickets", column: "requester_email_ciphertext"},
 }
 
 func main() {
@@ -114,10 +122,11 @@ func buildCipher(cfg config.Config) (*auth.FieldCipher, error) {
 // value not already at the primary version decrypts then re-encrypts it.
 func rotateColumn(ctx context.Context, pool *pgxpool.Pool, cipher *auth.FieldCipher, t target, apply bool, batch int) (scanned, rewritten int, err error) {
 	var afterID string // uuid text; "" = from the start
+	key := t.keyColumn()
 	selectSQL := fmt.Sprintf(
-		`SELECT id::text, %s FROM %s WHERE %s IS NOT NULL AND ($1 = '' OR id > $1::uuid) ORDER BY id LIMIT $2`,
-		t.column, t.table, t.column)
-	updateSQL := fmt.Sprintf(`UPDATE %s SET %s = $2 WHERE id = $1::uuid`, t.table, t.column)
+		`SELECT %s::text, %s FROM %s WHERE %s IS NOT NULL AND ($1 = '' OR %s > $1::uuid) ORDER BY %s LIMIT $2`,
+		key, t.column, t.table, t.column, key, key)
+	updateSQL := fmt.Sprintf(`UPDATE %s SET %s = $2 WHERE %s = $1::uuid`, t.table, t.column, key)
 
 	for {
 		rows, qErr := pool.Query(ctx, selectSQL, afterID, batch)

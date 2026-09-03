@@ -172,6 +172,24 @@ func (r *PostgresRepository) List(ctx context.Context, accountID uuid.UUID, limi
 	return result, next, nil
 }
 
+func (r *PostgresRepository) UnreadCount(ctx context.Context, accountID uuid.UUID) (int, error) {
+	var count int
+	err := r.pool.QueryRow(ctx,
+		`SELECT count(*) FROM notifications WHERE account_id = $1 AND read_at IS NULL`,
+		accountID).Scan(&count)
+	return count, err
+}
+
+func (r *PostgresRepository) MarkAllRead(ctx context.Context, accountID uuid.UUID) (int64, error) {
+	command, err := r.pool.Exec(ctx,
+		`UPDATE notifications SET read_at = CURRENT_TIMESTAMP WHERE account_id = $1 AND read_at IS NULL`,
+		accountID)
+	if err != nil {
+		return 0, err
+	}
+	return command.RowsAffected(), nil
+}
+
 func (r *PostgresRepository) MarkRead(ctx context.Context, accountID, notificationID uuid.UUID) error {
 	command, err := r.pool.Exec(ctx, `UPDATE notifications SET read_at = COALESCE(read_at, CURRENT_TIMESTAMP) WHERE id = $1 AND account_id = $2`, notificationID, accountID)
 	if err != nil {
