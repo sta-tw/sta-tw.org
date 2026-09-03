@@ -1,0 +1,7 @@
+interface:
+  display_name: "官方招生資料擷取"
+  short_description: "限定官方網域的招生公開資料擷取與證據審核流程"
+  default_prompt: "使用 $official-admissions-ingestion 驗證並整理指定學校的官方公開招生資料；檔案擷取交由 STA 本地 Python worker 處理。"
+
+policy:
+  allow_implicit_invocation: true

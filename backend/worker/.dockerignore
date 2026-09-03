@@ -1,0 +1,7 @@
+tests
+**/__pycache__
+*.pyc
+.venv
+requirements-dev.txt
+ruff.toml
+README.md
