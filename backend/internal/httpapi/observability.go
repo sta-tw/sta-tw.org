@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"regexp"
 	"time"
+
+	"sta-backend/internal/obs"
 )
 
 // RequestObserver is notified once per finished HTTP request. cmd/api wires a
@@ -123,6 +125,7 @@ func accessLogMiddleware(logger *slog.Logger, observer RequestObserver, mux *htt
 		}
 		logger.LogAttrs(r.Context(), level, "http request",
 			slog.String("request_id", requestIDFromContext(r.Context())),
+			slog.String("trace_id", obs.TraceIDFromContext(r.Context())),
 			slog.String("method", r.Method),
 			slog.String("path", r.URL.Path),
 			slog.String("route", route),

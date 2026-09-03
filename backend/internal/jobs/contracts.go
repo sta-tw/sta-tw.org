@@ -41,6 +41,10 @@ type BrochureExtractJob struct {
 	SourceType  string `json:"source_type,omitempty"`
 	SourceURL   string `json:"source_url,omitempty"`
 	ProgramCode string `json:"program_code,omitempty"`
+	// Traceparent carries the W3C trace context of the request that created
+	// the job, so the extractor and the result callback can log the same
+	// trace_id. Optional; older jobs have none.
+	Traceparent string `json:"traceparent,omitempty"`
 }
 
 type BrochureExtractionResult struct {

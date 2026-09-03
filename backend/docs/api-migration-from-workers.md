@@ -137,6 +137,11 @@ route is not mounted. School master also still has `GET /api/v1/schools?q=`.
     admin/list routes (support tickets, admissions programs, sources, portfolio,
     ingestion candidates).
 - `X-Request-ID`: sent back on every response; send your own to correlate.
+- `traceparent` (W3C, version 00): honoured if sent, otherwise the API starts a
+  trace. The `trace_id` is echoed as `X-Trace-Id`, written on every access-log
+  line, carried into the extraction job and sent back on the worker's result
+  callback — one id spans API, worker and callback logs. Not an OpenTelemetry
+  exporter yet; it is log correlation only.
 - Rate limiting: `429` with `code: "rate_limited"`. The rate-limited routes
   (search, chat and support messages, portfolio / verification / brochure
   uploads, the `/internal/extraction/*` callbacks) send `X-RateLimit-Limit`,
@@ -148,6 +153,7 @@ route is not mounted. School master also still has `GET /api/v1/schools?q=`.
 ## Roadmap (tracked separately)
 
 generic user management (list / suspend / force-logout) · broader rate-limit
-coverage (auth, admin mutations) · OpenTelemetry tracing across the job
-boundary · HMAC lookup-hash key rotation · message reactions / pins / threads ·
-multi-channel chat · user profiles + avatars.
+coverage (auth, admin mutations) · a real OpenTelemetry exporter (the
+`traceparent` propagation is already in place) · HMAC lookup-hash key rotation ·
+message reactions / pins / threads · multi-channel chat · user profiles +
+avatars.
