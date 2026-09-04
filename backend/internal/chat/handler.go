@@ -56,6 +56,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/chat/messages/{messageID}/replies", h.listReplies)
 	mux.HandleFunc("PATCH /api/v1/chat/messages/{messageID}", h.editMessage)
 	mux.HandleFunc("DELETE /api/v1/chat/messages/{messageID}", h.withdrawMessage)
+	mux.HandleFunc("POST /api/v1/chat/messages/{messageID}/forward", h.forwardMessage)
 	mux.HandleFunc("PUT /api/v1/chat/messages/{messageID}/reactions/{emoji}", h.addReaction)
 	mux.HandleFunc("DELETE /api/v1/chat/messages/{messageID}/reactions/{emoji}", h.removeReaction)
 	mux.HandleFunc("POST /api/v1/chat/messages/{messageID}/pin", h.pinMessage)
@@ -264,6 +265,43 @@ func (h *Handler) setPin(w http.ResponseWriter, r *http.Request, pinned bool) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) forwardMessage(w http.ResponseWriter, r *http.Request) {
+	session, ok := h.authedMutation(w, r)
+	if !ok {
+		return
+	}
+	now := time.Now().UTC()
+	rl, limiterErr := h.allowMessage(r.Context(), session.Session.Account.ID.String(), now)
+	if limiterErr != nil {
+		writeChatError(w, http.StatusServiceUnavailable, "rate_limit_unavailable", "request protection is temporarily unavailable")
+		return
+	}
+	security.WriteRateLimitHeaders(w, rl, now)
+	if !rl.Allowed {
+		writeChatError(w, http.StatusTooManyRequests, "rate_limited", "too many messages")
+		return
+	}
+	messageID, err := uuid.Parse(r.PathValue("messageID"))
+	if err != nil {
+		writeChatError(w, http.StatusBadRequest, "invalid_message_id", "message id is invalid")
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 4<<10)
+	var input struct {
+		ChannelKey string `json:"channel_key"`
+	}
+	if err := decodeChatJSON(r, &input); err != nil || strings.TrimSpace(input.ChannelKey) == "" {
+		writeChatError(w, http.StatusBadRequest, "invalid_message", "channel_key is required")
+		return
+	}
+	message, err := h.repository.ForwardMessage(r.Context(), messageID, strings.TrimSpace(input.ChannelKey), session.Session.Account.ID)
+	if err != nil {
+		h.writeRepoError(w, err)
+		return
+	}
+	writeChatJSON(w, http.StatusCreated, map[string]any{"data": message})
 }
 
 func (h *Handler) writeRepoError(w http.ResponseWriter, err error) {

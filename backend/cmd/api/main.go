@@ -133,6 +133,7 @@ func run(logger *slog.Logger) error {
 		}
 		authService.ConfigureRegistrationPolicy(cfg.RequireEduEmail)
 		authService.ConfigureAdminMFA(cfg.RequireAdminMFA)
+		authService.ConfigureAdminMFAGrant(cfg.AdminMFAGrantTTL)
 		if err := authService.ConfigureLookupKeyRotation(cfg.LookupHMACSecondaryKeys); err != nil {
 			return err
 		}

@@ -4795,6 +4795,46 @@
         }
       }
     },
+    "/api/v1/auth/admin-mfa/verify": {
+      "post": {
+        "operationId": "post_api_v1_auth_admin_mfa_verify",
+        "summary": "Create auth admin mfa verify",
+        "tags": [
+          "auth"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/auth/email-verification/confirm": {
       "post": {
         "operationId": "post_api_v1_auth_email_verification_confirm",
@@ -5808,6 +5848,64 @@
         }
       }
     },
+    "/api/v1/chat/messages/{messageID}/forward": {
+      "post": {
+        "operationId": "post_api_v1_chat_messages_messageID_forward",
+        "summary": "Create chat messages messageID forward",
+        "tags": [
+          "chat"
+        ],
+        "parameters": [
+          {
+            "name": "messageID",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/chat/messages/{messageID}/pin": {
       "delete": {
         "operationId": "delete_api_v1_chat_messages_messageID_pin",
@@ -6410,6 +6508,127 @@
         }
       }
     },
+    "/api/v1/experiences/{experienceID}/reactions/{emoji}": {
+      "delete": {
+        "operationId": "delete_api_v1_experiences_experienceID_reactions_emoji",
+        "summary": "Delete experiences experienceID reactions emoji",
+        "tags": [
+          "experiences"
+        ],
+        "parameters": [
+          {
+            "name": "experienceID",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "emoji",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "put_api_v1_experiences_experienceID_reactions_emoji",
+        "summary": "Replace experiences experienceID reactions emoji",
+        "tags": [
+          "experiences"
+        ],
+        "parameters": [
+          {
+            "name": "experienceID",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "emoji",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/experiences/{experienceID}/revisions": {
       "post": {
         "operationId": "post_api_v1_experiences_experienceID_revisions",
@@ -6478,6 +6697,127 @@
         "parameters": [
           {
             "name": "experienceID",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/forum/posts/{postID}/reactions/{emoji}": {
+      "delete": {
+        "operationId": "delete_api_v1_forum_posts_postID_reactions_emoji",
+        "summary": "Delete forum posts postID reactions emoji",
+        "tags": [
+          "forum"
+        ],
+        "parameters": [
+          {
+            "name": "postID",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "emoji",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "put_api_v1_forum_posts_postID_reactions_emoji",
+        "summary": "Replace forum posts postID reactions emoji",
+        "tags": [
+          "forum"
+        ],
+        "parameters": [
+          {
+            "name": "postID",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "emoji",
             "in": "path",
             "required": true,
             "schema": {

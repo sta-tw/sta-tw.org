@@ -14,13 +14,13 @@ import (
 // messageSelect is the column list shared by every message-list query. Column
 // order must match scanMessage.
 const messageSelect = `m.id::text, m.body, m.source_platform, m.status, m.created_at, m.edited_at,
-	m.parent_message_id, m.pinned_at, c.channel_key`
+	m.parent_message_id, m.forwarded_from_message_id, m.pinned_at, c.channel_key`
 
 func scanMessage(rows pgx.Row) (Message, error) {
 	var m Message
 	var idText, channelKey string
 	if err := rows.Scan(&idText, &m.Body, &m.SourcePlatform, &m.Status, &m.CreatedAt, &m.EditedAt,
-		&m.ParentID, &m.PinnedAt, &channelKey); err != nil {
+		&m.ParentID, &m.ForwardedFromID, &m.PinnedAt, &channelKey); err != nil {
 		return Message{}, err
 	}
 	id, err := uuid.Parse(idText)
@@ -232,6 +232,57 @@ func (r *PostgresRepository) CreateChannelMessage(ctx context.Context, channelKe
 		r.announce(ctx, channelKey, message)
 	}
 	return message, nil
+}
+
+// ForwardMessage copies a source message's body into targetChannelKey as a new
+// website message that references the original.
+func (r *PostgresRepository) ForwardMessage(ctx context.Context, sourceID uuid.UUID, targetChannelKey string, accountID uuid.UUID) (Message, error) {
+	targetChannelID, isDefault, err := r.channelID(ctx, targetChannelKey)
+	if err != nil {
+		return Message{}, err
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return Message{}, err
+	}
+	defer tx.Rollback(ctx)
+
+	var body string
+	err = tx.QueryRow(ctx, `
+		SELECT body FROM chat_messages WHERE id = $1 AND status <> 'deleted'`, sourceID).Scan(&body)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Message{}, ErrNotFound
+	}
+	if err != nil {
+		return Message{}, err
+	}
+
+	var m Message
+	var idText string
+	err = tx.QueryRow(ctx, `
+		INSERT INTO chat_messages (channel_id, author_account_id, source_platform, body, forwarded_from_message_id)
+		VALUES ($1, $2, 'website', $3, $4)
+		RETURNING id::text, body, source_platform, status, created_at, edited_at,
+		          parent_message_id, forwarded_from_message_id`,
+		targetChannelID, accountID, body, sourceID).Scan(
+		&idText, &m.Body, &m.SourcePlatform, &m.Status, &m.CreatedAt, &m.EditedAt, &m.ParentID, &m.ForwardedFromID)
+	if err != nil {
+		return Message{}, mapChatError(err)
+	}
+	if m.ID, err = uuid.Parse(idText); err != nil {
+		return Message{}, err
+	}
+	if isDefault {
+		if err := createOutboundTasks(ctx, tx, m.ID, OperationCreate, m.Body); err != nil {
+			return Message{}, err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Message{}, err
+	}
+	m.ChannelKey = targetChannelKey
+	r.announce(ctx, targetChannelKey, m)
+	return m, nil
 }
 
 // editableMessage loads a message for an owner-only mutation, taking a row lock.

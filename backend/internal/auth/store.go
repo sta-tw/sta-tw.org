@@ -129,6 +129,7 @@ type AdminMFARecord struct {
 	SecretCiphertext []byte
 	EnabledAt        *time.Time
 	PendingExpiresAt *time.Time
+	LastVerifiedAt   *time.Time
 }
 
 // AdminMFAStore stores only the encrypted TOTP seed. The plaintext seed is
@@ -139,4 +140,7 @@ type AdminMFAStore interface {
 	SaveAdminMFASecret(context.Context, uuid.UUID, []byte, time.Time) error
 	EnableAdminMFA(context.Context, uuid.UUID, time.Time) error
 	DisableAdminMFA(context.Context, uuid.UUID) error
+	// TouchAdminMFAVerified records a successful TOTP check, opening the
+	// short-lived grant window.
+	TouchAdminMFAVerified(context.Context, uuid.UUID, time.Time) error
 }

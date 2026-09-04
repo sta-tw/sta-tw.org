@@ -490,10 +490,10 @@ func (s *PostgresStore) IsAdmin(ctx context.Context, accountID uuid.UUID) (bool,
 func (s *PostgresStore) GetAdminMFA(ctx context.Context, accountID uuid.UUID) (AdminMFARecord, error) {
 	var record AdminMFARecord
 	err := s.pool.QueryRow(ctx, `
-		SELECT secret_ciphertext, enabled_at, pending_expires_at
+		SELECT secret_ciphertext, enabled_at, pending_expires_at, last_verified_at
 		FROM account_admin_mfa
 		WHERE account_id = $1
-	`, accountID).Scan(&record.SecretCiphertext, &record.EnabledAt, &record.PendingExpiresAt)
+	`, accountID).Scan(&record.SecretCiphertext, &record.EnabledAt, &record.PendingExpiresAt, &record.LastVerifiedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return AdminMFARecord{}, ErrNotFound
 	}
@@ -526,7 +526,7 @@ func (s *PostgresStore) SaveAdminMFASecret(ctx context.Context, accountID uuid.U
 func (s *PostgresStore) EnableAdminMFA(ctx context.Context, accountID uuid.UUID, enabledAt time.Time) error {
 	command, err := s.pool.Exec(ctx, `
 		UPDATE account_admin_mfa
-		SET enabled_at = $2, pending_expires_at = NULL, updated_at = CURRENT_TIMESTAMP
+		SET enabled_at = $2, last_verified_at = $2, pending_expires_at = NULL, updated_at = CURRENT_TIMESTAMP
 		WHERE account_id = $1 AND enabled_at IS NULL
 	`, accountID, enabledAt)
 	if err != nil {
@@ -534,6 +534,17 @@ func (s *PostgresStore) EnableAdminMFA(ctx context.Context, accountID uuid.UUID,
 	}
 	if command.RowsAffected() != 1 {
 		return ErrConflict
+	}
+	return nil
+}
+
+func (s *PostgresStore) TouchAdminMFAVerified(ctx context.Context, accountID uuid.UUID, at time.Time) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE account_admin_mfa SET last_verified_at = $2, updated_at = CURRENT_TIMESTAMP
+		WHERE account_id = $1 AND enabled_at IS NOT NULL
+	`, accountID, at)
+	if err != nil {
+		return fmt.Errorf("touch administrator MFA: %w", err)
 	}
 	return nil
 }

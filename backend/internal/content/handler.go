@@ -40,6 +40,10 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/experience-revisions/{revisionID}/submit", h.submitRevision)
 	mux.HandleFunc("POST /api/v1/experiences/{experienceID}/unpublish", h.unpublishExperience)
 	mux.HandleFunc("POST /api/v1/admin/experience-revisions/{revisionID}/review", h.reviewExperience)
+	mux.HandleFunc("PUT /api/v1/forum/posts/{postID}/reactions/{emoji}", h.addPostReaction)
+	mux.HandleFunc("DELETE /api/v1/forum/posts/{postID}/reactions/{emoji}", h.removePostReaction)
+	mux.HandleFunc("PUT /api/v1/experiences/{experienceID}/reactions/{emoji}", h.addExperienceReaction)
+	mux.HandleFunc("DELETE /api/v1/experiences/{experienceID}/reactions/{emoji}", h.removeExperienceReaction)
 }
 
 func (h *Handler) listSpaces(w http.ResponseWriter, r *http.Request) {
@@ -362,6 +366,50 @@ func (h *Handler) requireAdmin(w http.ResponseWriter, r *http.Request) (auth.Req
 		return auth.RequestSession{}, false
 	}
 	return session, true
+}
+
+func (h *Handler) addPostReaction(w http.ResponseWriter, r *http.Request) {
+	h.reactionOp(w, r, ReactionTargetPost, "postID", true)
+}
+func (h *Handler) removePostReaction(w http.ResponseWriter, r *http.Request) {
+	h.reactionOp(w, r, ReactionTargetPost, "postID", false)
+}
+func (h *Handler) addExperienceReaction(w http.ResponseWriter, r *http.Request) {
+	h.reactionOp(w, r, ReactionTargetExperience, "experienceID", true)
+}
+func (h *Handler) removeExperienceReaction(w http.ResponseWriter, r *http.Request) {
+	h.reactionOp(w, r, ReactionTargetExperience, "experienceID", false)
+}
+
+func (h *Handler) reactionOp(w http.ResponseWriter, r *http.Request, targetType, idParam string, add bool) {
+	session, ok := h.requireMutation(w, r)
+	if !ok {
+		return
+	}
+	targetID, err := uuid.Parse(r.PathValue(idParam))
+	if err != nil {
+		writeContentError(w, http.StatusBadRequest, "invalid_id", "target id is invalid")
+		return
+	}
+	emoji, err := NormalizeReaction(r.PathValue("emoji"))
+	if err != nil {
+		writeContentError(w, http.StatusBadRequest, "invalid_reaction", "reaction is invalid")
+		return
+	}
+	if add {
+		err = h.repository.SetReaction(r.Context(), targetType, targetID, session.Session.Account.ID, emoji)
+	} else {
+		err = h.repository.RemoveReaction(r.Context(), targetType, targetID, session.Session.Account.ID, emoji)
+	}
+	if errors.Is(err, ErrInvalidReaction) {
+		writeContentError(w, http.StatusBadRequest, "invalid_reaction", "reaction is invalid")
+		return
+	}
+	if err != nil {
+		h.writeRepositoryError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *Handler) writeRepositoryError(w http.ResponseWriter, err error) {

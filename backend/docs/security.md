@@ -38,7 +38,7 @@
 - 官方簡章管理 API 只允許 admin role；PDF 上傳會做大小、檔名、MIME 與 signature 檢查，檔案放在 private object storage，管理端下載只發 5 分鐘 signed URL，管理回應禁止快取，事件表 append-only。
 - 備審檔案 API 只讓擁有者讀取自己的專案／版本／事件；管理端清單與事件需要 admin role，寫入操作需要 CSRF，版本建立鎖定專案列避免併發碰撞，所有 metadata 回應禁止快取，檔案儲存失敗會清除暫存 object。
 - 查榜結果只保存准考證加密值、lookup hash 與末四碼；結果批次發布以 transaction／advisory lock 保證同校同年度只有最新批次，使用者只能讀取自己的 confirmed application，意願修改綁定申請與詢問輪次，通知 worker 會跳過已回覆詢問。
-- 管理員 MFA 使用加密 TOTP seed；正式環境預設要求 `/api/v1/admin/` 請求帶 `X-MFA-Code`，設定流程與期限見 [admin-mfa.md](admin-mfa.md)。TOTP 驗證失敗以帳號為單位限流（15 分鐘內 8 次失敗即鎖到視窗結束，正確碼不計次），擋住用竊得的 admin session 暴力猜 6 位數碼。
+- 管理員 MFA 使用加密 TOTP seed；正式環境預設要求 `/api/v1/admin/` 請求帶 `X-MFA-Code`，設定流程與期限見 [admin-mfa.md](admin-mfa.md)。TOTP 驗證失敗以帳號為單位限流（15 分鐘內 8 次失敗即鎖到視窗結束，正確碼不計次），擋住用竊得的 admin session 暴力猜 6 位數碼。`POST /api/v1/auth/admin-mfa/verify` 成功後開啟 `STA_ADMIN_MFA_GRANT_TTL`（預設 15 分鐘）的授權視窗，期間 admin 請求可免帶 `X-MFA-Code`；設 0 則每次都要帶。
 - 招生簡章、備審、學生證明與客服附件在 private object storage 前通過 ClamAV 掃描；掃描器故障時 fail-closed。
 
 ## 禁止事項

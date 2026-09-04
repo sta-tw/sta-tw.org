@@ -62,6 +62,7 @@ type Service struct {
 	publicBaseURL      string
 	requireEduEmail    bool
 	requireAdminMFA    bool
+	adminMFAGrantTTL   time.Duration
 }
 
 type RegisterInput struct {

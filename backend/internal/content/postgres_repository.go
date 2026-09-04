@@ -204,6 +204,9 @@ func (r *PostgresRepository) ListPosts(ctx context.Context, accountID *uuid.UUID
 	if err := rows.Err(); err != nil {
 		return nil, "", err
 	}
+	if err := r.attachPostReactions(ctx, result, accountID); err != nil {
+		return nil, "", err
+	}
 	var next string
 	if n := len(result); n > 0 {
 		last := result[n-1]
@@ -484,6 +487,9 @@ func (r *PostgresRepository) ListPublishedExperiences(ctx context.Context, limit
 	if err != nil {
 		return nil, "", err
 	}
+	if err := r.attachExperienceReactions(ctx, items, nil); err != nil {
+		return nil, "", err
+	}
 	var next string
 	if n := len(items); n > 0 {
 		last := items[n-1]
@@ -522,6 +528,9 @@ func (r *PostgresRepository) GetExperience(ctx context.Context, accountID *uuid.
 	}
 	if len(items) == 0 {
 		return Experience{}, ErrNotFound
+	}
+	if err := r.attachExperienceReactions(ctx, items, accountID); err != nil {
+		return Experience{}, err
 	}
 	return items[0], nil
 }

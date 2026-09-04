@@ -42,6 +42,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/auth/admin-mfa/status", h.adminMFAStatus)
 	mux.HandleFunc("POST /api/v1/auth/admin-mfa/setup", h.adminMFASetup)
 	mux.HandleFunc("POST /api/v1/auth/admin-mfa/enable", h.adminMFAEnable)
+	mux.HandleFunc("POST /api/v1/auth/admin-mfa/verify", h.adminMFAVerify)
 	mux.HandleFunc("POST /api/v1/auth/admin-mfa/disable", h.adminMFADisable)
 	mux.HandleFunc("GET /api/v1/auth/oauth/{provider}/start", h.oauthLoginStart)
 	mux.HandleFunc("POST /api/v1/auth/oauth/{provider}/bind/start", h.oauthBindStart)
@@ -275,6 +276,31 @@ func (h *Handler) adminMFAEnable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeAuthJSON(w, http.StatusOK, map[string]any{"enabled": true})
+}
+
+func (h *Handler) adminMFAVerify(w http.ResponseWriter, r *http.Request) {
+	session, err := h.authenticateMutation(r)
+	if err != nil {
+		h.writeMFAServiceError(w, err)
+		return
+	}
+	var input struct {
+		Code string `json:"code"`
+	}
+	if err := decodeJSON(r, &input); err != nil {
+		writeAuthError(w, http.StatusBadRequest, "invalid_request", "MFA code is invalid")
+		return
+	}
+	expiresAt, err := h.service.VerifyAdminMFA(r.Context(), session.Session.Account.ID, input.Code)
+	if err != nil {
+		h.writeMFAServiceError(w, err)
+		return
+	}
+	writeAuthJSON(w, http.StatusOK, map[string]any{
+		"verified":      true,
+		"expires_at":    expiresAt,
+		"grant_seconds": int(h.service.AdminMFAGrantTTL().Seconds()),
+	})
 }
 
 func (h *Handler) adminMFADisable(w http.ResponseWriter, r *http.Request) {

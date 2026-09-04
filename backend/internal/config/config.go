@@ -67,6 +67,7 @@ type Config struct {
 	MeilisearchKey                          string
 	RequireEduEmail                         bool
 	RequireAdminMFA                         bool
+	AdminMFAGrantTTL                        time.Duration
 	EmailEncryptionKey                      []byte
 	LookupHMACKey                           []byte
 	// LookupHMACSecondaryKeys are retired lookup-HMAC keys kept for reads while
@@ -224,6 +225,14 @@ func Load() (Config, error) {
 		config.RequireAdminMFA = parsed
 	} else if config.Environment == productionEnvironment {
 		config.RequireAdminMFA = true
+	}
+	config.AdminMFAGrantTTL = 15 * time.Minute
+	if raw := strings.TrimSpace(os.Getenv("STA_ADMIN_MFA_GRANT_TTL")); raw != "" {
+		parsed, err := time.ParseDuration(raw)
+		if err != nil || parsed < 0 {
+			return Config{}, fmt.Errorf("STA_ADMIN_MFA_GRANT_TTL must be a non-negative duration (0 disables)")
+		}
+		config.AdminMFAGrantTTL = parsed
 	}
 	if raw, exists := os.LookupEnv("STA_REQUIRE_FILE_SCAN"); exists {
 		parsed, err := strconv.ParseBool(strings.TrimSpace(raw))

@@ -43,11 +43,12 @@ type Message struct {
 	CreatedAt      time.Time  `json:"created_at"`
 	EditedAt       *time.Time `json:"edited_at,omitempty"`
 
-	ChannelKey string          `json:"channel_key,omitempty"`
-	ParentID   *uuid.UUID      `json:"parent_id,omitempty"`
-	PinnedAt   *time.Time      `json:"pinned_at,omitempty"`
-	ReplyCount int             `json:"reply_count,omitempty"`
-	Reactions  []ReactionTally `json:"reactions,omitempty"`
+	ChannelKey      string          `json:"channel_key,omitempty"`
+	ParentID        *uuid.UUID      `json:"parent_id,omitempty"`
+	ForwardedFromID *uuid.UUID      `json:"forwarded_from_id,omitempty"`
+	PinnedAt        *time.Time      `json:"pinned_at,omitempty"`
+	ReplyCount      int             `json:"reply_count,omitempty"`
+	Reactions       []ReactionTally `json:"reactions,omitempty"`
 }
 
 // ReactionTally is one emoji's count on a message, with whether the caller has
@@ -114,6 +115,7 @@ type Repository interface {
 	CreateChannelMessage(ctx context.Context, channelKey string, accountID uuid.UUID, body string, parentID *uuid.UUID) (Message, error)
 	ListThreadReplies(ctx context.Context, parentID, viewer uuid.UUID, limit int, cursor pagination.Cursor) ([]Message, string, error)
 	ListPinned(ctx context.Context, channelKey string, viewer uuid.UUID) ([]Message, error)
+	ForwardMessage(ctx context.Context, sourceID uuid.UUID, targetChannelKey string, accountID uuid.UUID) (Message, error)
 	EditOwnMessage(ctx context.Context, messageID, accountID uuid.UUID, newBody string) (Message, error)
 	WithdrawOwnMessage(ctx context.Context, messageID, accountID uuid.UUID) (Message, error)
 	SetReaction(ctx context.Context, messageID, accountID uuid.UUID, emoji string) error

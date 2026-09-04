@@ -27,12 +27,15 @@ The authoritative route list is `GET /api/v1/openapi.json` (also
 both the `sta_csrf` cookie value and an `X-CSRF-Token` header with the same
 value. Requests authenticated with `Authorization: Bearer <token>` skip CSRF.
 
-**Admin MFA**: once an admin has enrolled TOTP, every `/api/v1/admin/*` request
-must include `X-MFA-Code`. Missing/!valid → `428 Precondition Required`,
+**Admin MFA**: once an admin has enrolled TOTP, `/api/v1/admin/*` requests need
+`X-MFA-Code`. `POST /api/v1/auth/admin-mfa/verify` `{code}` opens a grant window
+(`STA_ADMIN_MFA_GRANT_TTL`, default 15 min) during which admin requests may omit
+the header; any request that does carry a valid code refreshes it. Missing code
+with no live grant, or an invalid code → `428 Precondition Required`,
 `code: "admin_mfa_required"`. Wrong codes are rate-limited per account (8
 failures / 15 min); further attempts — including a correct code — then get
 `429 rate_limited` until the window clears. A correct code never counts toward
-the limit.
+the limit. Set the TTL to `0` to require a code on every request.
 
 ## 2. Chat / messages / channels
 
@@ -58,6 +61,9 @@ The Go backend has:
   `PATCH /api/v1/chat/messages/{id}` `{body}` and
   `DELETE /api/v1/chat/messages/{id}`. On the default channel the change also
   syncs to Discord/Telegram. `403` for someone else's or a bridged message.
+- **Forward**: `POST /api/v1/chat/messages/{id}/forward` `{channel_key}` copies
+  the source body into another channel as a new message with
+  `forwarded_from_id` set.
 - **SSE**: `GET /api/v1/events?channel=lounge,study` follows those chat channels
   (default `lounge`, max 10); each `chat.message` event carries `channel_key`.
   No `?channel` = lounge only, as before.
@@ -67,6 +73,11 @@ The Go backend has:
   `.../threads/{id}/posts`, join/leave. Threads + posts only.
 - **Experiences** (心得文章): `GET /api/v1/experiences`, revision workflow with
   admin review. Articles have no comments; forum posts may quote an experience.
+- **Reactions** on forum posts and experiences:
+  `PUT`/`DELETE /api/v1/forum/posts/{id}/reactions/{emoji}` and
+  `PUT`/`DELETE /api/v1/experiences/{id}/reactions/{emoji}` (URL-encode the
+  emoji). Post and experience payloads carry a `reactions` summary
+  (`[{emoji, count, mine}]`), same shape as chat.
 - **Realtime**: `GET /api/v1/events` is a Server-Sent Events stream (auth
   required) carrying `chat.message` for the lounge and `notification.created`
   for the caller. Backed by Postgres LISTEN/NOTIFY so it works across API
@@ -195,5 +206,5 @@ route is not mounted. School master also still has `GET /api/v1/schools?q=`.
 
 ## Roadmap (tracked separately)
 
-reactions on forum posts and experiences · message forwarding · a long-lived
-admin MFA grant so a code is not needed on every single admin request.
+per-channel SSE fan-out for non-default channels is in; forum thread
+subscriptions and a websocket transport are not.
