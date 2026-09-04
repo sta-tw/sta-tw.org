@@ -69,6 +69,10 @@ type Config struct {
 	RequireAdminMFA                         bool
 	EmailEncryptionKey                      []byte
 	LookupHMACKey                           []byte
+	// LookupHMACSecondaryKeys are retired lookup-HMAC keys kept for reads while
+	// STA_LOOKUP_HMAC_KEY is being rotated. Format:
+	// STA_LOOKUP_HMAC_SECONDARY_KEYS="<base64>,<base64>".
+	LookupHMACSecondaryKeys [][]byte
 	// FieldEncryptionKeys, when set, turns FieldCipher into a rotating keyring.
 	// Format: STA_FIELD_ENCRYPTION_KEYS="1:<base64>,2:<base64>" and
 	// STA_FIELD_ENCRYPTION_PRIMARY_VERSION="2". EmailEncryptionKey stays the
@@ -82,6 +86,13 @@ type Config struct {
 	ShutdownTimeout               time.Duration
 	EnableDebugResponses          bool
 	CookieSecure                  bool
+
+	// OTLP tracing. OTelExporterEndpoint blank disables the exporter and the
+	// request path keeps the dependency-free traceparent propagation.
+	OTelExporterEndpoint string
+	OTelExporterInsecure bool
+	OTelServiceName      string
+	OTelSampleRatio      float64
 }
 
 type OAuthProviderConfig struct {
@@ -148,6 +159,21 @@ func Load() (Config, error) {
 	}
 	if config.LookupHMACKey, err = decodeKey("STA_LOOKUP_HMAC_KEY"); err != nil {
 		return Config{}, err
+	}
+	if config.LookupHMACSecondaryKeys, err = decodeKeyList("STA_LOOKUP_HMAC_SECONDARY_KEYS"); err != nil {
+		return Config{}, err
+	}
+
+	config.OTelExporterEndpoint = firstNonEmptyEnv("STA_OTEL_EXPORTER_OTLP_ENDPOINT", "OTEL_EXPORTER_OTLP_ENDPOINT")
+	config.OTelExporterInsecure = strings.EqualFold(strings.TrimSpace(os.Getenv("STA_OTEL_EXPORTER_OTLP_INSECURE")), "true")
+	config.OTelServiceName = firstNonEmptyEnv("STA_OTEL_SERVICE_NAME", "OTEL_SERVICE_NAME")
+	config.OTelSampleRatio = 1.0
+	if raw := strings.TrimSpace(os.Getenv("STA_OTEL_TRACES_SAMPLER_RATIO")); raw != "" {
+		parsed, parseErr := strconv.ParseFloat(raw, 64)
+		if parseErr != nil || parsed < 0 || parsed > 1 {
+			return Config{}, fmt.Errorf("STA_OTEL_TRACES_SAMPLER_RATIO must be a number in [0,1]")
+		}
+		config.OTelSampleRatio = parsed
 	}
 	if config.FieldEncryptionKeys, config.FieldEncryptionPrimaryVersion, err = decodeKeyRing(); err != nil {
 		return Config{}, err
@@ -263,6 +289,31 @@ func decodeKey(key string) ([]byte, error) {
 		return nil, fmt.Errorf("%s must be a base64-encoded 32-byte key", key)
 	}
 	return decoded, nil
+}
+
+// decodeKeyList parses a comma-separated list of base64-encoded 32-byte keys.
+// An empty or unset value yields a nil slice.
+func decodeKeyList(key string) ([][]byte, error) {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return nil, nil
+	}
+	var keys [][]byte
+	for _, entry := range strings.Split(raw, ",") {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		decoded, err := base64.RawStdEncoding.DecodeString(entry)
+		if err != nil {
+			decoded, err = base64.StdEncoding.DecodeString(entry)
+		}
+		if err != nil || len(decoded) != 32 {
+			return nil, fmt.Errorf("%s entries must each be a base64-encoded 32-byte key", key)
+		}
+		keys = append(keys, decoded)
+	}
+	return keys, nil
 }
 
 // decodeKeyRing parses STA_FIELD_ENCRYPTION_KEYS ("1:<b64>,2:<b64>") plus

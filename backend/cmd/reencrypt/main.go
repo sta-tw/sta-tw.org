@@ -7,9 +7,11 @@
 //	reencrypt            # dry run: report how many rows need rewriting
 //	reencrypt -apply     # rewrite them
 //
-// It only touches AES-GCM ciphertext. HMAC lookup hashes (email_lookup_hash,
-// candidate_number_lookup_hash, school_email_lookup_hash) are derived from
-// normalised plaintext and are not rotated here.
+// It rewrites AES-GCM ciphertext for every key version, and — when
+// STA_LOOKUP_HMAC_SECONDARY_KEYS is set — also recomputes accounts.email_lookup_hash
+// with the primary lookup key, since that hash's plaintext (the email) is
+// recoverable from email_ciphertext. Other HMAC lookup hashes
+// (candidate_number_lookup_hash, school_email_lookup_hash) are left untouched.
 package main
 
 import (
@@ -101,11 +103,101 @@ func run(logger *slog.Logger, apply bool, batch int) error {
 		totalRewritten += rewritten
 		logger.Info("column done", "table", t.table, "column", t.column, "scanned", scanned, "stale", rewritten)
 	}
+	if len(cfg.LookupHMACSecondaryKeys) > 0 {
+		hasher, herr := auth.NewLookupHasher(cfg.LookupHMACKey, cfg.LookupHMACSecondaryKeys...)
+		if herr != nil {
+			return herr
+		}
+		scanned, rewritten, lerr := rotateEmailLookupHash(ctx, pool, cipher, hasher, apply, batch)
+		if lerr != nil {
+			return fmt.Errorf("accounts.email_lookup_hash: %w", lerr)
+		}
+		totalScanned += scanned
+		totalRewritten += rewritten
+		logger.Info("column done", "table", "accounts", "column", "email_lookup_hash", "scanned", scanned, "stale", rewritten)
+	}
+
 	logger.Info("reencrypt complete", "scanned", totalScanned, "stale", totalRewritten, "apply", apply)
 	if !apply && totalRewritten > 0 {
 		logger.Warn("dry run — re-run with -apply to rewrite", "stale_rows", totalRewritten)
 	}
 	return nil
+}
+
+// rotateEmailLookupHash walks accounts in id order, decrypts email_ciphertext,
+// and rewrites email_lookup_hash for any row whose hash was produced by a
+// retired lookup key.
+func rotateEmailLookupHash(ctx context.Context, pool *pgxpool.Pool, cipher *auth.FieldCipher, hasher *auth.LookupHasher, apply bool, batch int) (scanned, rewritten int, err error) {
+	var afterID string
+	const selectSQL = `SELECT id::text, email_ciphertext, email_lookup_hash FROM accounts
+	                   WHERE $1 = '' OR id > $1::uuid ORDER BY id LIMIT $2`
+	const updateSQL = `UPDATE accounts SET email_lookup_hash = $2 WHERE id = $1::uuid`
+
+	for {
+		rows, qErr := pool.Query(ctx, selectSQL, afterID, batch)
+		if qErr != nil {
+			return scanned, rewritten, qErr
+		}
+		type staleRow struct {
+			id      string
+			newHash []byte
+		}
+		var stale []staleRow
+		var lastID string
+		n := 0
+		for rows.Next() {
+			var id string
+			var ciphertext, storedHash []byte
+			if scanErr := rows.Scan(&id, &ciphertext, &storedHash); scanErr != nil {
+				rows.Close()
+				return scanned, rewritten, scanErr
+			}
+			n++
+			lastID = id
+			email, openErr := cipher.Open(ciphertext)
+			if openErr != nil {
+				rows.Close()
+				return scanned, rewritten, fmt.Errorf("row %s email cannot be decrypted: %w", id, openErr)
+			}
+			normalized := auth.NormalizeEmail(email)
+			if !hasher.NeedsRotation(storedHash, normalized) {
+				continue
+			}
+			stale = append(stale, staleRow{id: id, newHash: hasher.Hash(normalized)})
+		}
+		if rowsErr := rows.Err(); rowsErr != nil {
+			rows.Close()
+			return scanned, rewritten, rowsErr
+		}
+		rows.Close()
+		scanned += n
+
+		if apply && len(stale) > 0 {
+			tx, txErr := pool.Begin(ctx)
+			if txErr != nil {
+				return scanned, rewritten, txErr
+			}
+			for _, s := range stale {
+				if _, execErr := tx.Exec(ctx, updateSQL, s.id, s.newHash); execErr != nil {
+					_ = tx.Rollback(ctx)
+					return scanned, rewritten, execErr
+				}
+			}
+			if commitErr := tx.Commit(ctx); commitErr != nil {
+				return scanned, rewritten, commitErr
+			}
+		}
+		rewritten += len(stale)
+
+		if n < batch {
+			break
+		}
+		afterID = lastID
+		if ctx.Err() != nil {
+			return scanned, rewritten, ctx.Err()
+		}
+	}
+	return scanned, rewritten, nil
 }
 
 func buildCipher(cfg config.Config) (*auth.FieldCipher, error) {

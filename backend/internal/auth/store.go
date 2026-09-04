@@ -46,7 +46,11 @@ type Store interface {
 	TouchSession(ctx context.Context, sessionID uuid.UUID, now time.Time) error
 	RevokeSession(ctx context.Context, sessionID uuid.UUID, now time.Time) error
 	CreateOAuthBinding(ctx context.Context, accountID uuid.UUID, provider string, providerSubjectHash []byte) error
-	FindAccountByOAuthSubject(ctx context.Context, provider string, providerSubjectHash []byte) (Account, error)
+	// FindAccountByOAuthSubjectHashes resolves an OAuth identity by trying every
+	// candidate subject hash (primary plus retired lookup keys). It returns the
+	// account and the stored hash that matched, so the caller can rehash a row
+	// still under an old key.
+	FindAccountByOAuthSubjectHashes(ctx context.Context, provider string, providerSubjectHashes [][]byte) (Account, []byte, error)
 	CreateOAuthState(ctx context.Context, provider string, accountID *uuid.UUID, stateHash, codeVerifierCiphertext []byte, redirectURL string, expiresAt time.Time) error
 	ConsumeOAuthState(ctx context.Context, provider string, stateHash []byte, now time.Time) (OAuthState, error)
 }
@@ -67,10 +71,11 @@ type EmailVerificationNotifier interface {
 // PasswordResetStore is the optional persistence for the native password-reset
 // flow. Stores that implement it enable POST /api/v1/auth/password-reset/*.
 type PasswordResetStore interface {
-	// LookupAccountIDByEmailHash returns the account id for an email lookup
-	// hash, or ErrNotFound. Used by the reset-request step; callers must not
-	// leak whether it matched.
-	LookupAccountIDByEmailHash(ctx context.Context, emailLookupHash []byte) (uuid.UUID, error)
+	// LookupAccountIDByEmailHashes returns the account id whose email lookup
+	// hash matches any candidate (primary plus retired lookup keys), or
+	// ErrNotFound. Used by the reset-request step; callers must not leak
+	// whether it matched.
+	LookupAccountIDByEmailHashes(ctx context.Context, emailLookupHashes [][]byte) (uuid.UUID, error)
 	// CreatePasswordResetChallenge stores a new token hash and invalidates any
 	// prior unconsumed challenge for the account.
 	CreatePasswordResetChallenge(ctx context.Context, accountID uuid.UUID, tokenHash []byte, expiresAt time.Time) error
@@ -83,6 +88,12 @@ type PasswordResetStore interface {
 	// self-service change and revokes that account's sessions except
 	// keepSessionID (the one making the request).
 	UpdatePasswordForAccount(ctx context.Context, accountID uuid.UUID, newPasswordHash string, keepSessionID uuid.UUID) error
+}
+
+// oauthSubjectRehasher is the optional hook that lets the OAuth login path
+// rewrite a stored subject hash from a retired lookup key to the primary one.
+type oauthSubjectRehasher interface {
+	RehashOAuthSubject(ctx context.Context, provider string, oldHash, newHash []byte) error
 }
 
 // AdminRoleStore is implemented by stores that can answer whether an account

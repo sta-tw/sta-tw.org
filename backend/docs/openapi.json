@@ -3469,6 +3469,283 @@
         }
       }
     },
+    "/api/v1/admin/users": {
+      "get": {
+        "operationId": "get_api_v1_admin_users",
+        "summary": "Get admin users",
+        "tags": [
+          "admin-users"
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "csrf": [],
+            "adminMFA": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/users/{accountID}": {
+      "get": {
+        "operationId": "get_api_v1_admin_users_accountID",
+        "summary": "Get admin users accountID",
+        "tags": [
+          "admin-users"
+        ],
+        "parameters": [
+          {
+            "name": "accountID",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "csrf": [],
+            "adminMFA": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/users/{accountID}/force-logout": {
+      "post": {
+        "operationId": "post_api_v1_admin_users_accountID_force_logout",
+        "summary": "Create admin users accountID force logout",
+        "tags": [
+          "admin-users"
+        ],
+        "parameters": [
+          {
+            "name": "accountID",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "csrf": [],
+            "adminMFA": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/users/{accountID}/reinstate": {
+      "post": {
+        "operationId": "post_api_v1_admin_users_accountID_reinstate",
+        "summary": "Create admin users accountID reinstate",
+        "tags": [
+          "admin-users"
+        ],
+        "parameters": [
+          {
+            "name": "accountID",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "csrf": [],
+            "adminMFA": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/users/{accountID}/suspend": {
+      "post": {
+        "operationId": "post_api_v1_admin_users_accountID_suspend",
+        "summary": "Create admin users accountID suspend",
+        "tags": [
+          "admin-users"
+        ],
+        "parameters": [
+          {
+            "name": "accountID",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "csrf": [],
+            "adminMFA": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/admin/verification/domains": {
       "get": {
         "operationId": "get_api_v1_admin_verification_domains",

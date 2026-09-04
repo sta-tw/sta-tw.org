@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -46,6 +47,7 @@ type Service struct {
 	store              Store
 	emailCipher        *FieldCipher
 	lookupHMACKey      []byte
+	lookupHasher       *LookupHasher
 	sessionTTL         time.Duration
 	cookieSecure       bool
 	loginLimiter       *security.FixedWindowLimiter
@@ -126,10 +128,15 @@ func NewService(store Store, emailCipher *FieldCipher, lookupHMACKey []byte, ses
 	if len(lookupHMACKey) != 32 {
 		return nil, errors.New("lookup HMAC key must be 32 bytes")
 	}
+	lookupHasher, err := NewLookupHasher(lookupHMACKey)
+	if err != nil {
+		return nil, err
+	}
 	return &Service{
 		store:           store,
 		emailCipher:     emailCipher,
 		lookupHMACKey:   append([]byte(nil), lookupHMACKey...),
+		lookupHasher:    lookupHasher,
 		sessionTTL:      sessionTTL,
 		cookieSecure:    cookieSecure,
 		loginLimiter:    security.NewFixedWindowLimiter(10, time.Minute, 10000),
@@ -156,6 +163,21 @@ func (s *Service) ConfigureDistributedLimiter(limiter security.DistributedLimite
 	if s != nil {
 		s.distributedLimiter = limiter
 	}
+}
+
+// ConfigureLookupKeyRotation registers retired lookup-HMAC keys. Reads then try
+// the primary plus each retired key; writes still use the primary. Call once at
+// startup with the keys being rotated out.
+func (s *Service) ConfigureLookupKeyRotation(secondary [][]byte) error {
+	if s == nil {
+		return nil
+	}
+	hasher, err := NewLookupHasher(s.lookupHMACKey, secondary...)
+	if err != nil {
+		return err
+	}
+	s.lookupHasher = hasher
+	return nil
 }
 
 func (s *Service) EmailVerificationConfigured() bool {
@@ -255,10 +277,7 @@ func (s *Service) RequestPasswordReset(ctx context.Context, email string, reques
 	if err != nil {
 		return nil // malformed address: nothing to do, stay silent
 	}
-	lookupHash, err := LookupHash(s.lookupHMACKey, normalized)
-	if err != nil {
-		return err
-	}
+	lookupHash := s.lookupHasher.Hash(normalized)
 	allowed, err := s.rateAllowed(ctx, s.emailLimiter, "auth-password-reset", hex.EncodeToString(lookupHash), 3, 10*time.Minute)
 	if err != nil {
 		return err
@@ -266,7 +285,7 @@ func (s *Service) RequestPasswordReset(ctx context.Context, email string, reques
 	if !allowed {
 		return nil // over the limit: silently skip, still respond 202
 	}
-	accountID, err := store.LookupAccountIDByEmailHash(ctx, lookupHash)
+	accountID, err := store.LookupAccountIDByEmailHashes(ctx, s.lookupHasher.Candidates(normalized))
 	if errors.Is(err, ErrNotFound) {
 		return nil
 	}
@@ -489,10 +508,7 @@ func (s *Service) OAuthCallback(ctx context.Context, provider, stateValue, code 
 	if err != nil {
 		return OAuthResult{}, err
 	}
-	subjectHash, err := LookupHash(s.lookupHMACKey, subject)
-	if err != nil {
-		return OAuthResult{}, err
-	}
+	subjectHash := s.lookupHasher.Hash(subject)
 	if state.AccountID != nil {
 		if err := s.store.CreateOAuthBinding(ctx, *state.AccountID, provider, subjectHash); err != nil {
 			return OAuthResult{}, err
@@ -503,9 +519,17 @@ func (s *Service) OAuthCallback(ctx context.Context, provider, stateValue, code 
 		}
 		return OAuthResult{Account: account, Bound: true}, nil
 	}
-	account, err := s.store.FindAccountByOAuthSubject(ctx, provider, subjectHash)
+	candidates := s.lookupHasher.Candidates(subject)
+	primaryHash := candidates[0]
+	account, matchedHash, err := s.store.FindAccountByOAuthSubjectHashes(ctx, provider, candidates)
 	if err != nil {
 		return OAuthResult{}, ErrOAuthNotBound
+	}
+	// Lazily migrate an identity still hashed under a retired key.
+	if !bytes.Equal(matchedHash, primaryHash) {
+		if rh, ok := s.store.(oauthSubjectRehasher); ok {
+			_ = rh.RehashOAuthSubject(ctx, provider, matchedHash, primaryHash)
+		}
 	}
 	result, err := s.createSession(ctx, account, request)
 	if err != nil {
@@ -584,11 +608,7 @@ func (s *Service) Register(ctx context.Context, input RegisterInput, request *ht
 	if err != nil {
 		return Account{}, fmt.Errorf("protect email: %w", err)
 	}
-	emailLookupHash, err := LookupHash(s.lookupHMACKey, email)
-	if err != nil {
-		return Account{}, fmt.Errorf("hash email lookup: %w", err)
-	}
-	return s.store.CreateAccount(ctx, username, emailCiphertext, emailLookupHash, passwordHash)
+	return s.store.CreateAccount(ctx, username, emailCiphertext, s.lookupHasher.Hash(email), passwordHash)
 }
 
 func (s *Service) Login(ctx context.Context, input LoginInput, request *http.Request) (SessionResult, error) {

@@ -139,9 +139,67 @@ func LookupHash(key []byte, normalizedValue string) ([]byte, error) {
 	if len(key) != 32 {
 		return nil, errors.New("lookup HMAC key must be 32 bytes")
 	}
+	return hmacSum(key, normalizedValue), nil
+}
+
+func hmacSum(key []byte, value string) []byte {
 	mac := hmac.New(sha256.New, key)
-	_, _ = mac.Write([]byte(normalizedValue))
-	return mac.Sum(nil), nil
+	_, _ = mac.Write([]byte(value))
+	return mac.Sum(nil)
+}
+
+// LookupHasher is an HMAC-SHA-256 keyring for the deterministic lookup hashes
+// stored on UNIQUE columns (account email, OAuth subject). Writes use the
+// primary key; reads try the primary plus any retired keys, so a key can be
+// rotated without a flag day: promote the new key to primary, keep the old one
+// as a secondary read key, run cmd/reencrypt to rewrite the stored hashes it
+// can (those whose plaintext is recoverable), then drop the secondary.
+type LookupHasher struct {
+	primary   []byte
+	secondary [][]byte
+}
+
+// NewLookupHasher builds a hasher. primary must be 32 bytes; each secondary key
+// (retired, read-only) must also be 32 bytes. A nil primary yields a nil
+// hasher, matching the "not configured" state elsewhere in the package.
+func NewLookupHasher(primary []byte, secondary ...[]byte) (*LookupHasher, error) {
+	if primary == nil {
+		return nil, nil
+	}
+	if len(primary) != 32 {
+		return nil, errors.New("lookup HMAC primary key must be 32 bytes")
+	}
+	h := &LookupHasher{primary: append([]byte(nil), primary...)}
+	for _, k := range secondary {
+		if len(k) != 32 {
+			return nil, errors.New("lookup HMAC secondary key must be 32 bytes")
+		}
+		h.secondary = append(h.secondary, append([]byte(nil), k...))
+	}
+	return h, nil
+}
+
+// Hash returns the primary hash, used for writes.
+func (h *LookupHasher) Hash(normalizedValue string) []byte {
+	return hmacSum(h.primary, normalizedValue)
+}
+
+// Candidates returns the primary hash followed by one per retired key. Match a
+// stored column against the whole slice (`col = ANY($1)`) so rows written under
+// an older key still resolve.
+func (h *LookupHasher) Candidates(normalizedValue string) [][]byte {
+	out := make([][]byte, 0, 1+len(h.secondary))
+	out = append(out, hmacSum(h.primary, normalizedValue))
+	for _, k := range h.secondary {
+		out = append(out, hmacSum(k, normalizedValue))
+	}
+	return out
+}
+
+// NeedsRotation reports whether a stored hash was produced by a retired key and
+// should be rewritten with the primary.
+func (h *LookupHasher) NeedsRotation(stored []byte, normalizedValue string) bool {
+	return !hmac.Equal(stored, h.Hash(normalizedValue))
 }
 
 func HashOpaqueToken(token string) []byte {

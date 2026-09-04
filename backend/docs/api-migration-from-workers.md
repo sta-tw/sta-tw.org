@@ -97,10 +97,23 @@ Cross-cutting operator routes (admin role + admin MFA, read-only, no CSRF):
   (the per-domain `…/history` routes only ever show one entity). Filters:
   `entity_type`, `entity_key`, `action`, `actor` (UUID), `since` / `until`
   (RFC3339). Keyset pagination: `?limit=` (≤ 100) + `next_cursor` → `?cursor=`.
+- `GET /api/v1/admin/users` — keyset page over accounts, newest first. Filters:
+  `status` (`active`/`suspended`/`deleted`), `identity` (`temporary`/`student`/
+  `senior`), `role=admin`, `q` (username prefix). `?limit=` (≤ 100) +
+  `next_cursor` → `?cursor=`.
+- `GET /api/v1/admin/users/{id}` — one account with role, suspension state,
+  active-session / application / experience counts.
+- `POST /api/v1/admin/users/{id}/suspend` `{reason}` (1-500 chars) — flips
+  `account_status` to `suspended`, revokes every live session (login and the
+  session check already gate on `active`), writes an `account.suspended` audit
+  row. `409` for self or another admin. CSRF applies.
+- `POST /api/v1/admin/users/{id}/reinstate` `{reason?}` — back to `active`,
+  clears the suspension columns, `account.reinstated` audit.
+- `POST /api/v1/admin/users/{id}/force-logout` `{reason?}` — revokes every live
+  session without changing status, `account.force_logout` audit.
 
-**Not present**: generic user management (list/suspend/force-logout), a
-reputation system, portfolio-rule CRUD, public `/stats`. These are roadmap
-items.
+**Not present**: a reputation system, portfolio-rule CRUD, public `/stats`.
+These are roadmap items.
 
 ## 5. Portfolio
 
@@ -144,8 +157,11 @@ route is not mounted. School master also still has `GET /api/v1/schools?q=`.
 - `traceparent` (W3C, version 00): honoured if sent, otherwise the API starts a
   trace. The `trace_id` is echoed as `X-Trace-Id`, written on every access-log
   line, carried into the extraction job and sent back on the worker's result
-  callback — one id spans API, worker and callback logs. Not an OpenTelemetry
-  exporter yet; it is log correlation only.
+  callback — one id spans API, worker and callback logs. When
+  `STA_OTEL_EXPORTER_OTLP_ENDPOINT` is set the API also exports real spans over
+  OTLP/HTTP (one server span per request, parented on the inbound `traceparent`)
+  and the echoed `X-Trace-Id` is that span's trace id; unset, the propagation is
+  log-correlation only with no external dependency.
 - Rate limiting: `429` with `code: "rate_limited"`. The rate-limited routes
   (search, chat and support messages, portfolio / verification / brochure
   uploads, the `/internal/extraction/*` callbacks) send `X-RateLimit-Limit`,
@@ -156,8 +172,5 @@ route is not mounted. School master also still has `GET /api/v1/schools?q=`.
 
 ## Roadmap (tracked separately)
 
-generic user management (list / suspend / force-logout) · broader rate-limit
-coverage (auth, admin mutations) · a real OpenTelemetry exporter (the
-`traceparent` propagation is already in place) · HMAC lookup-hash key rotation ·
-message reactions / pins / threads · multi-channel chat · user profiles +
-avatars.
+broader rate-limit coverage (auth, admin mutations) · message reactions / pins /
+threads · multi-channel chat · user profiles + avatars.

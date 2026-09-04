@@ -84,6 +84,27 @@ func run(logger *slog.Logger) error {
 	hubCtx, hubCancel := context.WithCancel(context.Background())
 	defer hubCancel()
 
+	tracingShutdown, err := obs.InitTracing(context.Background(), obs.TracingConfig{
+		Endpoint:    cfg.OTelExporterEndpoint,
+		Insecure:    cfg.OTelExporterInsecure,
+		ServiceName: cfg.OTelServiceName,
+		Environment: cfg.Environment,
+		SampleRatio: cfg.OTelSampleRatio,
+	})
+	if err != nil {
+		return err
+	}
+	if obs.TracingEnabled() {
+		logger.Info("OTLP trace exporter enabled", "endpoint", cfg.OTelExporterEndpoint, "sample_ratio", cfg.OTelSampleRatio)
+	}
+	defer func() {
+		flushCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := tracingShutdown(flushCtx); err != nil {
+			logger.Warn("trace exporter shutdown", "error", err)
+		}
+	}()
+
 	if cfg.DatabaseURL != "" {
 		startupContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		databasePool, err = db.OpenPostgres(startupContext, cfg.DatabaseURL)
@@ -111,6 +132,9 @@ func run(logger *slog.Logger) error {
 		}
 		authService.ConfigureRegistrationPolicy(cfg.RequireEduEmail)
 		authService.ConfigureAdminMFA(cfg.RequireAdminMFA)
+		if err := authService.ConfigureLookupKeyRotation(cfg.LookupHMACSecondaryKeys); err != nil {
+			return err
+		}
 		distributedLimiter, err = security.NewPostgresFixedWindowLimiter(databasePool)
 		if err != nil {
 			return err

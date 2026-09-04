@@ -37,6 +37,11 @@ func NewHandler(authService *auth.Service, pool *pgxpool.Pool) (*Handler, error)
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/admin/stats", h.stats)
 	mux.HandleFunc("GET /api/v1/admin/audit-log", h.auditLog)
+	mux.HandleFunc("GET /api/v1/admin/users", h.listUsers)
+	mux.HandleFunc("GET /api/v1/admin/users/{accountID}", h.getUser)
+	mux.HandleFunc("POST /api/v1/admin/users/{accountID}/suspend", h.suspendUser)
+	mux.HandleFunc("POST /api/v1/admin/users/{accountID}/reinstate", h.reinstateUser)
+	mux.HandleFunc("POST /api/v1/admin/users/{accountID}/force-logout", h.forceLogoutUser)
 }
 
 // requireAdmin authenticates the caller, confirms the admin role and enforces
@@ -64,6 +69,21 @@ func (h *Handler) requireAdmin(w http.ResponseWriter, r *http.Request) (auth.Req
 	}
 	if err := h.auth.RequireAdminMFA(r.Context(), session.Session.Account.ID, r.Header.Get("X-MFA-Code")); err != nil {
 		writeError(w, http.StatusPreconditionRequired, "admin_mfa_required", "administrator MFA verification is required")
+		return auth.RequestSession{}, false
+	}
+	return session, true
+}
+
+// requireAdminMutation is requireAdmin plus the CSRF check that state-changing
+// operator endpoints need. Cookie-authenticated callers must present the CSRF
+// token; bearer-token callers are exempt (AuthorizeMutation handles both).
+func (h *Handler) requireAdminMutation(w http.ResponseWriter, r *http.Request) (auth.RequestSession, bool) {
+	session, ok := h.requireAdmin(w, r)
+	if !ok {
+		return auth.RequestSession{}, false
+	}
+	if err := h.auth.AuthorizeMutation(r, session); err != nil {
+		writeError(w, http.StatusForbidden, "csrf_required", "request verification failed")
 		return auth.RequestSession{}, false
 	}
 	return session, true

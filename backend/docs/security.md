@@ -10,8 +10,13 @@
   可同時持有多把金鑰（舊金鑰保留供讀取，primary 供寫入），未加版本的舊資料以
   legacy key 作 fallback。以 `STA_FIELD_ENCRYPTION_KEYS` /
   `STA_FIELD_ENCRYPTION_PRIMARY_VERSION` 設定，換金鑰後執行 `reencrypt -apply`
-  把靜態資料搬到新金鑰，再淘汰舊金鑰。HMAC lookup hash 由正規化明文推導，不在
-  此流程內輪替。
+  把靜態資料搬到新金鑰，再淘汰舊金鑰。
+- HMAC lookup hash（`email_lookup_hash`、OAuth subject hash）也支援輪替：
+  `STA_LOOKUP_HMAC_KEY` 為 primary（寫入），`STA_LOOKUP_HMAC_SECONDARY_KEYS`
+  放退役金鑰供讀取（登入／查找以 `= ANY` 同時比對）。`reencrypt -apply` 會用
+  primary 金鑰重算 `accounts.email_lookup_hash`（明文可由 email_ciphertext 還原）；
+  OAuth subject hash 於下次該帳號 OAuth 登入時就地重算。全部搬完即可清掉
+  secondary。其餘 lookup hash（准考證、學校信箱）不在此流程內。
 - session、CSRF、OAuth state 與 OAuth provider subject 不保存明文值。
 - OAuth 使用 state 與 PKCE；callback 一次性消耗 state。
 - 原生帳號先建立；OAuth 未綁定時只拒絕登入，不自動建立帳號。
