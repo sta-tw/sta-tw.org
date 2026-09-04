@@ -5,6 +5,14 @@ import (
 	"net/http"
 	"regexp"
 	"time"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/propagation"
+	oteltrace "go.opentelemetry.io/otel/trace"
+
+	"sta-backend/internal/obs"
 )
 
 // RequestObserver is notified once per finished HTTP request. cmd/api wires a
@@ -105,7 +113,38 @@ func accessLogMiddleware(logger *slog.Logger, observer RequestObserver, mux *htt
 			}
 		}
 
+		// When an OTLP exporter is configured, run the request inside a server
+		// span parented on any inbound W3C traceparent, and reconcile the
+		// correlation trace_id (and X-Trace-Id header) to it so logs, spans and
+		// the extraction-job traceparent all share one id.
+		var span oteltrace.Span
+		if obs.TracingEnabled() {
+			pctx := otel.GetTextMapPropagator().Extract(r.Context(), propagation.HeaderCarrier(r.Header))
+			spanCtx, started := obs.Tracer().Start(pctx, r.Method+" "+route,
+				oteltrace.WithSpanKind(oteltrace.SpanKindServer),
+				oteltrace.WithAttributes(
+					attribute.String("http.request.method", r.Method),
+					attribute.String("http.route", route),
+					attribute.String("url.path", r.URL.Path),
+				),
+			)
+			span = started
+			if tc, ok := obs.TraceContextFromSpan(span.SpanContext()); ok {
+				spanCtx = obs.WithTrace(spanCtx, tc)
+				w.Header().Set("X-Trace-Id", tc.TraceID)
+			}
+			r = r.WithContext(spanCtx)
+		}
+
 		next.ServeHTTP(recorder, r)
+
+		if span != nil {
+			span.SetAttributes(attribute.Int("http.response.status_code", recorder.status))
+			if recorder.status >= 500 {
+				span.SetStatus(codes.Error, http.StatusText(recorder.status))
+			}
+			span.End()
+		}
 
 		duration := time.Since(start)
 		if observer != nil {
@@ -123,6 +162,7 @@ func accessLogMiddleware(logger *slog.Logger, observer RequestObserver, mux *htt
 		}
 		logger.LogAttrs(r.Context(), level, "http request",
 			slog.String("request_id", requestIDFromContext(r.Context())),
+			slog.String("trace_id", obs.TraceIDFromContext(r.Context())),
 			slog.String("method", r.Method),
 			slog.String("path", r.URL.Path),
 			slog.String("route", route),

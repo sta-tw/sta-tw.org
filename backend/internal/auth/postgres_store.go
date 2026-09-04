@@ -173,31 +173,47 @@ func (s *PostgresStore) CreateOAuthBinding(ctx context.Context, accountID uuid.U
 	return nil
 }
 
-func (s *PostgresStore) FindAccountByOAuthSubject(ctx context.Context, provider string, providerSubjectHash []byte) (Account, error) {
+// RehashOAuthSubject rewrites a stored subject hash from a retired lookup key to
+// the primary one. It is a no-op if oldHash no longer matches (a concurrent
+// login already migrated it).
+func (s *PostgresStore) RehashOAuthSubject(ctx context.Context, provider string, oldHash, newHash []byte) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE oauth_identities SET provider_subject_hash = $3
+		WHERE provider = $1 AND provider_subject_hash = $2
+	`, provider, oldHash, newHash)
+	if err != nil {
+		return fmt.Errorf("rehash OAuth subject: %w", err)
+	}
+	return nil
+}
+
+func (s *PostgresStore) FindAccountByOAuthSubjectHashes(ctx context.Context, provider string, providerSubjectHashes [][]byte) (Account, []byte, error) {
 	var idText string
 	var account Account
+	var matched []byte
 	err := s.pool.QueryRow(ctx, `
-		SELECT a.id::text, a.username, a.identity_status, a.account_status, a.email_verified_at IS NOT NULL
+		SELECT a.id::text, a.username, a.identity_status, a.account_status, a.email_verified_at IS NOT NULL,
+		       o.provider_subject_hash
 		FROM oauth_identities o
 		JOIN accounts a ON a.id = o.account_id
-		WHERE o.provider = $1 AND o.provider_subject_hash = $2
-	`, provider, providerSubjectHash).Scan(
-		&idText, &account.Username, &account.IdentityStatus, &account.AccountStatus, &account.EmailVerified,
+		WHERE o.provider = $1 AND o.provider_subject_hash = ANY($2)
+	`, provider, providerSubjectHashes).Scan(
+		&idText, &account.Username, &account.IdentityStatus, &account.AccountStatus, &account.EmailVerified, &matched,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return Account{}, ErrNotFound
+		return Account{}, nil, ErrNotFound
 	}
 	if err != nil {
-		return Account{}, fmt.Errorf("find OAuth account: %w", err)
+		return Account{}, nil, fmt.Errorf("find OAuth account: %w", err)
 	}
 	account.ID, err = uuid.Parse(idText)
 	if err != nil {
-		return Account{}, fmt.Errorf("parse OAuth account id: %w", err)
+		return Account{}, nil, fmt.Errorf("parse OAuth account id: %w", err)
 	}
 	if account.AccountStatus != "active" {
-		return Account{}, ErrNotFound
+		return Account{}, nil, ErrNotFound
 	}
-	return account, nil
+	return account, matched, nil
 }
 
 func (s *PostgresStore) CreateOAuthState(ctx context.Context, provider string, accountID *uuid.UUID, stateHash, codeVerifierCiphertext []byte, redirectURL string, expiresAt time.Time) error {
@@ -358,11 +374,11 @@ func (s *PostgresStore) RevokeOtherAccountSessions(ctx context.Context, accountI
 
 // --- password reset -------------------------------------------------------
 
-func (s *PostgresStore) LookupAccountIDByEmailHash(ctx context.Context, emailLookupHash []byte) (uuid.UUID, error) {
+func (s *PostgresStore) LookupAccountIDByEmailHashes(ctx context.Context, emailLookupHashes [][]byte) (uuid.UUID, error) {
 	var id uuid.UUID
 	err := s.pool.QueryRow(ctx, `
-		SELECT id FROM accounts WHERE email_lookup_hash = $1 AND account_status = 'active'
-	`, emailLookupHash).Scan(&id)
+		SELECT id FROM accounts WHERE email_lookup_hash = ANY($1) AND account_status = 'active'
+	`, emailLookupHashes).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return uuid.Nil, ErrNotFound
 	}
@@ -474,10 +490,10 @@ func (s *PostgresStore) IsAdmin(ctx context.Context, accountID uuid.UUID) (bool,
 func (s *PostgresStore) GetAdminMFA(ctx context.Context, accountID uuid.UUID) (AdminMFARecord, error) {
 	var record AdminMFARecord
 	err := s.pool.QueryRow(ctx, `
-		SELECT secret_ciphertext, enabled_at, pending_expires_at
+		SELECT secret_ciphertext, enabled_at, pending_expires_at, last_verified_at
 		FROM account_admin_mfa
 		WHERE account_id = $1
-	`, accountID).Scan(&record.SecretCiphertext, &record.EnabledAt, &record.PendingExpiresAt)
+	`, accountID).Scan(&record.SecretCiphertext, &record.EnabledAt, &record.PendingExpiresAt, &record.LastVerifiedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return AdminMFARecord{}, ErrNotFound
 	}
@@ -510,7 +526,7 @@ func (s *PostgresStore) SaveAdminMFASecret(ctx context.Context, accountID uuid.U
 func (s *PostgresStore) EnableAdminMFA(ctx context.Context, accountID uuid.UUID, enabledAt time.Time) error {
 	command, err := s.pool.Exec(ctx, `
 		UPDATE account_admin_mfa
-		SET enabled_at = $2, pending_expires_at = NULL, updated_at = CURRENT_TIMESTAMP
+		SET enabled_at = $2, last_verified_at = $2, pending_expires_at = NULL, updated_at = CURRENT_TIMESTAMP
 		WHERE account_id = $1 AND enabled_at IS NULL
 	`, accountID, enabledAt)
 	if err != nil {
@@ -518,6 +534,17 @@ func (s *PostgresStore) EnableAdminMFA(ctx context.Context, accountID uuid.UUID,
 	}
 	if command.RowsAffected() != 1 {
 		return ErrConflict
+	}
+	return nil
+}
+
+func (s *PostgresStore) TouchAdminMFAVerified(ctx context.Context, accountID uuid.UUID, at time.Time) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE account_admin_mfa SET last_verified_at = $2, updated_at = CURRENT_TIMESTAMP
+		WHERE account_id = $1 AND enabled_at IS NOT NULL
+	`, accountID, at)
+	if err != nil {
+		return fmt.Errorf("touch administrator MFA: %w", err)
 	}
 	return nil
 }

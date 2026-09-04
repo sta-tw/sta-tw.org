@@ -13,15 +13,17 @@ import (
 
 	"github.com/google/uuid"
 	"sta-backend/internal/auth"
+	"sta-backend/internal/security"
 	"sta-backend/internal/storage"
 )
 
 type BrochureHandler struct {
-	authService *auth.Service
-	repository  BrochureRepository
-	blobStore   storage.BlobStore
-	scanner     storage.Scanner
-	dispatcher  BrochureExtractionDispatcher
+	authService   *auth.Service
+	repository    BrochureRepository
+	blobStore     storage.BlobStore
+	scanner       storage.Scanner
+	dispatcher    BrochureExtractionDispatcher
+	uploadLimiter *security.FixedWindowLimiter
 }
 
 func NewBrochureHandler(authService *auth.Service, repository BrochureRepository, blobStore storage.BlobStore) (*BrochureHandler, error) {
@@ -36,7 +38,14 @@ func NewBrochureHandlerWithDispatcherAndScanner(authService *auth.Service, repos
 	if authService == nil || repository == nil {
 		return nil, errors.New("brochure handler dependencies are missing")
 	}
-	return &BrochureHandler{authService: authService, repository: repository, blobStore: blobStore, scanner: scanner, dispatcher: dispatcher}, nil
+	return &BrochureHandler{
+		authService:   authService,
+		repository:    repository,
+		blobStore:     blobStore,
+		scanner:       scanner,
+		dispatcher:    dispatcher,
+		uploadLimiter: security.NewFixedWindowLimiter(30, time.Minute, 4096),
+	}, nil
 }
 
 func (h *BrochureHandler) RegisterRoutes(mux *http.ServeMux) {
@@ -153,6 +162,13 @@ func (h *BrochureHandler) upload(w http.ResponseWriter, r *http.Request) {
 	}
 	if h.blobStore == nil {
 		writeAdmissionError(w, http.StatusServiceUnavailable, "storage_unavailable", "brochure storage is unavailable")
+		return
+	}
+	now := time.Now()
+	rl := h.uploadLimiter.Take(session.Session.Account.ID.String(), now)
+	security.WriteRateLimitHeaders(w, rl, now)
+	if !rl.Allowed {
+		writeAdmissionError(w, http.StatusTooManyRequests, "rate_limited", "too many uploads")
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, storage.MaxPortfolioFileBytes+1<<20)

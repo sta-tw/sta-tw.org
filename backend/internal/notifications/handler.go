@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"sta-backend/internal/auth"
+	"sta-backend/internal/pagination"
 )
 
 type Handler struct {
@@ -25,7 +26,39 @@ func NewHandler(authService *auth.Service, repository Repository) (*Handler, err
 
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/notifications", h.list)
+	mux.HandleFunc("GET /api/v1/notifications/unread-count", h.unreadCount)
+	mux.HandleFunc("POST /api/v1/notifications/read-all", h.markAllRead)
 	mux.HandleFunc("POST /api/v1/notifications/{notificationID}/read", h.markRead)
+}
+
+func (h *Handler) unreadCount(w http.ResponseWriter, r *http.Request) {
+	session, ok := h.authenticate(w, r)
+	if !ok {
+		return
+	}
+	count, err := h.repository.UnreadCount(r.Context(), session.Session.Account.ID)
+	if err != nil {
+		writeNotificationError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	writeNotificationJSON(w, http.StatusOK, map[string]any{"unread": count})
+}
+
+func (h *Handler) markAllRead(w http.ResponseWriter, r *http.Request) {
+	session, ok := h.authenticate(w, r)
+	if !ok {
+		return
+	}
+	if err := h.authService.AuthorizeMutation(r, session); err != nil {
+		writeNotificationError(w, http.StatusForbidden, "csrf_required", "request verification failed")
+		return
+	}
+	updated, err := h.repository.MarkAllRead(r.Context(), session.Session.Account.ID)
+	if err != nil {
+		writeNotificationError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	writeNotificationJSON(w, http.StatusOK, map[string]any{"marked_read": updated})
 }
 
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
@@ -33,17 +66,17 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	limit, offset, err := notificationPageQuery(r)
+	limit, cursor, err := notificationPageQuery(r)
 	if err != nil {
 		writeNotificationError(w, http.StatusBadRequest, "invalid_query", "notification query is invalid")
 		return
 	}
-	items, err := h.repository.List(r.Context(), session.Session.Account.ID, limit, offset)
+	items, nextCursor, err := h.repository.List(r.Context(), session.Session.Account.ID, limit, cursor)
 	if err != nil {
 		writeNotificationError(w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
 	}
-	writeNotificationJSON(w, http.StatusOK, map[string]any{"data": items})
+	writeNotificationJSON(w, http.StatusOK, map[string]any{"data": items, "next_cursor": nextCursor})
 }
 
 func (h *Handler) markRead(w http.ResponseWriter, r *http.Request) {
@@ -80,19 +113,20 @@ func (h *Handler) authenticate(w http.ResponseWriter, r *http.Request) (auth.Req
 	return session, true
 }
 
-func notificationPageQuery(r *http.Request) (int, int, error) {
-	limit, offset := 50, 0
-	var err error
+func notificationPageQuery(r *http.Request) (int, pagination.Cursor, error) {
+	limit := 50
 	if raw := r.URL.Query().Get("limit"); raw != "" {
-		limit, err = strconv.Atoi(raw)
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 1 || parsed > 100 {
+			return 0, pagination.Cursor{}, errors.New("invalid notification page")
+		}
+		limit = parsed
 	}
-	if raw := r.URL.Query().Get("offset"); raw != "" {
-		offset, err = strconv.Atoi(raw)
+	cursor, err := pagination.Decode(r.URL.Query().Get("cursor"))
+	if err != nil {
+		return 0, pagination.Cursor{}, err
 	}
-	if err != nil || limit < 1 || limit > 100 || offset < 0 || offset > 10000 {
-		return 0, 0, errors.New("invalid notification page")
-	}
-	return limit, offset, nil
+	return limit, cursor, nil
 }
 
 type notificationErrorBody struct {

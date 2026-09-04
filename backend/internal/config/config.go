@@ -62,20 +62,39 @@ type Config struct {
 	SMTPPassword                            string
 	SMTPFrom                                string
 	SMTPUseTLS                              bool
+	SMTPAllowInsecure                       bool
 	PublicBaseURL                           string
 	MeilisearchURL                          string
 	MeilisearchKey                          string
 	RequireEduEmail                         bool
 	RequireAdminMFA                         bool
+	AdminMFAGrantTTL                        time.Duration
 	EmailEncryptionKey                      []byte
 	LookupHMACKey                           []byte
-	SessionTTL                              time.Duration
-	GoogleOAuth                             OAuthProviderConfig
-	DiscordOAuth                            OAuthProviderConfig
-	MaxJSONBodyBytes                        int64
-	ShutdownTimeout                         time.Duration
-	EnableDebugResponses                    bool
-	CookieSecure                            bool
+	// LookupHMACSecondaryKeys are retired lookup-HMAC keys kept for reads while
+	// STA_LOOKUP_HMAC_KEY is being rotated. Format:
+	// STA_LOOKUP_HMAC_SECONDARY_KEYS="<base64>,<base64>".
+	LookupHMACSecondaryKeys [][]byte
+	// FieldEncryptionKeys, when set, turns FieldCipher into a rotating keyring.
+	// Format: STA_FIELD_ENCRYPTION_KEYS="1:<base64>,2:<base64>" and
+	// STA_FIELD_ENCRYPTION_PRIMARY_VERSION="2". EmailEncryptionKey stays the
+	// legacy (unversioned) read key.
+	FieldEncryptionKeys           map[byte][]byte
+	FieldEncryptionPrimaryVersion byte
+	SessionTTL                    time.Duration
+	GoogleOAuth                   OAuthProviderConfig
+	DiscordOAuth                  OAuthProviderConfig
+	MaxJSONBodyBytes              int64
+	ShutdownTimeout               time.Duration
+	EnableDebugResponses          bool
+	CookieSecure                  bool
+
+	// OTLP tracing. OTelExporterEndpoint blank disables the exporter and the
+	// request path keeps the dependency-free traceparent propagation.
+	OTelExporterEndpoint string
+	OTelExporterInsecure bool
+	OTelServiceName      string
+	OTelSampleRatio      float64
 }
 
 type OAuthProviderConfig struct {
@@ -143,6 +162,24 @@ func Load() (Config, error) {
 	if config.LookupHMACKey, err = decodeKey("STA_LOOKUP_HMAC_KEY"); err != nil {
 		return Config{}, err
 	}
+	if config.LookupHMACSecondaryKeys, err = decodeKeyList("STA_LOOKUP_HMAC_SECONDARY_KEYS"); err != nil {
+		return Config{}, err
+	}
+
+	config.OTelExporterEndpoint = firstNonEmptyEnv("STA_OTEL_EXPORTER_OTLP_ENDPOINT", "OTEL_EXPORTER_OTLP_ENDPOINT")
+	config.OTelExporterInsecure = strings.EqualFold(strings.TrimSpace(os.Getenv("STA_OTEL_EXPORTER_OTLP_INSECURE")), "true")
+	config.OTelServiceName = firstNonEmptyEnv("STA_OTEL_SERVICE_NAME", "OTEL_SERVICE_NAME")
+	config.OTelSampleRatio = 1.0
+	if raw := strings.TrimSpace(os.Getenv("STA_OTEL_TRACES_SAMPLER_RATIO")); raw != "" {
+		parsed, parseErr := strconv.ParseFloat(raw, 64)
+		if parseErr != nil || parsed < 0 || parsed > 1 {
+			return Config{}, fmt.Errorf("STA_OTEL_TRACES_SAMPLER_RATIO must be a number in [0,1]")
+		}
+		config.OTelSampleRatio = parsed
+	}
+	if config.FieldEncryptionKeys, config.FieldEncryptionPrimaryVersion, err = decodeKeyRing(); err != nil {
+		return Config{}, err
+	}
 	config.GoogleOAuth = oauthProviderFromEnv("STA_GOOGLE_CLIENT_ID", "STA_GOOGLE_CLIENT_SECRET", "STA_GOOGLE_REDIRECT_URL")
 	config.DiscordOAuth = oauthProviderFromEnv("STA_DISCORD_CLIENT_ID", "STA_DISCORD_CLIENT_SECRET", "STA_DISCORD_REDIRECT_URL")
 	if config.DiscordSupportBotToken == "" {
@@ -181,6 +218,9 @@ func Load() (Config, error) {
 	if config.Environment != developmentEnvironment && config.Environment != productionEnvironment && config.Environment != "test" {
 		return Config{}, fmt.Errorf("STA_ENV must be development, test, or production")
 	}
+	// A cleartext SMTP relay (MailHog) is only allowed outside production.
+	config.SMTPAllowInsecure = config.Environment != productionEnvironment &&
+		strings.EqualFold(strings.TrimSpace(os.Getenv("STA_SMTP_ALLOW_INSECURE")), "true")
 	if raw, exists := os.LookupEnv("STA_REQUIRE_ADMIN_MFA"); exists {
 		parsed, err := strconv.ParseBool(strings.TrimSpace(raw))
 		if err != nil {
@@ -189,6 +229,14 @@ func Load() (Config, error) {
 		config.RequireAdminMFA = parsed
 	} else if config.Environment == productionEnvironment {
 		config.RequireAdminMFA = true
+	}
+	config.AdminMFAGrantTTL = 15 * time.Minute
+	if raw := strings.TrimSpace(os.Getenv("STA_ADMIN_MFA_GRANT_TTL")); raw != "" {
+		parsed, err := time.ParseDuration(raw)
+		if err != nil || parsed < 0 {
+			return Config{}, fmt.Errorf("STA_ADMIN_MFA_GRANT_TTL must be a non-negative duration (0 disables)")
+		}
+		config.AdminMFAGrantTTL = parsed
 	}
 	if raw, exists := os.LookupEnv("STA_REQUIRE_FILE_SCAN"); exists {
 		parsed, err := strconv.ParseBool(strings.TrimSpace(raw))
@@ -254,6 +302,76 @@ func decodeKey(key string) ([]byte, error) {
 		return nil, fmt.Errorf("%s must be a base64-encoded 32-byte key", key)
 	}
 	return decoded, nil
+}
+
+// decodeKeyList parses a comma-separated list of base64-encoded 32-byte keys.
+// An empty or unset value yields a nil slice.
+func decodeKeyList(key string) ([][]byte, error) {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return nil, nil
+	}
+	var keys [][]byte
+	for _, entry := range strings.Split(raw, ",") {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		decoded, err := base64.RawStdEncoding.DecodeString(entry)
+		if err != nil {
+			decoded, err = base64.StdEncoding.DecodeString(entry)
+		}
+		if err != nil || len(decoded) != 32 {
+			return nil, fmt.Errorf("%s entries must each be a base64-encoded 32-byte key", key)
+		}
+		keys = append(keys, decoded)
+	}
+	return keys, nil
+}
+
+// decodeKeyRing parses STA_FIELD_ENCRYPTION_KEYS ("1:<b64>,2:<b64>") plus
+// STA_FIELD_ENCRYPTION_PRIMARY_VERSION. Both empty means "no keyring" (the
+// single-key path stays in effect); a partial config is a hard error.
+func decodeKeyRing() (map[byte][]byte, byte, error) {
+	raw := strings.TrimSpace(os.Getenv("STA_FIELD_ENCRYPTION_KEYS"))
+	primaryRaw := strings.TrimSpace(os.Getenv("STA_FIELD_ENCRYPTION_PRIMARY_VERSION"))
+	if raw == "" && primaryRaw == "" {
+		return nil, 0, nil
+	}
+	if raw == "" || primaryRaw == "" {
+		return nil, 0, fmt.Errorf("STA_FIELD_ENCRYPTION_KEYS and STA_FIELD_ENCRYPTION_PRIMARY_VERSION must be set together")
+	}
+	primary, err := strconv.Atoi(primaryRaw)
+	if err != nil || primary < 1 || primary > 255 {
+		return nil, 0, fmt.Errorf("STA_FIELD_ENCRYPTION_PRIMARY_VERSION must be an integer 1-255")
+	}
+	keys := make(map[byte][]byte)
+	for _, pair := range strings.Split(raw, ",") {
+		pair = strings.TrimSpace(pair)
+		if pair == "" {
+			continue
+		}
+		version, encoded, ok := strings.Cut(pair, ":")
+		if !ok {
+			return nil, 0, fmt.Errorf("STA_FIELD_ENCRYPTION_KEYS entries must be \"<version>:<base64 key>\"")
+		}
+		v, err := strconv.Atoi(strings.TrimSpace(version))
+		if err != nil || v < 1 || v > 255 {
+			return nil, 0, fmt.Errorf("STA_FIELD_ENCRYPTION_KEYS version %q must be an integer 1-255", version)
+		}
+		decoded, err := base64.RawStdEncoding.DecodeString(strings.TrimSpace(encoded))
+		if err != nil {
+			decoded, err = base64.StdEncoding.DecodeString(strings.TrimSpace(encoded))
+		}
+		if err != nil || len(decoded) != 32 {
+			return nil, 0, fmt.Errorf("STA_FIELD_ENCRYPTION_KEYS version %d must be a base64-encoded 32-byte key", v)
+		}
+		keys[byte(v)] = decoded
+	}
+	if len(keys[byte(primary)]) != 32 {
+		return nil, 0, fmt.Errorf("STA_FIELD_ENCRYPTION_PRIMARY_VERSION %d has no matching key in STA_FIELD_ENCRYPTION_KEYS", primary)
+	}
+	return keys, byte(primary), nil
 }
 
 func oauthProviderFromEnv(clientIDKey, clientSecretKey, redirectURLKey string) OAuthProviderConfig {

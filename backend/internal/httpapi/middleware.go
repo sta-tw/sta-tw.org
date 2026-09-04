@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"sta-backend/internal/config"
+	"sta-backend/internal/obs"
 )
 
 const extractionResultJSONBodyLimit int64 = 16 << 20
@@ -55,6 +56,14 @@ func requestIDMiddleware(next http.Handler) http.Handler {
 		}
 		ctx := context.WithValue(r.Context(), requestIDKey, requestID)
 		w.Header().Set("X-Request-ID", requestID)
+
+		// Continue an upstream W3C trace, or start one. The trace_id flows
+		// into the extraction job and back through the result callback so a
+		// single id spans API, worker and callback logs.
+		trace := obs.TraceFromInbound(r.Header.Get("traceparent"))
+		ctx = obs.WithTrace(ctx, trace)
+		w.Header().Set("X-Trace-Id", trace.TraceID)
+
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
@@ -104,10 +113,10 @@ func corsMiddleware(cfg config.Config, next http.Handler) http.Handler {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Add("Vary", "Origin")
 			w.Header().Set("Access-Control-Allow-Credentials", "true")
-			w.Header().Set("Access-Control-Expose-Headers", "X-Request-ID")
+			w.Header().Set("Access-Control-Expose-Headers", "X-Request-ID, X-Trace-Id, X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset, Retry-After")
 			if r.Method == http.MethodOptions {
 				w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS")
-				w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-CSRF-Token, X-MFA-Code, X-Request-ID")
+				w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-CSRF-Token, X-MFA-Code, X-Request-ID, traceparent")
 				w.Header().Set("Access-Control-Max-Age", "600")
 				w.WriteHeader(http.StatusNoContent)
 				return

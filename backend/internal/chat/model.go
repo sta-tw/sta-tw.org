@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"sta-backend/internal/pagination"
 )
 
 var (
@@ -41,7 +42,40 @@ type Message struct {
 	Status         string     `json:"status"`
 	CreatedAt      time.Time  `json:"created_at"`
 	EditedAt       *time.Time `json:"edited_at,omitempty"`
+
+	ChannelKey      string          `json:"channel_key,omitempty"`
+	ParentID        *uuid.UUID      `json:"parent_id,omitempty"`
+	ForwardedFromID *uuid.UUID      `json:"forwarded_from_id,omitempty"`
+	PinnedAt        *time.Time      `json:"pinned_at,omitempty"`
+	ReplyCount      int             `json:"reply_count,omitempty"`
+	Reactions       []ReactionTally `json:"reactions,omitempty"`
 }
+
+// ReactionTally is one emoji's count on a message, with whether the caller has
+// reacted with it.
+type ReactionTally struct {
+	Emoji string `json:"emoji"`
+	Count int    `json:"count"`
+	Mine  bool   `json:"mine"`
+}
+
+// Channel is a chat channel as returned by GET /api/v1/chat/channels.
+type Channel struct {
+	Key         string `json:"key"`
+	DisplayName string `json:"display_name"`
+	Kind        string `json:"kind"`
+	Topic       string `json:"topic,omitempty"`
+	IsDefault   bool   `json:"is_default"`
+}
+
+const (
+	// MaxReactionLength bounds a reaction token (an emoji, or a short :shortcode:).
+	MaxReactionLength = 32
+	// MaxThreadDepth is 1: a reply cannot itself be replied to.
+	MaxThreadDepth = 1
+)
+
+var ErrInvalidReaction = errors.New("invalid reaction")
 
 type OutboxTask struct {
 	ID                uuid.UUID `json:"id"`
@@ -74,7 +108,28 @@ type ExternalMessage struct {
 type Repository interface {
 	CreateWebsiteMessage(context.Context, uuid.UUID, string) (Message, error)
 	ApplyExternalMessage(context.Context, ExternalMessage, []byte) (Message, error)
-	ListMessages(context.Context, int, int) ([]Message, error)
+	ListMessages(context.Context, int, pagination.Cursor) ([]Message, string, error)
+
+	ListChannels(context.Context) ([]Channel, error)
+	ListChannelMessages(ctx context.Context, channelKey string, viewer uuid.UUID, limit int, cursor pagination.Cursor) ([]Message, string, error)
+	CreateChannelMessage(ctx context.Context, channelKey string, accountID uuid.UUID, body string, parentID *uuid.UUID) (Message, error)
+	ListThreadReplies(ctx context.Context, parentID, viewer uuid.UUID, limit int, cursor pagination.Cursor) ([]Message, string, error)
+	ListPinned(ctx context.Context, channelKey string, viewer uuid.UUID) ([]Message, error)
+	ForwardMessage(ctx context.Context, sourceID uuid.UUID, targetChannelKey string, accountID uuid.UUID) (Message, error)
+	EditOwnMessage(ctx context.Context, messageID, accountID uuid.UUID, newBody string) (Message, error)
+	WithdrawOwnMessage(ctx context.Context, messageID, accountID uuid.UUID) (Message, error)
+	SetReaction(ctx context.Context, messageID, accountID uuid.UUID, emoji string) error
+	RemoveReaction(ctx context.Context, messageID, accountID uuid.UUID, emoji string) error
+	SetPinned(ctx context.Context, messageID, adminID uuid.UUID, pinned bool) error
+}
+
+// NormalizeReaction trims and validates an emoji / short :code: reaction token.
+func NormalizeReaction(raw string) (string, error) {
+	token := strings.TrimSpace(raw)
+	if token == "" || len(token) > MaxReactionLength || containsControl(token) {
+		return "", ErrInvalidReaction
+	}
+	return token, nil
 }
 
 type Publisher interface {

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"sta-backend/internal/admin"
 	"sta-backend/internal/admissions"
 	"sta-backend/internal/applications"
 	"sta-backend/internal/auth"
@@ -27,6 +28,7 @@ import (
 	"sta-backend/internal/notifications"
 	"sta-backend/internal/obs"
 	"sta-backend/internal/portfolio"
+	"sta-backend/internal/profile"
 	"sta-backend/internal/results"
 	"sta-backend/internal/schools"
 	"sta-backend/internal/search"
@@ -83,6 +85,27 @@ func run(logger *slog.Logger) error {
 	hubCtx, hubCancel := context.WithCancel(context.Background())
 	defer hubCancel()
 
+	tracingShutdown, err := obs.InitTracing(context.Background(), obs.TracingConfig{
+		Endpoint:    cfg.OTelExporterEndpoint,
+		Insecure:    cfg.OTelExporterInsecure,
+		ServiceName: cfg.OTelServiceName,
+		Environment: cfg.Environment,
+		SampleRatio: cfg.OTelSampleRatio,
+	})
+	if err != nil {
+		return err
+	}
+	if obs.TracingEnabled() {
+		logger.Info("OTLP trace exporter enabled", "endpoint", cfg.OTelExporterEndpoint, "sample_ratio", cfg.OTelSampleRatio)
+	}
+	defer func() {
+		flushCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := tracingShutdown(flushCtx); err != nil {
+			logger.Warn("trace exporter shutdown", "error", err)
+		}
+	}()
+
 	if cfg.DatabaseURL != "" {
 		startupContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		databasePool, err = db.OpenPostgres(startupContext, cfg.DatabaseURL)
@@ -92,7 +115,11 @@ func run(logger *slog.Logger) error {
 		}
 		defer databasePool.Close()
 		eventHub = events.NewHub(hubCtx, databasePool, logger)
-		fieldCipher, err = auth.NewFieldCipher(cfg.EmailEncryptionKey)
+		if cfg.FieldEncryptionKeys != nil {
+			fieldCipher, err = auth.NewFieldCipherRing(cfg.FieldEncryptionPrimaryVersion, cfg.FieldEncryptionKeys, cfg.EmailEncryptionKey)
+		} else {
+			fieldCipher, err = auth.NewFieldCipher(cfg.EmailEncryptionKey)
+		}
 		if err != nil {
 			return err
 		}
@@ -106,6 +133,10 @@ func run(logger *slog.Logger) error {
 		}
 		authService.ConfigureRegistrationPolicy(cfg.RequireEduEmail)
 		authService.ConfigureAdminMFA(cfg.RequireAdminMFA)
+		authService.ConfigureAdminMFAGrant(cfg.AdminMFAGrantTTL)
+		if err := authService.ConfigureLookupKeyRotation(cfg.LookupHMACSecondaryKeys); err != nil {
+			return err
+		}
 		distributedLimiter, err = security.NewPostgresFixedWindowLimiter(databasePool)
 		if err != nil {
 			return err
@@ -306,8 +337,18 @@ func run(logger *slog.Logger) error {
 			return err
 		}
 		registrars = append(registrars, portfolioHandler.RegisterRoutes)
+
+		profileRepository, err := profile.NewPostgresRepository(databasePool)
+		if err != nil {
+			return err
+		}
+		profileHandler, err := profile.NewHandler(authService, profileRepository, blobStore, fileScanner)
+		if err != nil {
+			return err
+		}
+		registrars = append(registrars, profileHandler.RegisterRoutes)
 	} else if authService != nil {
-		logger.Warn("object storage is not configured; portfolio file routes are disabled")
+		logger.Warn("object storage is not configured; portfolio and profile file routes are disabled")
 	}
 	if authService != nil && databasePool != nil {
 		chatRepository, err := chat.NewPostgresRepository(databasePool, cfg.LookupHMACKey)
@@ -328,6 +369,13 @@ func run(logger *slog.Logger) error {
 			return err
 		}
 		registrars = append(registrars, sseHandler.RegisterRoutes)
+	}
+	if authService != nil && databasePool != nil {
+		adminHandler, err := admin.NewHandler(authService, databasePool)
+		if err != nil {
+			return err
+		}
+		registrars = append(registrars, adminHandler.RegisterRoutes)
 	}
 	if authService != nil && databasePool != nil && cfg.MeilisearchURL != "" {
 		searchClient, err := search.NewClient(cfg.MeilisearchURL, cfg.MeilisearchKey)
@@ -430,6 +478,10 @@ func run(logger *slog.Logger) error {
 		MaxHeaderBytes:    1 << 20,
 	}
 
+	// When Shutdown starts, stop the SSE hub so streaming handlers unblock
+	// instead of holding the connection open until the shutdown deadline.
+	server.RegisterOnShutdown(hubCancel)
+
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -444,14 +496,19 @@ func run(logger *slog.Logger) error {
 
 	select {
 	case err := <-serverErr:
+		// Stop the SSE hub's LISTEN connection before the deferred
+		// databasePool.Close(), which otherwise blocks until that connection
+		// is released.
+		hubCancel()
 		return err
 	case <-ctx.Done():
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
 		defer cancel()
-		if err := server.Shutdown(shutdownCtx); err != nil {
-			return err
-		}
-		return nil
+		shutdownErr := server.Shutdown(shutdownCtx)
+		// Release the hub's held DB connection so databasePool.Close() (a
+		// later defer) does not wait out the container's stop grace period.
+		hubCancel()
+		return shutdownErr
 	}
 }
 

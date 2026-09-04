@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -18,6 +19,7 @@ import (
 	"sta-backend/internal/auth"
 	"sta-backend/internal/jobs"
 	"sta-backend/internal/results"
+	"sta-backend/internal/security"
 	"sta-backend/internal/storage"
 )
 
@@ -33,6 +35,7 @@ type ExternalHandler struct {
 	blobStore          storage.BlobStore
 	scanner            storage.Scanner
 	serviceToken       string
+	callbackLimiter    *security.FixedWindowLimiter
 }
 
 func NewExternalHandler(
@@ -51,7 +54,8 @@ func NewExternalHandler(
 	return &ExternalHandler{
 		authService: authService, repository: repository, brochureRepository: brochureRepository,
 		resultApplier: resultApplier, service: service, blobStore: blobStore, scanner: scanner,
-		serviceToken: strings.TrimSpace(serviceToken),
+		serviceToken:    strings.TrimSpace(serviceToken),
+		callbackLimiter: security.NewFixedWindowLimiter(300, time.Minute, 4096),
 	}, nil
 }
 
@@ -410,7 +414,31 @@ func (h *ExternalHandler) requireService(w http.ResponseWriter, r *http.Request)
 		writeIngestionError(w, http.StatusUnauthorized, "invalid_service_token", "service authentication failed")
 		return false
 	}
+	// A runaway worker or a leaked token should not be able to hammer the
+	// callback surface unbounded. The limit is high because the caller is a
+	// machine polling for jobs.
+	now := time.Now()
+	rl := h.callbackLimiter.Take(clientIP(r), now)
+	security.WriteRateLimitHeaders(w, rl, now)
+	if !rl.Allowed {
+		writeIngestionError(w, http.StatusTooManyRequests, "rate_limited", "too many extraction callbacks")
+		return false
+	}
 	return true
+}
+
+// clientIP is the best-effort remote address for rate-limit keying.
+func clientIP(r *http.Request) string {
+	if v := r.Header.Get("X-Forwarded-For"); v != "" {
+		if i := strings.IndexByte(v, ','); i > 0 {
+			return strings.TrimSpace(v[:i])
+		}
+		return strings.TrimSpace(v)
+	}
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		return host
+	}
+	return r.RemoteAddr
 }
 
 func bearerToken(value string) string {

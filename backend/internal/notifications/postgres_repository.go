@@ -6,12 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"sta-backend/internal/auth"
+	"sta-backend/internal/pagination"
 )
 
 // eventPublisher is satisfied by *events.Hub. It lets a freshly created in-app
@@ -116,20 +118,25 @@ func (r *PostgresRepository) enqueueEmail(ctx context.Context, accountID uuid.UU
 	return mapNotificationError(err)
 }
 
-func (r *PostgresRepository) List(ctx context.Context, accountID uuid.UUID, limit, offset int) ([]Notification, error) {
-	if limit < 1 || limit > 100 {
-		limit = 50
-	}
-	if offset < 0 {
-		offset = 0
+func (r *PostgresRepository) List(ctx context.Context, accountID uuid.UUID, limit int, after pagination.Cursor) ([]Notification, string, error) {
+	limit = pagination.ClampLimit(limit, 50, 100)
+	var afterTime *time.Time
+	var afterID *uuid.UUID
+	if !after.Zero() {
+		t := after.Time
+		id := after.UUID()
+		afterTime, afterID = &t, &id
 	}
 	rows, err := r.pool.Query(ctx, `
 		SELECT id::text, kind, title_ciphertext, body_ciphertext, read_at, created_at
-		FROM notifications WHERE account_id = $1
-		ORDER BY created_at DESC LIMIT $2 OFFSET $3
-	`, accountID, limit, offset)
+		FROM notifications
+		WHERE account_id = $1
+		  AND ($3::timestamptz IS NULL OR (created_at, id) < ($3::timestamptz, $4::uuid))
+		ORDER BY created_at DESC, id DESC
+		LIMIT $2
+	`, accountID, limit, afterTime, afterID)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	defer rows.Close()
 	result := make([]Notification, 0)
@@ -138,23 +145,49 @@ func (r *PostgresRepository) List(ctx context.Context, accountID uuid.UUID, limi
 		var idText string
 		var titleCiphertext, bodyCiphertext []byte
 		if err := rows.Scan(&idText, &item.Kind, &titleCiphertext, &bodyCiphertext, &item.ReadAt, &item.CreatedAt); err != nil {
-			return nil, err
+			return nil, "", err
 		}
 		item.ID, err = uuid.Parse(idText)
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
 		item.Title, err = r.cipher.Open(titleCiphertext)
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
 		item.Body, err = r.cipher.Open(bodyCiphertext)
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
 		result = append(result, item)
 	}
-	return result, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, "", err
+	}
+	var next string
+	if n := len(result); n > 0 {
+		last := result[n-1]
+		next = pagination.Next(n, limit, last.CreatedAt, last.ID)
+	}
+	return result, next, nil
+}
+
+func (r *PostgresRepository) UnreadCount(ctx context.Context, accountID uuid.UUID) (int, error) {
+	var count int
+	err := r.pool.QueryRow(ctx,
+		`SELECT count(*) FROM notifications WHERE account_id = $1 AND read_at IS NULL`,
+		accountID).Scan(&count)
+	return count, err
+}
+
+func (r *PostgresRepository) MarkAllRead(ctx context.Context, accountID uuid.UUID) (int64, error) {
+	command, err := r.pool.Exec(ctx,
+		`UPDATE notifications SET read_at = CURRENT_TIMESTAMP WHERE account_id = $1 AND read_at IS NULL`,
+		accountID)
+	if err != nil {
+		return 0, err
+	}
+	return command.RowsAffected(), nil
 }
 
 func (r *PostgresRepository) MarkRead(ctx context.Context, accountID, notificationID uuid.UUID) error {

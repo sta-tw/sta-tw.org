@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"sta-backend/internal/pagination"
 )
 
 type PostgresRepository struct{ pool *pgxpool.Pool }
@@ -93,12 +95,21 @@ func (r *PostgresRepository) LeaveSpace(ctx context.Context, accountID, spaceID 
 	return nil
 }
 
-func (r *PostgresRepository) ListThreads(ctx context.Context, accountID *uuid.UUID, spaceID uuid.UUID) ([]Thread, error) {
+func (r *PostgresRepository) ListThreads(ctx context.Context, accountID *uuid.UUID, spaceID uuid.UUID, limit int, after pagination.Cursor) ([]Thread, string, error) {
+	limit = pagination.ClampLimit(limit, 50, 100)
+	var afterTime *time.Time
+	var afterID *uuid.UUID
+	if !after.Zero() {
+		t := after.Time
+		id := after.UUID()
+		afterTime, afterID = &t, &id
+	}
 	rows, err := r.pool.Query(ctx, `
 		SELECT t.id::text, t.space_id, t.title, t.created_at, t.updated_at
 		FROM forum_threads t
 		JOIN forum_spaces f ON f.id = t.space_id AND f.is_active = TRUE
 		WHERE t.space_id = $1 AND t.status = 'published'
+		  AND ($3::timestamptz IS NULL OR (t.updated_at, t.id) < ($3::timestamptz, $4::uuid))
 		  AND (
 			f.space_type = 'global'
 			OR ($2::uuid IS NOT NULL AND f.space_type = 'annual' AND EXISTS (
@@ -111,10 +122,11 @@ func (r *PostgresRepository) ListThreads(ctx context.Context, accountID *uuid.UU
 				  AND a.program_code = f.program_code AND a.status = 'confirmed'
 			))
 		  )
-		ORDER BY t.updated_at DESC
-	`, spaceID, accountID)
+		ORDER BY t.updated_at DESC, t.id DESC
+		LIMIT $5
+	`, spaceID, accountID, afterTime, afterID, limit)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	defer rows.Close()
 	result := make([]Thread, 0)
@@ -122,24 +134,41 @@ func (r *PostgresRepository) ListThreads(ctx context.Context, accountID *uuid.UU
 		var thread Thread
 		var idText string
 		if err := rows.Scan(&idText, &thread.SpaceID, &thread.Title, &thread.CreatedAt, &thread.UpdatedAt); err != nil {
-			return nil, err
+			return nil, "", err
 		}
 		thread.ID, err = uuid.Parse(idText)
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
 		result = append(result, thread)
 	}
-	return result, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, "", err
+	}
+	var next string
+	if n := len(result); n > 0 {
+		last := result[n-1]
+		next = pagination.Next(n, limit, last.UpdatedAt, last.ID)
+	}
+	return result, next, nil
 }
 
-func (r *PostgresRepository) ListPosts(ctx context.Context, accountID *uuid.UUID, threadID uuid.UUID) ([]Post, error) {
+func (r *PostgresRepository) ListPosts(ctx context.Context, accountID *uuid.UUID, threadID uuid.UUID, limit int, after pagination.Cursor) ([]Post, string, error) {
+	limit = pagination.ClampLimit(limit, 50, 100)
+	var afterTime *time.Time
+	var afterID *uuid.UUID
+	if !after.Zero() {
+		t := after.Time
+		id := after.UUID()
+		afterTime, afterID = &t, &id
+	}
 	rows, err := r.pool.Query(ctx, `
 		SELECT p.id::text, p.thread_id, p.body, p.quoted_experience_id, p.created_at
 		FROM forum_posts p
 		JOIN forum_threads t ON t.id = p.thread_id AND t.status = 'published'
 		JOIN forum_spaces f ON f.id = t.space_id AND f.is_active = TRUE
 		WHERE p.thread_id = $1 AND p.status = 'published'
+		  AND ($3::timestamptz IS NULL OR (p.created_at, p.id) > ($3::timestamptz, $4::uuid))
 		  AND (
 			f.space_type = 'global'
 			OR ($2::uuid IS NOT NULL AND f.space_type = 'annual' AND EXISTS (
@@ -152,10 +181,11 @@ func (r *PostgresRepository) ListPosts(ctx context.Context, accountID *uuid.UUID
 				  AND a.program_code = f.program_code AND a.status = 'confirmed'
 			))
 		  )
-		ORDER BY p.created_at
-	`, threadID, accountID)
+		ORDER BY p.created_at ASC, p.id ASC
+		LIMIT $5
+	`, threadID, accountID, afterTime, afterID, limit)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	defer rows.Close()
 	result := make([]Post, 0)
@@ -163,15 +193,26 @@ func (r *PostgresRepository) ListPosts(ctx context.Context, accountID *uuid.UUID
 		var post Post
 		var idText string
 		if err := rows.Scan(&idText, &post.ThreadID, &post.Body, &post.QuotedExperienceID, &post.CreatedAt); err != nil {
-			return nil, err
+			return nil, "", err
 		}
 		post.ID, err = uuid.Parse(idText)
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
 		result = append(result, post)
 	}
-	return result, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, "", err
+	}
+	if err := r.attachPostReactions(ctx, result, accountID); err != nil {
+		return nil, "", err
+	}
+	var next string
+	if n := len(result); n > 0 {
+		last := result[n-1]
+		next = pagination.Next(n, limit, last.CreatedAt, last.ID)
+	}
+	return result, next, nil
 }
 
 func (r *PostgresRepository) CreateThread(ctx context.Context, accountID, spaceID uuid.UUID, title, body string) (Thread, Post, error) {
@@ -424,13 +465,37 @@ func (r *PostgresRepository) UnpublishExperience(ctx context.Context, accountID,
 	return tx.Commit(ctx)
 }
 
-func (r *PostgresRepository) ListPublishedExperiences(ctx context.Context, limit, offset int) ([]Experience, error) {
-	rows, err := r.pool.Query(ctx, experienceSelect+` WHERE e.visibility = 'published' AND r.review_status = 'approved' ORDER BY e.updated_at DESC LIMIT $1 OFFSET $2`, limit, offset)
+func (r *PostgresRepository) ListPublishedExperiences(ctx context.Context, limit int, after pagination.Cursor) ([]Experience, string, error) {
+	limit = pagination.ClampLimit(limit, 50, 100)
+	var afterTime *time.Time
+	var afterID *uuid.UUID
+	if !after.Zero() {
+		t := after.Time
+		id := after.UUID()
+		afterTime, afterID = &t, &id
+	}
+	rows, err := r.pool.Query(ctx, experienceSelect+`
+		WHERE e.visibility = 'published' AND r.review_status = 'approved'
+		  AND ($2::timestamptz IS NULL OR (e.updated_at, e.id) < ($2::timestamptz, $3::uuid))
+		ORDER BY e.updated_at DESC, e.id DESC
+		LIMIT $1`, limit, afterTime, afterID)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	defer rows.Close()
-	return scanExperiences(rows)
+	items, err := scanExperiences(rows)
+	if err != nil {
+		return nil, "", err
+	}
+	if err := r.attachExperienceReactions(ctx, items, nil); err != nil {
+		return nil, "", err
+	}
+	var next string
+	if n := len(items); n > 0 {
+		last := items[n-1]
+		next = pagination.Next(n, limit, last.UpdatedAt, last.ID)
+	}
+	return items, next, nil
 }
 
 func (r *PostgresRepository) GetExperience(ctx context.Context, accountID *uuid.UUID, experienceID uuid.UUID) (Experience, error) {
@@ -463,6 +528,9 @@ func (r *PostgresRepository) GetExperience(ctx context.Context, accountID *uuid.
 	}
 	if len(items) == 0 {
 		return Experience{}, ErrNotFound
+	}
+	if err := r.attachExperienceReactions(ctx, items, accountID); err != nil {
+		return Experience{}, err
 	}
 	return items[0], nil
 }

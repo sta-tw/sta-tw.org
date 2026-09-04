@@ -38,7 +38,11 @@ func run(logger *slog.Logger) error {
 		return errors.New("Telegram bot token and chat ID must be configured together")
 	}
 	if cfg.DiscordChatBotToken == "" || cfg.TelegramBotToken == "" {
-		return errors.New("Discord and Telegram bot credentials are both required for the three-way lounge sync")
+		// Nothing to sync without both platforms. Idle so a default
+		// `docker compose up` produces a healthy container instead of a
+		// crash loop; configure the tokens to enable the lounge bridge.
+		logger.Info("chat lounge sync disabled (Discord and Telegram tokens required); idling")
+		return httpapi.IdleUntilSignal(logger)
 	}
 
 	startupContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)

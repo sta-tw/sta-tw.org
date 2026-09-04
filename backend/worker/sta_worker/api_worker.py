@@ -93,11 +93,21 @@ class ExtractionAPIClient:
         self.token = token.strip()
         self.timeout = timeout
 
-    def _request(self, path: str, method: str = "POST", payload: dict[str, Any] | None = None) -> tuple[int, bytes]:
+    def _request(
+        self,
+        path: str,
+        method: str = "POST",
+        payload: dict[str, Any] | None = None,
+        traceparent: str | None = None,
+    ) -> tuple[int, bytes]:
         body = None if payload is None else json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
         headers = {"Authorization": f"Bearer {self.token}", "Accept": "application/json"}
         if body is not None:
             headers["Content-Type"] = "application/json"
+        if traceparent:
+            # Forward the trace context so the API logs the callback under the
+            # same trace_id as the request that created the job.
+            headers["traceparent"] = traceparent
         request = urllib.request.Request(self.base_url + path, data=body, method=method, headers=headers)
         try:
             with urllib.request.urlopen(request, timeout=self.timeout) as response:
@@ -154,18 +164,37 @@ class ExtractionAPIClient:
         if total <= 0 or digest.hexdigest() != expected_sha256:
             raise InvalidJob("source checksum does not match job")
 
-    def submit_result(self, job_id: str, result: dict[str, Any]) -> None:
-        self._request(f"/api/v1/internal/extraction/jobs/{urllib.parse.quote(job_id, safe='')}/result", payload=result)
+    def submit_result(self, job_id: str, result: dict[str, Any], traceparent: str | None = None) -> None:
+        self._request(
+            f"/api/v1/internal/extraction/jobs/{urllib.parse.quote(job_id, safe='')}/result",
+            payload=result,
+            traceparent=traceparent,
+        )
 
-    def report_failure(self, job_id: str, error: Exception, retryable: bool) -> None:
+    def report_failure(self, job_id: str, error: Exception, retryable: bool, traceparent: str | None = None) -> None:
         code = "processing_failed" if retryable else "invalid_source"
         self._request(
             f"/api/v1/internal/extraction/jobs/{urllib.parse.quote(job_id, safe='')}/failure",
             payload={"code": code, "message": str(error)[:500], "retryable": retryable},
+            traceparent=traceparent,
         )
 
 
-def _process_claim(client: ExtractionAPIClient, claim: dict[str, Any], processor_version: str, max_bytes: int) -> None:
+def _trace_id(traceparent: str | None) -> str:
+    """W3C traceparent is "00-<trace>-<span>-<flags>"; return <trace> for logs."""
+    if not traceparent:
+        return ""
+    parts = traceparent.split("-")
+    return parts[1] if len(parts) == 4 else ""
+
+
+def _process_claim(
+    client: ExtractionAPIClient,
+    claim: dict[str, Any],
+    processor_version: str,
+    max_bytes: int,
+    traceparent: str | None = None,
+) -> None:
     job = BrochureExtractJob.from_mapping(claim["job"])
     download_url = str(claim["download_url"])
     with tempfile.TemporaryDirectory(prefix="sta-api-extraction-") as directory:
@@ -176,7 +205,7 @@ def _process_claim(client: ExtractionAPIClient, claim: dict[str, Any], processor
             result = extract_candidate_list(job, path, processor_version, max_bytes)
         else:
             result = extract_document(job, root, processor_version, max_bytes, logger=LOGGER)
-    client.submit_result(job.job_id, result)
+    client.submit_result(job.job_id, result, traceparent=traceparent)
 
 
 def run() -> None:
@@ -205,33 +234,35 @@ def run() -> None:
                 continue
             claimed = True
             job_id = str(claim.get("job", {}).get("job_id", ""))
+            traceparent = str(claim.get("job", {}).get("traceparent", "")) or None
+            log_extra = {"job_id": job_id, "source_type": source_type, "trace_id": _trace_id(traceparent)}
             try:
-                _process_claim(client, claim, processor_version, max_bytes)
-                LOGGER.info("extraction job completed", extra={"job_id": job_id, "source_type": source_type})
+                _process_claim(client, claim, processor_version, max_bytes, traceparent=traceparent)
+                LOGGER.info("extraction job completed", extra=log_extra)
             except InvalidJob as exc:
-                LOGGER.warning("extraction job rejected", extra={"job_id": job_id, "error": str(exc)})
+                LOGGER.warning("extraction job rejected", extra={**log_extra, "error": str(exc)})
                 try:
-                    client.report_failure(job_id, exc, False)
+                    client.report_failure(job_id, exc, False, traceparent=traceparent)
                 except ExtractionAPIError:
-                    LOGGER.exception("could not report invalid extraction job", extra={"job_id": job_id})
+                    LOGGER.exception("could not report invalid extraction job", extra=log_extra)
             except RetryableProcessingError as exc:
-                LOGGER.warning("extraction job will retry", extra={"job_id": job_id, "error": str(exc)})
+                LOGGER.warning("extraction job will retry", extra={**log_extra, "error": str(exc)})
                 try:
-                    client.report_failure(job_id, exc, True)
+                    client.report_failure(job_id, exc, True, traceparent=traceparent)
                 except ExtractionAPIError:
-                    LOGGER.exception("could not report retryable extraction failure", extra={"job_id": job_id})
+                    LOGGER.exception("could not report retryable extraction failure", extra=log_extra)
             except ExtractionAPIError as exc:
-                LOGGER.warning("extraction API result call failed", extra={"job_id": job_id, "error": str(exc)})
+                LOGGER.warning("extraction API result call failed", extra={**log_extra, "error": str(exc)})
                 try:
-                    client.report_failure(job_id, exc, exc.retryable)
+                    client.report_failure(job_id, exc, exc.retryable, traceparent=traceparent)
                 except ExtractionAPIError:
-                    LOGGER.exception("could not report extraction API failure", extra={"job_id": job_id})
+                    LOGGER.exception("could not report extraction API failure", extra=log_extra)
             except Exception as exc:
-                LOGGER.exception("unexpected extraction job error", extra={"job_id": job_id})
+                LOGGER.exception("unexpected extraction job error", extra=log_extra)
                 try:
-                    client.report_failure(job_id, exc, True)
+                    client.report_failure(job_id, exc, True, traceparent=traceparent)
                 except ExtractionAPIError:
-                    LOGGER.exception("could not report unexpected extraction failure", extra={"job_id": job_id})
+                    LOGGER.exception("could not report unexpected extraction failure", extra=log_extra)
         if not claimed:
             stop.wait(poll_interval)
     LOGGER.info("STA HTTP local extraction worker stopped")

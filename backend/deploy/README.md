@@ -35,6 +35,11 @@ ClamAV's first signature download takes a few minutes; its `start_period` is
 180s. If you are not using file scanning, set `STA_CLAMAV_ADDRESS=` and
 `STA_REQUIRE_FILE_SCAN=false` and remove the `clamav` service.
 
+`.env.example` sets `STA_SMTP_ALLOW_INSECURE=true` so the notification worker
+can use MailHog's cleartext SMTP; this flag is ignored when `STA_ENV=production`
+(a real TLS relay is then required). `chat-worker` and `support-worker` idle
+(healthy, doing nothing) until their Discord/Telegram credentials are set.
+
 ## Profiles
 
 | Profile | Adds | Use when |
@@ -64,6 +69,20 @@ docker compose run --rm api reindex
 
 # validate the environment without starting the server
 docker compose run --rm api api -check-config
+
+# rotate the AES field-encryption key: add the new key to
+# STA_FIELD_ENCRYPTION_KEYS, point STA_FIELD_ENCRYPTION_PRIMARY_VERSION at it,
+# restart, then migrate data at rest (dry run first)
+docker compose run --rm api reencrypt
+docker compose run --rm api reencrypt -apply
+
+# GDPR: export one account's data as JSON (read-only)
+docker compose run --rm api account-tool -mode export -account <uuid|username> -out /tmp/export.json
+
+# GDPR: erase one account (dry run first; add -yes to apply). Prints the
+# object-storage keys you must delete separately.
+docker compose run --rm api account-tool -mode erase -account <uuid|username> -reason "user request 2026-..."
+docker compose run --rm api account-tool -mode erase -account <uuid|username> -reason "user request 2026-..." -yes
 ```
 
 ## Ports

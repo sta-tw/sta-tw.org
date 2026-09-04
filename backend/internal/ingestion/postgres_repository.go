@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"sta-backend/internal/admissions"
 	"sta-backend/internal/jobs"
+	"sta-backend/internal/obs"
 )
 
 type PostgresRepository struct {
@@ -77,6 +78,7 @@ func (r *PostgresRepository) queueDocumentJob(ctx context.Context, adminID *uuid
 		SourceType:    sourceType,
 		SourceURL:     strings.TrimSpace(sourceURL),
 		ProgramCode:   strings.TrimSpace(programCode),
+		Traceparent:   obs.TraceparentFromContext(ctx),
 	}
 	if err := job.Validate(); err != nil {
 		return brochureJobRecord{}, ErrInvalid

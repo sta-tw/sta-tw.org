@@ -6,6 +6,21 @@
 # Build output
 /bin/
 /dist/
+# `go build ./cmd/<x>` drops the binary in the repo root; each is named after
+# its cmd/ directory.
+/account-tool
+/annual-maintenance
+/api
+/bootstrap-admin
+/chat-worker
+/healthcheck
+/ingestion-worker
+/migrate
+/notification-worker
+/reencrypt
+/reindex
+/support-worker
+/telegram-bot
 
 # Project-local toolchains
 .tools/

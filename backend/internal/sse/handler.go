@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"sta-backend/internal/auth"
@@ -16,7 +17,48 @@ import (
 // Topic names. Notification topics are per-account.
 const LoungeTopic = "chat:lounge"
 
+// maxChannelSubscriptions bounds how many chat channels one stream may follow.
+const maxChannelSubscriptions = 10
+
 func NotificationsTopic(accountID string) string { return "notifications:" + accountID }
+
+// ChatTopic is the SSE topic for one chat channel.
+func ChatTopic(channelKey string) string { return "chat:" + channelKey }
+
+// parseChannelTopics turns ?channel=a,b,c into distinct chat topics, defaulting
+// to the lounge. Unknown-looking keys are ignored rather than erroring so a
+// stale client never loses its stream.
+func parseChannelTopics(raw string) []string {
+	seen := map[string]struct{}{}
+	topics := make([]string, 0, 4)
+	for _, part := range strings.Split(raw, ",") {
+		key := strings.ToLower(strings.TrimSpace(part))
+		if key == "" || len(key) > 32 || !isChannelKey(key) {
+			continue
+		}
+		if _, dup := seen[key]; dup {
+			continue
+		}
+		seen[key] = struct{}{}
+		topics = append(topics, ChatTopic(key))
+		if len(topics) == maxChannelSubscriptions {
+			break
+		}
+	}
+	if len(topics) == 0 {
+		topics = append(topics, LoungeTopic)
+	}
+	return topics
+}
+
+func isChannelKey(s string) bool {
+	for _, r := range s {
+		if (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '_' && r != '-' {
+			return false
+		}
+	}
+	return true
+}
 
 type Handler struct {
 	auth *auth.Service
@@ -47,7 +89,8 @@ func (h *Handler) stream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	accountID := session.Session.Account.ID.String()
-	sub := h.hub.Subscribe(r.Context(), LoungeTopic, NotificationsTopic(accountID))
+	topics := append(parseChannelTopics(r.URL.Query().Get("channel")), NotificationsTopic(accountID))
+	sub := h.hub.Subscribe(r.Context(), topics...)
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-store")

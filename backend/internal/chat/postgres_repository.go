@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"sta-backend/internal/auth"
+	"sta-backend/internal/pagination"
 )
 
 type eventPublisher interface {
@@ -33,17 +34,22 @@ func NewPostgresRepository(pool *pgxpool.Pool, lookupKey []byte) (*PostgresRepos
 // SetEventPublisher wires an SSE hub so new lounge messages emit a live event.
 func (r *PostgresRepository) SetEventPublisher(p eventPublisher) { r.publisher = p }
 
-func (r *PostgresRepository) announce(ctx context.Context, message Message) {
+func (r *PostgresRepository) announce(ctx context.Context, channelKey string, message Message) {
 	if r.publisher == nil {
 		return
 	}
-	_ = r.publisher.PublishData(ctx, "chat:lounge", "chat.message", map[string]any{
+	if channelKey == "" {
+		channelKey = defaultChannelKey
+	}
+	_ = r.publisher.PublishData(ctx, "chat:"+channelKey, "chat.message", map[string]any{
 		"id":              message.ID,
+		"channel_key":     channelKey,
 		"body":            message.Body,
 		"source_platform": message.SourcePlatform,
 		"status":          message.Status,
 		"created_at":      message.CreatedAt,
 		"edited_at":       message.EditedAt,
+		"parent_id":       message.ParentID,
 	})
 }
 
@@ -57,7 +63,7 @@ func (r *PostgresRepository) CreateWebsiteMessage(ctx context.Context, accountID
 	if err != nil {
 		return Message{}, err
 	}
-	message, err := insertMessage(ctx, tx, channelID, &accountID, PlatformWebsite, nil, body)
+	message, err := insertMessage(ctx, tx, channelID, &accountID, PlatformWebsite, nil, body, nil)
 	if err != nil {
 		return Message{}, err
 	}
@@ -67,7 +73,7 @@ func (r *PostgresRepository) CreateWebsiteMessage(ctx context.Context, accountID
 	if err := tx.Commit(ctx); err != nil {
 		return Message{}, err
 	}
-	r.announce(ctx, message)
+	r.announce(ctx, defaultChannelKey, message)
 	return message, nil
 }
 
@@ -91,7 +97,7 @@ func (r *PostgresRepository) ApplyExternalMessage(ctx context.Context, input Ext
 		if hashErr != nil {
 			return Message{}, hashErr
 		}
-		message, insertErr := insertMessage(ctx, tx, channelID, nil, input.Platform, externalHash, input.Body)
+		message, insertErr := insertMessage(ctx, tx, channelID, nil, input.Platform, externalHash, input.Body, nil)
 		if insertErr != nil {
 			return Message{}, insertErr
 		}
@@ -107,7 +113,7 @@ func (r *PostgresRepository) ApplyExternalMessage(ctx context.Context, input Ext
 		if err := tx.Commit(ctx); err != nil {
 			return Message{}, err
 		}
-		r.announce(ctx, message)
+		r.announce(ctx, defaultChannelKey, message)
 		return message, nil
 	} else if err != nil {
 		return Message{}, err
@@ -139,7 +145,7 @@ func (r *PostgresRepository) ApplyExternalMessage(ctx context.Context, input Ext
 	if err := tx.Commit(ctx); err != nil {
 		return Message{}, err
 	}
-	r.announce(ctx, message)
+	r.announce(ctx, defaultChannelKey, message)
 	return message, nil
 }
 
@@ -157,32 +163,12 @@ func getMessage(ctx context.Context, tx dbTx, messageID uuid.UUID) (Message, err
 	return message, err
 }
 
-func (r *PostgresRepository) ListMessages(ctx context.Context, limit, offset int) ([]Message, error) {
-	rows, err := r.pool.Query(ctx, `
-		SELECT m.id::text, m.body, m.source_platform, m.status, m.created_at, m.edited_at
-		FROM chat_messages m
-		JOIN chat_channels c ON c.id = m.channel_id AND c.channel_key = 'lounge'
-		WHERE m.status <> 'deleted'
-		ORDER BY m.created_at DESC LIMIT $1 OFFSET $2
-	`, limit, offset)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	result := make([]Message, 0)
-	for rows.Next() {
-		var message Message
-		var idText string
-		if err := rows.Scan(&idText, &message.Body, &message.SourcePlatform, &message.Status, &message.CreatedAt, &message.EditedAt); err != nil {
-			return nil, err
-		}
-		message.ID, err = uuid.Parse(idText)
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, message)
-	}
-	return result, rows.Err()
+// defaultChannelKey is the one channel bridged to Discord/Telegram. The legacy
+// /chat/lounge/* routes and ListMessages resolve to it.
+const defaultChannelKey = "lounge"
+
+func (r *PostgresRepository) ListMessages(ctx context.Context, limit int, after pagination.Cursor) ([]Message, string, error) {
+	return r.ListChannelMessages(ctx, defaultChannelKey, uuid.Nil, limit, after)
 }
 
 func (r *PostgresRepository) ClaimOutbox(ctx context.Context, limit int) ([]OutboxTask, error) {
@@ -326,14 +312,15 @@ func (r *PostgresRepository) ensureChannel(ctx context.Context, tx dbTx) (uuid.U
 	return uuid.Parse(idText)
 }
 
-func insertMessage(ctx context.Context, tx dbTx, channelID uuid.UUID, accountID *uuid.UUID, platform Platform, externalAuthorHash []byte, body string) (Message, error) {
+func insertMessage(ctx context.Context, tx dbTx, channelID uuid.UUID, accountID *uuid.UUID, platform Platform, externalAuthorHash []byte, body string, parentID *uuid.UUID) (Message, error) {
 	var message Message
 	var idText string
 	err := tx.QueryRow(ctx, `
-		INSERT INTO chat_messages (channel_id, author_account_id, source_platform, external_author_hash, body)
-		VALUES ($1, $2, $3, $4, $5)
-		RETURNING id::text, body, source_platform, status, created_at, edited_at
-	`, channelID, accountID, platform, externalAuthorHash, body).Scan(&idText, &message.Body, &message.SourcePlatform, &message.Status, &message.CreatedAt, &message.EditedAt)
+		INSERT INTO chat_messages (channel_id, author_account_id, source_platform, external_author_hash, body, parent_message_id)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		RETURNING id::text, body, source_platform, status, created_at, edited_at, parent_message_id
+	`, channelID, accountID, platform, externalAuthorHash, body, parentID).Scan(
+		&idText, &message.Body, &message.SourcePlatform, &message.Status, &message.CreatedAt, &message.EditedAt, &message.ParentID)
 	if err != nil {
 		return Message{}, mapChatError(err)
 	}
