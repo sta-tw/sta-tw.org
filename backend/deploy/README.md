@@ -35,6 +35,11 @@ ClamAV's first signature download takes a few minutes; its `start_period` is
 180s. If you are not using file scanning, set `STA_CLAMAV_ADDRESS=` and
 `STA_REQUIRE_FILE_SCAN=false` and remove the `clamav` service.
 
+`.env.example` sets `STA_SMTP_ALLOW_INSECURE=true` so the notification worker
+can use MailHog's cleartext SMTP; this flag is ignored when `STA_ENV=production`
+(a real TLS relay is then required). `chat-worker` and `support-worker` idle
+(healthy, doing nothing) until their Discord/Telegram credentials are set.
+
 ## Profiles
 
 | Profile | Adds | Use when |

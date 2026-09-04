@@ -32,27 +32,48 @@ type Publisher interface {
 }
 
 type subscriber struct {
-	topics map[string]struct{}
-	ch     chan Event
+	topics    map[string]struct{}
+	ch        chan Event
+	closeOnce sync.Once
 }
+
+func (s *subscriber) close() { s.closeOnce.Do(func() { close(s.ch) }) }
 
 // Hub owns the listener connection and the local subscriber set.
 type Hub struct {
 	pool   *pgxpool.Pool
 	logger *slog.Logger
 
-	mu   sync.RWMutex
-	subs map[*subscriber]struct{}
+	mu     sync.RWMutex
+	subs   map[*subscriber]struct{}
+	closed bool
 }
 
-// NewHub starts the listener goroutine; it stops when ctx is cancelled.
+// NewHub starts the listener goroutine; it stops when ctx is cancelled, at
+// which point every subscriber channel is closed so streaming handlers (SSE)
+// unblock and the process can shut down promptly.
 func NewHub(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger) *Hub {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	h := &Hub{pool: pool, logger: logger, subs: make(map[*subscriber]struct{})}
-	go h.listenLoop(ctx)
+	go func() {
+		h.listenLoop(ctx)
+		h.closeAll()
+	}()
 	return h
+}
+
+// closeAll closes every subscriber channel exactly once. Called when the hub's
+// context is cancelled (shutdown).
+func (h *Hub) closeAll() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.closed = true
+	for s := range h.subs {
+		s.close()
+		delete(h.subs, s)
+	}
 }
 
 // Publish sends an event to every replica via pg_notify.
@@ -95,6 +116,11 @@ func (h *Hub) Subscribe(ctx context.Context, topics ...string) <-chan Event {
 		s.topics[t] = struct{}{}
 	}
 	h.mu.Lock()
+	if h.closed {
+		h.mu.Unlock()
+		s.close() // hub already shutting down: hand back a closed channel
+		return s.ch
+	}
 	h.subs[s] = struct{}{}
 	h.mu.Unlock()
 
@@ -103,7 +129,7 @@ func (h *Hub) Subscribe(ctx context.Context, topics ...string) <-chan Event {
 		h.mu.Lock()
 		delete(h.subs, s)
 		h.mu.Unlock()
-		close(s.ch)
+		s.close()
 	}()
 	return s.ch
 }

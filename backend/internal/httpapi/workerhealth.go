@@ -5,6 +5,9 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 )
 
@@ -58,4 +61,14 @@ func RunWorkerHealth(ctx context.Context, addr string, logger *slog.Logger, chec
 		defer cancel()
 		return server.Shutdown(shutdownCtx)
 	}
+}
+
+// IdleUntilSignal serves the worker health endpoints and blocks until
+// SIGINT/SIGTERM. Workers call it when an optional integration is not
+// configured, so a default `docker compose up` leaves a healthy, idle
+// container instead of a crash loop.
+func IdleUntilSignal(logger *slog.Logger) error {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	return RunWorkerHealth(ctx, os.Getenv("STA_WORKER_HEALTH_ADDR"), logger, nil)
 }

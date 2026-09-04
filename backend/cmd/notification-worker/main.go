@@ -43,6 +43,7 @@ func run(logger *slog.Logger) error {
 	mailer, err := email.NewSMTPSender(email.SMTPConfig{
 		Host: cfg.SMTPHost, Port: cfg.SMTPPort, Username: cfg.SMTPUsername,
 		Password: cfg.SMTPPassword, From: cfg.SMTPFrom, UseTLS: cfg.SMTPUseTLS,
+		AllowInsecure: cfg.SMTPAllowInsecure,
 	})
 	if err != nil {
 		return err

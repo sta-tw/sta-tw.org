@@ -327,7 +327,7 @@ ROUTES: dict[tuple[str, str], dict] = {
         "summary": "Log in with username + password (username only, not email)",
         "request": S(username=STR, password=STR), "response": S(account=REF("Account"), expires_at=DT)},
     ("post", "/api/v1/auth/logout"): {"status": "204"},
-    ("get", "/api/v1/auth/me"): {"response": data(REF("Account"))},
+    ("get", "/api/v1/auth/me"): {"response": S(account=REF("Account"))},
     ("get", "/api/v1/auth/sessions"): {"response": data(ARR(REF("SessionSummary")))},
     ("delete", "/api/v1/auth/sessions"): {"summary": "Revoke every other session",
                                           "response": S(revoked=INT)},

@@ -62,6 +62,7 @@ type Config struct {
 	SMTPPassword                            string
 	SMTPFrom                                string
 	SMTPUseTLS                              bool
+	SMTPAllowInsecure                       bool
 	PublicBaseURL                           string
 	MeilisearchURL                          string
 	MeilisearchKey                          string
@@ -217,6 +218,9 @@ func Load() (Config, error) {
 	if config.Environment != developmentEnvironment && config.Environment != productionEnvironment && config.Environment != "test" {
 		return Config{}, fmt.Errorf("STA_ENV must be development, test, or production")
 	}
+	// A cleartext SMTP relay (MailHog) is only allowed outside production.
+	config.SMTPAllowInsecure = config.Environment != productionEnvironment &&
+		strings.EqualFold(strings.TrimSpace(os.Getenv("STA_SMTP_ALLOW_INSECURE")), "true")
 	if raw, exists := os.LookupEnv("STA_REQUIRE_ADMIN_MFA"); exists {
 		parsed, err := strconv.ParseBool(strings.TrimSpace(raw))
 		if err != nil {

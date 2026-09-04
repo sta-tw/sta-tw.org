@@ -31,6 +31,10 @@ type SMTPConfig struct {
 	Password string
 	From     string
 	UseTLS   bool
+	// AllowInsecure permits a cleartext (no STARTTLS) connection. It exists
+	// only for a local relay such as MailHog and must never be set in
+	// production; config.Load ignores STA_SMTP_ALLOW_INSECURE outside dev.
+	AllowInsecure bool
 }
 
 type SMTPSender struct {
@@ -47,8 +51,11 @@ func NewSMTPSender(config SMTPConfig) (*SMTPSender, error) {
 	if config.Port == 0 {
 		config.Port = 587
 	}
-	if config.Port < 1 || config.Port > 65535 || !config.UseTLS {
-		return nil, errors.New("SMTP requires TLS and a valid port")
+	if config.Port < 1 || config.Port > 65535 {
+		return nil, errors.New("SMTP requires a valid port")
+	}
+	if !config.UseTLS && !config.AllowInsecure {
+		return nil, errors.New("SMTP requires TLS (set AllowInsecure only for a local relay)")
 	}
 	if _, err := parseMailbox(config.From); err != nil {
 		return nil, fmt.Errorf("SMTP from address is invalid: %w", err)
@@ -71,8 +78,14 @@ func (s *SMTPSender) Send(ctx context.Context, message Message) error {
 	if err != nil {
 		return fmt.Errorf("sender address is invalid: %w", err)
 	}
-	if hasHeaderInjection(message.Subject) || hasHeaderInjection(message.Text) {
-		return errors.New("email content contains invalid line breaks")
+	// Only the Subject becomes a header, so only it must be free of CR/LF; the
+	// body is multi-line by nature and formatMessage normalises its line
+	// endings, while net/smtp's DATA writer handles dot-stuffing.
+	if hasHeaderInjection(message.Subject) {
+		return errors.New("email subject contains invalid line breaks")
+	}
+	if hasNULOrControlEscape(message.Text) {
+		return errors.New("email body contains disallowed control characters")
 	}
 	if strings.TrimSpace(message.Subject) == "" || len(message.Subject) > 200 || len(message.Text) > 1<<20 {
 		return errors.New("email content is invalid")
@@ -99,7 +112,7 @@ func (s *SMTPSender) Send(ctx context.Context, message Message) error {
 		return fmt.Errorf("create SMTP client: %w", err)
 	}
 	defer client.Close()
-	if s.config.Port != 465 {
+	if s.config.Port != 465 && !(!s.config.UseTLS && s.config.AllowInsecure) {
 		supported, _ := client.Extension("STARTTLS")
 		if !supported {
 			return errors.New("SMTP server does not support STARTTLS")
@@ -149,6 +162,12 @@ func parseMailbox(value string) (string, error) {
 
 func hasHeaderInjection(value string) bool {
 	return strings.ContainsAny(value, "\r\n")
+}
+
+// hasNULOrControlEscape rejects a NUL or a bare ESC in the body; ordinary
+// whitespace (\n \r \t) is fine and gets normalised by formatMessage.
+func hasNULOrControlEscape(value string) bool {
+	return strings.ContainsAny(value, "\x00\x1b")
 }
 
 func formatMessage(from, to string, message Message) string {

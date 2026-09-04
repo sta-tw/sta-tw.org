@@ -33,6 +33,13 @@ func run(logger *slog.Logger) error {
 	if cfg.DatabaseURL == "" {
 		return errors.New("STA_DATABASE_URL is required for the support worker")
 	}
+	if cfg.DiscordSupportBotToken == "" || cfg.DiscordSupportGuildID == "" ||
+		cfg.DiscordSupportCategoryID == "" || cfg.DiscordSupportRoleID == "" {
+		// Discord support relay not configured — idle so the container stays
+		// healthy under a default `docker compose up`.
+		logger.Info("support Discord relay disabled (token, guild, category and role required); idling")
+		return httpapi.IdleUntilSignal(logger)
+	}
 	sender, err := support.NewDiscordSender(support.DiscordConfig{
 		Token:             cfg.DiscordSupportBotToken,
 		GuildID:           cfg.DiscordSupportGuildID,

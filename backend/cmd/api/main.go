@@ -478,6 +478,10 @@ func run(logger *slog.Logger) error {
 		MaxHeaderBytes:    1 << 20,
 	}
 
+	// When Shutdown starts, stop the SSE hub so streaming handlers unblock
+	// instead of holding the connection open until the shutdown deadline.
+	server.RegisterOnShutdown(hubCancel)
+
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -492,14 +496,19 @@ func run(logger *slog.Logger) error {
 
 	select {
 	case err := <-serverErr:
+		// Stop the SSE hub's LISTEN connection before the deferred
+		// databasePool.Close(), which otherwise blocks until that connection
+		// is released.
+		hubCancel()
 		return err
 	case <-ctx.Done():
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
 		defer cancel()
-		if err := server.Shutdown(shutdownCtx); err != nil {
-			return err
-		}
-		return nil
+		shutdownErr := server.Shutdown(shutdownCtx)
+		// Release the hub's held DB connection so databasePool.Close() (a
+		// later defer) does not wait out the container's stop grace period.
+		hubCancel()
+		return shutdownErr
 	}
 }
 

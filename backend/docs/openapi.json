@@ -8581,11 +8581,8 @@
               "application/json": {
                 "schema": {
                   "type": "object",
-                  "required": [
-                    "data"
-                  ],
                   "properties": {
-                    "data": {
+                    "account": {
                       "$ref": "#/components/schemas/Account"
                     }
                   }
