@@ -7,8 +7,13 @@ frontend built against the old backend must change.
 
 The authoritative route list is `GET /api/v1/openapi.json` (also
 `docs/openapi.json`). 198 operations across ~174 paths. The `security` block per
-operation is method-aware: cookie-authenticated mutations list `csrf`, admin
-routes list `adminMFA`, inbound webhooks list `webhookSignature`.
+operation is method-aware (cookie mutations list `csrf`, admin routes list
+`adminMFA`, inbound webhooks list `webhookSignature`). Keyset list routes carry
+`limit`/`cursor` query params; `admin/users`, `admin/audit-log`, `search` and
+`events` carry their filter params; and the endpoints a client hits most (auth,
+chat, notifications, profile, admin users) have concrete request/response
+schemas via `components.schemas`. The remaining domain-admin CRUD routes still
+respond as a generic object.
 
 ## 1. Auth & sessions
 
