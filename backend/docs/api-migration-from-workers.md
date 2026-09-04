@@ -6,7 +6,7 @@ route set, auth model, and chat data model differ. This document lists what a
 frontend built against the old backend must change.
 
 The authoritative route list is `GET /api/v1/openapi.json` (also
-`docs/openapi.json`). 159 operations across ~145 paths.
+`docs/openapi.json`). 190 operations across ~169 paths.
 
 ## 1. Auth & sessions
 
@@ -38,8 +38,21 @@ forwarding and edits, plus a Durable Object WebSocket for realtime.
 
 The Go backend has:
 
-- **One global "lounge"**: `GET/POST /api/v1/chat/lounge/messages`. No channels,
-  no reactions, no pins, no threads, no edit/withdraw, no forward.
+- **Channels**: `GET /api/v1/chat/channels` lists them. The seeded `lounge` is
+  the default and the only one bridged to Discord/Telegram; extra channels are
+  website-only. `GET/POST /api/v1/chat/channels/{key}/messages` is channel
+  scoped (`POST` body `{body, parent_id?}`). `GET/POST /api/v1/chat/lounge/messages`
+  still works as an alias for the default channel. Top-level listings exclude
+  replies and carry `reply_count`; each message carries a `reactions` summary
+  (`[{emoji, count, mine}]`) and `pinned_at`.
+- **Reactions**: `PUT`/`DELETE /api/v1/chat/messages/{id}/reactions/{emoji}`
+  (URL-encode the emoji). One emoji per account per message; idempotent.
+- **Threads**: one level deep. Reply by posting with `parent_id`;
+  `GET /api/v1/chat/messages/{id}/replies` reads a thread oldest-first.
+- **Pins** (admin only): `POST`/`DELETE /api/v1/chat/messages/{id}/pin`;
+  `GET /api/v1/chat/channels/{key}/pins` lists them.
+- Still no edit/withdraw from the website and no forward. The SSE stream
+  (`GET /api/v1/events`) still only carries the default `lounge` channel.
 - **Forum spaces** (a separate concept): a global space plus per-academic-year
   and per-school-program spaces, created automatically when an application is
   confirmed. `GET /api/v1/forum/spaces`, `.../spaces/{id}/threads`,
@@ -62,9 +75,9 @@ Cross-platform sync (Discord / Telegram ↔ lounge) is handled by the
 
 | Old | Go backend |
 |---|---|
-| `GET /users/me`, `PATCH /users/me` | only `GET /api/v1/auth/me`. **No profile editing endpoint** |
-| `GET /users/me/avatar-upload-url` | **no avatars** |
-| `GET /users/:username` (public profile) | **no public profiles** |
+| `GET /users/me`, `PATCH /users/me` | `GET /api/v1/auth/me` for the account; `GET`/`PUT /api/v1/profile` for the opt-in profile (`{display_name, bio, links}`, all bounded; created on first `PUT`) |
+| `GET /users/me/avatar-upload-url` | `POST /api/v1/profile/avatar` (multipart `file`, PNG/JPEG ≤ 2 MB, ClamAV-scanned, stored privately). `DELETE` to remove. `GET /api/v1/profile/avatar` 302-redirects to a 5-minute presigned URL |
+| `GET /users/:username` (public profile) | `GET /api/v1/users/{username}` (auth required) returns display name, bio, links, identity status and `has_avatar`; `GET /api/v1/users/{username}/avatar` 302-redirects to the presigned image |
 
 ## 4. Admin
 
@@ -172,5 +185,5 @@ route is not mounted. School master also still has `GET /api/v1/schools?q=`.
 
 ## Roadmap (tracked separately)
 
-broader rate-limit coverage (auth, admin mutations) · message reactions / pins /
-threads · multi-channel chat · user profiles + avatars.
+broader rate-limit coverage (auth, admin mutations) · per-channel SSE fan-out
+(the live stream is still lounge-only) · message edit/withdraw from the website.

@@ -28,6 +28,7 @@ import (
 	"sta-backend/internal/notifications"
 	"sta-backend/internal/obs"
 	"sta-backend/internal/portfolio"
+	"sta-backend/internal/profile"
 	"sta-backend/internal/results"
 	"sta-backend/internal/schools"
 	"sta-backend/internal/search"
@@ -335,8 +336,18 @@ func run(logger *slog.Logger) error {
 			return err
 		}
 		registrars = append(registrars, portfolioHandler.RegisterRoutes)
+
+		profileRepository, err := profile.NewPostgresRepository(databasePool)
+		if err != nil {
+			return err
+		}
+		profileHandler, err := profile.NewHandler(authService, profileRepository, blobStore, fileScanner)
+		if err != nil {
+			return err
+		}
+		registrars = append(registrars, profileHandler.RegisterRoutes)
 	} else if authService != nil {
-		logger.Warn("object storage is not configured; portfolio file routes are disabled")
+		logger.Warn("object storage is not configured; portfolio and profile file routes are disabled")
 	}
 	if authService != nil && databasePool != nil {
 		chatRepository, err := chat.NewPostgresRepository(databasePool, cfg.LookupHMACKey)

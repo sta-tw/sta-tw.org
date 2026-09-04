@@ -180,6 +180,17 @@ func (s *Service) ConfigureLookupKeyRotation(secondary [][]byte) error {
 	return nil
 }
 
+// IsAdmin reports whether the account holds the administrator role. Handlers
+// without their own database pool (chat, …) use this for role checks; pair it
+// with RequireAdminMFA when the action is sensitive.
+func (s *Service) IsAdmin(ctx context.Context, accountID uuid.UUID) (bool, error) {
+	store, ok := s.store.(AdminRoleStore)
+	if !ok {
+		return false, nil
+	}
+	return store.IsAdmin(ctx, accountID)
+}
+
 func (s *Service) EmailVerificationConfigured() bool {
 	if s == nil {
 		return false

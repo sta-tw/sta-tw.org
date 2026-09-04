@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"sta-backend/internal/auth"
 	"sta-backend/internal/pagination"
 	"sta-backend/internal/security"
@@ -48,8 +49,230 @@ func NewHandler(authService *auth.Service, repository Repository, discordSecret,
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/chat/lounge/messages", h.listMessages)
 	mux.HandleFunc("POST /api/v1/chat/lounge/messages", h.createWebsiteMessage)
+	mux.HandleFunc("GET /api/v1/chat/channels", h.listChannels)
+	mux.HandleFunc("GET /api/v1/chat/channels/{channelKey}/messages", h.listChannelMessages)
+	mux.HandleFunc("POST /api/v1/chat/channels/{channelKey}/messages", h.createChannelMessage)
+	mux.HandleFunc("GET /api/v1/chat/channels/{channelKey}/pins", h.listPins)
+	mux.HandleFunc("GET /api/v1/chat/messages/{messageID}/replies", h.listReplies)
+	mux.HandleFunc("PUT /api/v1/chat/messages/{messageID}/reactions/{emoji}", h.addReaction)
+	mux.HandleFunc("DELETE /api/v1/chat/messages/{messageID}/reactions/{emoji}", h.removeReaction)
+	mux.HandleFunc("POST /api/v1/chat/messages/{messageID}/pin", h.pinMessage)
+	mux.HandleFunc("DELETE /api/v1/chat/messages/{messageID}/pin", h.unpinMessage)
 	mux.HandleFunc("POST /api/v1/chat/webhooks/discord", h.discordWebhook)
 	mux.HandleFunc("POST /api/v1/chat/webhooks/telegram", h.telegramWebhook)
+}
+
+func (h *Handler) authed(w http.ResponseWriter, r *http.Request) (auth.RequestSession, bool) {
+	session, err := h.authService.Authenticate(r.Context(), r)
+	if err != nil {
+		writeChatError(w, http.StatusUnauthorized, "unauthorized", "authentication is required")
+		return auth.RequestSession{}, false
+	}
+	return session, true
+}
+
+func (h *Handler) authedMutation(w http.ResponseWriter, r *http.Request) (auth.RequestSession, bool) {
+	session, ok := h.authed(w, r)
+	if !ok {
+		return auth.RequestSession{}, false
+	}
+	if err := h.authService.AuthorizeMutation(r, session); err != nil {
+		writeChatError(w, http.StatusForbidden, "csrf_required", "request verification failed")
+		return auth.RequestSession{}, false
+	}
+	return session, true
+}
+
+func (h *Handler) listChannels(w http.ResponseWriter, r *http.Request) {
+	if _, ok := h.authed(w, r); !ok {
+		return
+	}
+	channels, err := h.repository.ListChannels(r.Context())
+	if err != nil {
+		writeChatError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	writeChatJSON(w, http.StatusOK, map[string]any{"data": channels})
+}
+
+func (h *Handler) listChannelMessages(w http.ResponseWriter, r *http.Request) {
+	session, ok := h.authed(w, r)
+	if !ok {
+		return
+	}
+	limit, cursor, err := pageQuery(r)
+	if err != nil {
+		writeChatError(w, http.StatusBadRequest, "invalid_query", "chat query is invalid")
+		return
+	}
+	messages, next, err := h.repository.ListChannelMessages(r.Context(), r.PathValue("channelKey"), session.Session.Account.ID, limit, cursor)
+	if err != nil {
+		h.writeRepoError(w, err)
+		return
+	}
+	writeChatJSON(w, http.StatusOK, map[string]any{"data": messages, "next_cursor": next})
+}
+
+func (h *Handler) createChannelMessage(w http.ResponseWriter, r *http.Request) {
+	session, ok := h.authedMutation(w, r)
+	if !ok {
+		return
+	}
+	now := time.Now().UTC()
+	rl, limiterErr := h.allowMessage(r.Context(), session.Session.Account.ID.String(), now)
+	if limiterErr != nil {
+		writeChatError(w, http.StatusServiceUnavailable, "rate_limit_unavailable", "request protection is temporarily unavailable")
+		return
+	}
+	security.WriteRateLimitHeaders(w, rl, now)
+	if !rl.Allowed {
+		writeChatError(w, http.StatusTooManyRequests, "rate_limited", "too many messages")
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 32<<10)
+	var input struct {
+		Body     string `json:"body"`
+		ParentID string `json:"parent_id"`
+	}
+	if err := decodeChatJSON(r, &input); err != nil || strings.TrimSpace(input.Body) == "" || len(input.Body) > MaxMessageLength || containsDisallowedBodyControl(input.Body) {
+		writeChatError(w, http.StatusBadRequest, "invalid_message", "message is invalid")
+		return
+	}
+	var parentID *uuid.UUID
+	if strings.TrimSpace(input.ParentID) != "" {
+		parsed, err := uuid.Parse(input.ParentID)
+		if err != nil {
+			writeChatError(w, http.StatusBadRequest, "invalid_message", "parent_id is invalid")
+			return
+		}
+		parentID = &parsed
+	}
+	message, err := h.repository.CreateChannelMessage(r.Context(), r.PathValue("channelKey"), session.Session.Account.ID, strings.TrimSpace(input.Body), parentID)
+	if err != nil {
+		h.writeRepoError(w, err)
+		return
+	}
+	writeChatJSON(w, http.StatusCreated, map[string]any{"data": message})
+}
+
+func (h *Handler) listPins(w http.ResponseWriter, r *http.Request) {
+	session, ok := h.authed(w, r)
+	if !ok {
+		return
+	}
+	pins, err := h.repository.ListPinned(r.Context(), r.PathValue("channelKey"), session.Session.Account.ID)
+	if err != nil {
+		h.writeRepoError(w, err)
+		return
+	}
+	writeChatJSON(w, http.StatusOK, map[string]any{"data": pins})
+}
+
+func (h *Handler) listReplies(w http.ResponseWriter, r *http.Request) {
+	session, ok := h.authed(w, r)
+	if !ok {
+		return
+	}
+	messageID, err := uuid.Parse(r.PathValue("messageID"))
+	if err != nil {
+		writeChatError(w, http.StatusBadRequest, "invalid_message_id", "message id is invalid")
+		return
+	}
+	limit, cursor, err := pageQuery(r)
+	if err != nil {
+		writeChatError(w, http.StatusBadRequest, "invalid_query", "chat query is invalid")
+		return
+	}
+	replies, next, err := h.repository.ListThreadReplies(r.Context(), messageID, session.Session.Account.ID, limit, cursor)
+	if err != nil {
+		h.writeRepoError(w, err)
+		return
+	}
+	writeChatJSON(w, http.StatusOK, map[string]any{"data": replies, "next_cursor": next})
+}
+
+func (h *Handler) addReaction(w http.ResponseWriter, r *http.Request) {
+	session, ok := h.authedMutation(w, r)
+	if !ok {
+		return
+	}
+	messageID, err := uuid.Parse(r.PathValue("messageID"))
+	if err != nil {
+		writeChatError(w, http.StatusBadRequest, "invalid_message_id", "message id is invalid")
+		return
+	}
+	emoji, err := NormalizeReaction(r.PathValue("emoji"))
+	if err != nil {
+		writeChatError(w, http.StatusBadRequest, "invalid_reaction", "reaction is invalid")
+		return
+	}
+	if err := h.repository.SetReaction(r.Context(), messageID, session.Session.Account.ID, emoji); err != nil {
+		h.writeRepoError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) removeReaction(w http.ResponseWriter, r *http.Request) {
+	session, ok := h.authedMutation(w, r)
+	if !ok {
+		return
+	}
+	messageID, err := uuid.Parse(r.PathValue("messageID"))
+	if err != nil {
+		writeChatError(w, http.StatusBadRequest, "invalid_message_id", "message id is invalid")
+		return
+	}
+	emoji, err := NormalizeReaction(r.PathValue("emoji"))
+	if err != nil {
+		writeChatError(w, http.StatusBadRequest, "invalid_reaction", "reaction is invalid")
+		return
+	}
+	if err := h.repository.RemoveReaction(r.Context(), messageID, session.Session.Account.ID, emoji); err != nil {
+		h.writeRepoError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) pinMessage(w http.ResponseWriter, r *http.Request)   { h.setPin(w, r, true) }
+func (h *Handler) unpinMessage(w http.ResponseWriter, r *http.Request) { h.setPin(w, r, false) }
+
+func (h *Handler) setPin(w http.ResponseWriter, r *http.Request, pinned bool) {
+	session, ok := h.authedMutation(w, r)
+	if !ok {
+		return
+	}
+	isAdmin, err := h.authService.IsAdmin(r.Context(), session.Session.Account.ID)
+	if err != nil {
+		writeChatError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	if !isAdmin {
+		writeChatError(w, http.StatusForbidden, "admin_required", "administrator permission is required")
+		return
+	}
+	messageID, err := uuid.Parse(r.PathValue("messageID"))
+	if err != nil {
+		writeChatError(w, http.StatusBadRequest, "invalid_message_id", "message id is invalid")
+		return
+	}
+	if err := h.repository.SetPinned(r.Context(), messageID, session.Session.Account.ID, pinned); err != nil {
+		h.writeRepoError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) writeRepoError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, ErrNotFound):
+		writeChatError(w, http.StatusNotFound, "not_found", "chat resource not found")
+	case errors.Is(err, ErrInvalidMessage), errors.Is(err, ErrInvalidReaction):
+		writeChatError(w, http.StatusBadRequest, "invalid_message", "request is invalid")
+	default:
+		writeChatError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+	}
 }
 
 func (h *Handler) listMessages(w http.ResponseWriter, r *http.Request) {
