@@ -6,14 +6,15 @@ route set, auth model, and chat data model differ. This document lists what a
 frontend built against the old backend must change.
 
 The authoritative route list is `GET /api/v1/openapi.json` (also
-`docs/openapi.json`). 198 operations across ~174 paths. The `security` block per
-operation is method-aware (cookie mutations list `csrf`, admin routes list
-`adminMFA`, inbound webhooks list `webhookSignature`). Keyset list routes carry
-`limit`/`cursor` query params; `admin/users`, `admin/audit-log`, `search` and
-`events` carry their filter params; and the endpoints a client hits most (auth,
-chat, notifications, profile, admin users) have concrete request/response
-schemas via `components.schemas`. The remaining domain-admin CRUD routes still
-respond as a generic object.
+`docs/openapi.json`). 197 operations across ~173 paths. Method, path, tags and
+the security block are machine-accurate (cookie mutations list `csrf`, admin
+routes list `adminMFA`, inbound webhooks list `webhookSignature`, service routes
+`serviceToken`). Keyset routes carry `limit`/`cursor`; the filter-heavy routes
+carry their query params. **Every JSON endpoint has a concrete request/response
+schema** (196/197 — the lone exception is `GET /api/v1/openapi.json`, which
+returns this document); 54 `components.schemas` back them. Request/response
+shapes are hand-maintained in `docs/openapi/generate.py`, so a Go struct change
+needs a matching edit there — CI diffs the generated output.
 
 ## 1. Auth & sessions
 
