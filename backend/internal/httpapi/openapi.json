@@ -36,6 +36,12 @@
         "type": "http",
         "scheme": "bearer",
         "description": "extraction / agent service token"
+      },
+      "webhookSignature": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-STA-Signature",
+        "description": "HMAC-SHA256 of the raw body"
       }
     },
     "schemas": {
@@ -75,7 +81,6 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
             "adminMFA": []
           },
           {
@@ -115,8 +120,8 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
-            "adminMFA": []
+            "adminMFA": [],
+            "csrf": []
           },
           {
             "bearer": [],
@@ -176,8 +181,8 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
-            "adminMFA": []
+            "adminMFA": [],
+            "csrf": []
           },
           {
             "bearer": [],
@@ -227,8 +232,8 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
-            "adminMFA": []
+            "adminMFA": [],
+            "csrf": []
           },
           {
             "bearer": [],
@@ -278,7 +283,6 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
             "adminMFA": []
           },
           {
@@ -318,8 +322,8 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
-            "adminMFA": []
+            "adminMFA": [],
+            "csrf": []
           },
           {
             "bearer": [],
@@ -379,8 +383,8 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
-            "adminMFA": []
+            "adminMFA": [],
+            "csrf": []
           },
           {
             "bearer": [],
@@ -440,8 +444,8 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
-            "adminMFA": []
+            "adminMFA": [],
+            "csrf": []
           },
           {
             "bearer": [],
@@ -501,7 +505,6 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
             "adminMFA": []
           },
           {
@@ -561,8 +564,8 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
-            "adminMFA": []
+            "adminMFA": [],
+            "csrf": []
           },
           {
             "bearer": [],
@@ -630,7 +633,6 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
             "adminMFA": []
           },
           {
@@ -690,8 +692,8 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
-            "adminMFA": []
+            "adminMFA": [],
+            "csrf": []
           },
           {
             "bearer": [],
@@ -759,8 +761,8 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
-            "adminMFA": []
+            "adminMFA": [],
+            "csrf": []
           },
           {
             "bearer": [],
@@ -828,8 +830,8 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
-            "adminMFA": []
+            "adminMFA": [],
+            "csrf": []
           },
           {
             "bearer": [],
@@ -897,8 +899,8 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
-            "adminMFA": []
+            "adminMFA": [],
+            "csrf": []
           },
           {
             "bearer": [],
@@ -966,8 +968,8 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
-            "adminMFA": []
+            "adminMFA": [],
+            "csrf": []
           },
           {
             "bearer": [],
@@ -1017,7 +1019,6 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
             "adminMFA": []
           },
           {
@@ -1057,8 +1058,8 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
-            "adminMFA": []
+            "adminMFA": [],
+            "csrf": []
           },
           {
             "bearer": [],
@@ -1126,7 +1127,6 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
             "adminMFA": []
           },
           {
@@ -1186,7 +1186,6 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
             "adminMFA": []
           },
           {
@@ -1246,8 +1245,8 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
-            "adminMFA": []
+            "adminMFA": [],
+            "csrf": []
           },
           {
             "bearer": [],
@@ -1315,8 +1314,8 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
-            "adminMFA": []
+            "adminMFA": [],
+            "csrf": []
           },
           {
             "bearer": [],
@@ -1366,7 +1365,6 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
             "adminMFA": []
           },
           {
@@ -1408,8 +1406,8 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
-            "adminMFA": []
+            "adminMFA": [],
+            "csrf": []
           },
           {
             "bearer": [],
@@ -1469,7 +1467,6 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
             "adminMFA": []
           },
           {
@@ -1519,8 +1516,8 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
-            "adminMFA": []
+            "adminMFA": [],
+            "csrf": []
           },
           {
             "bearer": [],
@@ -1580,7 +1577,6 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
             "adminMFA": []
           },
           {
@@ -1632,8 +1628,8 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
-            "adminMFA": []
+            "adminMFA": [],
+            "csrf": []
           },
           {
             "bearer": [],
@@ -1683,7 +1679,6 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
             "adminMFA": []
           },
           {
@@ -1735,8 +1730,8 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
-            "adminMFA": []
+            "adminMFA": [],
+            "csrf": []
           },
           {
             "bearer": [],
@@ -1786,7 +1781,6 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
             "adminMFA": []
           },
           {
@@ -1838,8 +1832,8 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
-            "adminMFA": []
+            "adminMFA": [],
+            "csrf": []
           },
           {
             "bearer": [],
@@ -1889,8 +1883,8 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
-            "adminMFA": []
+            "adminMFA": [],
+            "csrf": []
           },
           {
             "bearer": [],
@@ -1950,8 +1944,8 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
-            "adminMFA": []
+            "adminMFA": [],
+            "csrf": []
           },
           {
             "bearer": [],
@@ -2001,7 +1995,6 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
             "adminMFA": []
           },
           {
@@ -2053,7 +2046,6 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
             "adminMFA": []
           },
           {
@@ -2105,8 +2097,8 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
-            "adminMFA": []
+            "adminMFA": [],
+            "csrf": []
           },
           {
             "bearer": [],
@@ -2166,7 +2158,6 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
             "adminMFA": []
           },
           {
@@ -2218,8 +2209,8 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
-            "adminMFA": []
+            "adminMFA": [],
+            "csrf": []
           },
           {
             "bearer": [],
@@ -2269,7 +2260,6 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
             "adminMFA": []
           },
           {
@@ -2321,7 +2311,6 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
             "adminMFA": []
           },
           {
@@ -2373,8 +2362,8 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
-            "adminMFA": []
+            "adminMFA": [],
+            "csrf": []
           },
           {
             "bearer": [],
@@ -2424,7 +2413,6 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
             "adminMFA": []
           },
           {
@@ -2476,7 +2464,6 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
             "adminMFA": []
           },
           {
@@ -2518,8 +2505,8 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
-            "adminMFA": []
+            "adminMFA": [],
+            "csrf": []
           },
           {
             "bearer": [],
@@ -2579,8 +2566,8 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
-            "adminMFA": []
+            "adminMFA": [],
+            "csrf": []
           },
           {
             "bearer": [],
@@ -2640,8 +2627,8 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
-            "adminMFA": []
+            "adminMFA": [],
+            "csrf": []
           },
           {
             "bearer": [],
@@ -2701,8 +2688,8 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
-            "adminMFA": []
+            "adminMFA": [],
+            "csrf": []
           },
           {
             "bearer": [],
@@ -2752,7 +2739,6 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
             "adminMFA": []
           },
           {
@@ -2794,8 +2780,8 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
-            "adminMFA": []
+            "adminMFA": [],
+            "csrf": []
           },
           {
             "bearer": [],
@@ -2855,8 +2841,8 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
-            "adminMFA": []
+            "adminMFA": [],
+            "csrf": []
           },
           {
             "bearer": [],
@@ -2916,7 +2902,6 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
             "adminMFA": []
           },
           {
@@ -2958,8 +2943,8 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
-            "adminMFA": []
+            "adminMFA": [],
+            "csrf": []
           },
           {
             "bearer": [],
@@ -3009,7 +2994,6 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
             "adminMFA": []
           },
           {
@@ -3051,7 +3035,6 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
             "adminMFA": []
           },
           {
@@ -3103,7 +3086,6 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
             "adminMFA": []
           },
           {
@@ -3153,8 +3135,8 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
-            "adminMFA": []
+            "adminMFA": [],
+            "csrf": []
           },
           {
             "bearer": [],
@@ -3222,7 +3204,6 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
             "adminMFA": []
           },
           {
@@ -3274,8 +3255,8 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
-            "adminMFA": []
+            "adminMFA": [],
+            "csrf": []
           },
           {
             "bearer": [],
@@ -3335,8 +3316,8 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
-            "adminMFA": []
+            "adminMFA": [],
+            "csrf": []
           },
           {
             "bearer": [],
@@ -3386,8 +3367,8 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
-            "adminMFA": []
+            "adminMFA": [],
+            "csrf": []
           },
           {
             "bearer": [],
@@ -3437,7 +3418,6 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
             "adminMFA": []
           },
           {
@@ -3479,7 +3459,6 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
             "adminMFA": []
           },
           {
@@ -3531,7 +3510,6 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
             "adminMFA": []
           },
           {
@@ -3583,8 +3561,8 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
-            "adminMFA": []
+            "adminMFA": [],
+            "csrf": []
           },
           {
             "bearer": [],
@@ -3644,8 +3622,8 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
-            "adminMFA": []
+            "adminMFA": [],
+            "csrf": []
           },
           {
             "bearer": [],
@@ -3705,8 +3683,8 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
-            "adminMFA": []
+            "adminMFA": [],
+            "csrf": []
           },
           {
             "bearer": [],
@@ -3756,7 +3734,6 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
             "adminMFA": []
           },
           {
@@ -3796,8 +3773,8 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
-            "adminMFA": []
+            "adminMFA": [],
+            "csrf": []
           },
           {
             "bearer": [],
@@ -3857,8 +3834,8 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
-            "adminMFA": []
+            "adminMFA": [],
+            "csrf": []
           },
           {
             "bearer": [],
@@ -3908,7 +3885,6 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
             "adminMFA": []
           },
           {
@@ -3960,7 +3936,6 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
             "adminMFA": []
           },
           {
@@ -4020,7 +3995,6 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
             "adminMFA": []
           },
           {
@@ -4072,8 +4046,8 @@
         "security": [
           {
             "sessionCookie": [],
-            "csrf": [],
-            "adminMFA": []
+            "adminMFA": [],
+            "csrf": []
           },
           {
             "bearer": [],
@@ -4343,7 +4317,8 @@
         ],
         "security": [
           {
-            "sessionCookie": []
+            "sessionCookie": [],
+            "csrf": []
           },
           {
             "bearer": []
@@ -4391,7 +4366,8 @@
         ],
         "security": [
           {
-            "sessionCookie": []
+            "sessionCookie": [],
+            "csrf": []
           },
           {
             "bearer": []
@@ -4449,7 +4425,8 @@
         ],
         "security": [
           {
-            "sessionCookie": []
+            "sessionCookie": [],
+            "csrf": []
           },
           {
             "bearer": []
@@ -4605,7 +4582,8 @@
         ],
         "security": [
           {
-            "sessionCookie": []
+            "sessionCookie": [],
+            "csrf": []
           },
           {
             "bearer": []
@@ -4651,6 +4629,15 @@
         "tags": [
           "auth"
         ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "csrf": []
+          },
+          {
+            "bearer": []
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -4690,6 +4677,15 @@
         "summary": "Create auth admin mfa enable",
         "tags": [
           "auth"
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "csrf": []
+          },
+          {
+            "bearer": []
+          }
         ],
         "requestBody": {
           "content": {
@@ -4731,6 +4727,15 @@
         "tags": [
           "auth"
         ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "csrf": []
+          },
+          {
+            "bearer": []
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -4771,6 +4776,14 @@
         "tags": [
           "auth"
         ],
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
         "responses": {
           "200": {
             "description": "OK",
@@ -4801,6 +4814,15 @@
         "summary": "Create auth admin mfa verify",
         "tags": [
           "auth"
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "csrf": []
+          },
+          {
+            "bearer": []
+          }
         ],
         "requestBody": {
           "content": {
@@ -4882,6 +4904,15 @@
         "tags": [
           "auth"
         ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "csrf": []
+          },
+          {
+            "bearer": []
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -4918,7 +4949,7 @@
     "/api/v1/auth/login": {
       "post": {
         "operationId": "post_api_v1_auth_login",
-        "summary": "Log in with username/email + password",
+        "summary": "Log in with username + password (username only, not email)",
         "tags": [
           "auth"
         ],
@@ -4928,9 +4959,8 @@
               "schema": {
                 "type": "object",
                 "properties": {
-                  "identifier": {
-                    "type": "string",
-                    "description": "username or email"
+                  "username": {
+                    "type": "string"
                   },
                   "password": {
                     "type": "string"
@@ -4970,6 +5000,15 @@
         "summary": "Create auth logout",
         "tags": [
           "auth"
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "csrf": []
+          },
+          {
+            "bearer": []
+          }
         ],
         "requestBody": {
           "content": {
@@ -5011,6 +5050,14 @@
         "tags": [
           "auth"
         ],
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
         "responses": {
           "200": {
             "description": "OK",
@@ -5050,6 +5097,15 @@
             "schema": {
               "type": "string"
             }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "csrf": []
+          },
+          {
+            "bearer": []
           }
         ],
         "requestBody": {
@@ -5269,6 +5325,15 @@
         "tags": [
           "auth"
         ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "csrf": []
+          },
+          {
+            "bearer": []
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -5371,6 +5436,15 @@
         "tags": [
           "auth"
         ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "csrf": []
+          },
+          {
+            "bearer": []
+          }
+        ],
         "responses": {
           "200": {
             "description": "OK",
@@ -5399,6 +5473,14 @@
         "summary": "Get auth sessions",
         "tags": [
           "auth"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearer": []
+          }
         ],
         "responses": {
           "200": {
@@ -5439,6 +5521,15 @@
             "schema": {
               "type": "string"
             }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "csrf": []
+          },
+          {
+            "bearer": []
           }
         ],
         "responses": {
@@ -5570,7 +5661,8 @@
         ],
         "security": [
           {
-            "sessionCookie": []
+            "sessionCookie": [],
+            "csrf": []
           },
           {
             "bearer": []
@@ -5704,7 +5796,8 @@
         ],
         "security": [
           {
-            "sessionCookie": []
+            "sessionCookie": [],
+            "csrf": []
           },
           {
             "bearer": []
@@ -5762,7 +5855,8 @@
         ],
         "security": [
           {
-            "sessionCookie": []
+            "sessionCookie": [],
+            "csrf": []
           },
           {
             "bearer": []
@@ -5809,7 +5903,8 @@
         ],
         "security": [
           {
-            "sessionCookie": []
+            "sessionCookie": [],
+            "csrf": []
           },
           {
             "bearer": []
@@ -5867,7 +5962,8 @@
         ],
         "security": [
           {
-            "sessionCookie": []
+            "sessionCookie": [],
+            "csrf": []
           },
           {
             "bearer": []
@@ -5925,7 +6021,8 @@
         ],
         "security": [
           {
-            "sessionCookie": []
+            "sessionCookie": [],
+            "csrf": []
           },
           {
             "bearer": []
@@ -5972,7 +6069,8 @@
         ],
         "security": [
           {
-            "sessionCookie": []
+            "sessionCookie": [],
+            "csrf": []
           },
           {
             "bearer": []
@@ -6038,7 +6136,8 @@
         ],
         "security": [
           {
-            "sessionCookie": []
+            "sessionCookie": [],
+            "csrf": []
           },
           {
             "bearer": []
@@ -6093,7 +6192,8 @@
         ],
         "security": [
           {
-            "sessionCookie": []
+            "sessionCookie": [],
+            "csrf": []
           },
           {
             "bearer": []
@@ -6190,10 +6290,7 @@
         ],
         "security": [
           {
-            "sessionCookie": []
-          },
-          {
-            "bearer": []
+            "webhookSignature": []
           }
         ],
         "requestBody": {
@@ -6238,10 +6335,7 @@
         ],
         "security": [
           {
-            "sessionCookie": []
-          },
-          {
-            "bearer": []
+            "webhookSignature": []
           }
         ],
         "requestBody": {
@@ -6335,7 +6429,8 @@
         ],
         "security": [
           {
-            "sessionCookie": []
+            "sessionCookie": [],
+            "csrf": []
           },
           {
             "bearer": []
@@ -6420,7 +6515,8 @@
         ],
         "security": [
           {
-            "sessionCookie": []
+            "sessionCookie": [],
+            "csrf": []
           },
           {
             "bearer": []
@@ -6535,7 +6631,8 @@
         ],
         "security": [
           {
-            "sessionCookie": []
+            "sessionCookie": [],
+            "csrf": []
           },
           {
             "bearer": []
@@ -6590,7 +6687,8 @@
         ],
         "security": [
           {
-            "sessionCookie": []
+            "sessionCookie": [],
+            "csrf": []
           },
           {
             "bearer": []
@@ -6648,7 +6746,8 @@
         ],
         "security": [
           {
-            "sessionCookie": []
+            "sessionCookie": [],
+            "csrf": []
           },
           {
             "bearer": []
@@ -6706,7 +6805,8 @@
         ],
         "security": [
           {
-            "sessionCookie": []
+            "sessionCookie": [],
+            "csrf": []
           },
           {
             "bearer": []
@@ -6772,7 +6872,8 @@
         ],
         "security": [
           {
-            "sessionCookie": []
+            "sessionCookie": [],
+            "csrf": []
           },
           {
             "bearer": []
@@ -6827,7 +6928,8 @@
         ],
         "security": [
           {
-            "sessionCookie": []
+            "sessionCookie": [],
+            "csrf": []
           },
           {
             "bearer": []
@@ -6924,7 +7026,8 @@
         ],
         "security": [
           {
-            "sessionCookie": []
+            "sessionCookie": [],
+            "csrf": []
           },
           {
             "bearer": []
@@ -6982,7 +7085,8 @@
         ],
         "security": [
           {
-            "sessionCookie": []
+            "sessionCookie": [],
+            "csrf": []
           },
           {
             "bearer": []
@@ -7087,7 +7191,8 @@
         ],
         "security": [
           {
-            "sessionCookie": []
+            "sessionCookie": [],
+            "csrf": []
           },
           {
             "bearer": []
@@ -7192,7 +7297,8 @@
         ],
         "security": [
           {
-            "sessionCookie": []
+            "sessionCookie": [],
+            "csrf": []
           },
           {
             "bearer": []
@@ -8217,7 +8323,8 @@
         ],
         "security": [
           {
-            "sessionCookie": []
+            "sessionCookie": [],
+            "csrf": []
           },
           {
             "bearer": []
@@ -8314,7 +8421,8 @@
         ],
         "security": [
           {
-            "sessionCookie": []
+            "sessionCookie": [],
+            "csrf": []
           },
           {
             "bearer": []
@@ -8501,7 +8609,8 @@
         ],
         "security": [
           {
-            "sessionCookie": []
+            "sessionCookie": [],
+            "csrf": []
           },
           {
             "bearer": []
@@ -8559,7 +8668,8 @@
         ],
         "security": [
           {
-            "sessionCookie": []
+            "sessionCookie": [],
+            "csrf": []
           },
           {
             "bearer": []
@@ -8617,7 +8727,8 @@
         ],
         "security": [
           {
-            "sessionCookie": []
+            "sessionCookie": [],
+            "csrf": []
           },
           {
             "bearer": []
@@ -8702,7 +8813,8 @@
         ],
         "security": [
           {
-            "sessionCookie": []
+            "sessionCookie": [],
+            "csrf": []
           },
           {
             "bearer": []
@@ -8807,7 +8919,8 @@
         ],
         "security": [
           {
-            "sessionCookie": []
+            "sessionCookie": [],
+            "csrf": []
           },
           {
             "bearer": []
@@ -8892,7 +9005,8 @@
         ],
         "security": [
           {
-            "sessionCookie": []
+            "sessionCookie": [],
+            "csrf": []
           },
           {
             "bearer": []
@@ -8940,7 +9054,8 @@
         ],
         "security": [
           {
-            "sessionCookie": []
+            "sessionCookie": [],
+            "csrf": []
           },
           {
             "bearer": []
@@ -9014,7 +9129,8 @@
         ],
         "security": [
           {
-            "sessionCookie": []
+            "sessionCookie": [],
+            "csrf": []
           },
           {
             "bearer": []
@@ -9177,7 +9293,8 @@
         ],
         "security": [
           {
-            "sessionCookie": []
+            "sessionCookie": [],
+            "csrf": []
           },
           {
             "bearer": []
@@ -9341,7 +9458,8 @@
         ],
         "security": [
           {
-            "sessionCookie": []
+            "sessionCookie": [],
+            "csrf": []
           },
           {
             "bearer": []
@@ -9399,7 +9517,8 @@
         ],
         "security": [
           {
-            "sessionCookie": []
+            "sessionCookie": [],
+            "csrf": []
           },
           {
             "bearer": []
@@ -9457,7 +9576,8 @@
         ],
         "security": [
           {
-            "sessionCookie": []
+            "sessionCookie": [],
+            "csrf": []
           },
           {
             "bearer": []
@@ -9505,10 +9625,7 @@
         ],
         "security": [
           {
-            "sessionCookie": []
-          },
-          {
-            "bearer": []
+            "webhookSignature": []
           }
         ],
         "requestBody": {
@@ -9553,10 +9670,7 @@
         ],
         "security": [
           {
-            "sessionCookie": []
-          },
-          {
-            "bearer": []
+            "webhookSignature": []
           }
         ],
         "requestBody": {
@@ -9738,7 +9852,8 @@
         ],
         "security": [
           {
-            "sessionCookie": []
+            "sessionCookie": [],
+            "csrf": []
           },
           {
             "bearer": []
@@ -9786,7 +9901,8 @@
         ],
         "security": [
           {
-            "sessionCookie": []
+            "sessionCookie": [],
+            "csrf": []
           },
           {
             "bearer": []
@@ -9844,7 +9960,8 @@
         ],
         "security": [
           {
-            "sessionCookie": []
+            "sessionCookie": [],
+            "csrf": []
           },
           {
             "bearer": []
@@ -9902,7 +10019,8 @@
         ],
         "security": [
           {
-            "sessionCookie": []
+            "sessionCookie": [],
+            "csrf": []
           },
           {
             "bearer": []

@@ -6,7 +6,9 @@ route set, auth model, and chat data model differ. This document lists what a
 frontend built against the old backend must change.
 
 The authoritative route list is `GET /api/v1/openapi.json` (also
-`docs/openapi.json`). 190 operations across ~169 paths.
+`docs/openapi.json`). 198 operations across ~174 paths. The `security` block per
+operation is method-aware: cookie-authenticated mutations list `csrf`, admin
+routes list `adminMFA`, inbound webhooks list `webhookSignature`.
 
 ## 1. Auth & sessions
 
@@ -175,16 +177,29 @@ route is not mounted. School master also still has `GET /api/v1/schools?q=`.
 
 - Errors: `{"error": {"code": "<snake_case>", "message": "<human text>"}}`.
   Branch on `code`; `message` is not stable and mixes English/Chinese.
+- Responses: a single resource comes back as `{"data": {…}}`; a list as
+  `{"data": […], "next_cursor": "…"}`. `204 No Content` (no body) is used for
+  successful reaction / pin / mark-read / withdraw calls.
 - Pagination:
-  - Keyset (opaque cursor) on the high-volume lists — chat lounge messages,
-    notifications, published experiences, forum threads, forum posts. Send
-    `?limit=` (≤ 100, default 50); the response carries `next_cursor` (a string).
-    When `next_cursor` is `""` there are no more rows; otherwise pass it back as
+  - Keyset (opaque cursor) on the high-volume lists — chat channel messages and
+    thread replies, channel pins, notifications, published experiences, forum
+    threads, forum posts, `admin/users`, `admin/audit-log`. Send `?limit=`
+    (≤ 100, default 50); the response carries `next_cursor` (a string). When
+    `next_cursor` is `""` there are no more rows; otherwise pass it back as
     `?cursor=`. Cursors are opaque — do not parse them. `?offset=` is ignored on
     these routes.
   - Offset (`?limit=` ≤ 100 `&offset=` ≤ 10000) still applies to the remaining
     admin/list routes (support tickets, admissions programs, sources, portfolio,
     ingestion candidates).
+- CORS / credentials: allowed origins come from `STA_ALLOWED_ORIGINS`; responses
+  set `Access-Control-Allow-Credentials: true` and echo the caller's `Origin`
+  (never `*`). Send `fetch(..., { credentials: "include" })` / `EventSource(...,
+  { withCredentials: true })`. A disallowed `Origin` gets `403 origin_not_allowed`.
+- CSRF: cookie-authenticated mutations need both the `sta_csrf` cookie value and
+  an `X-CSRF-Token` header carrying it. `Authorization: Bearer` callers skip
+  this. Missing/wrong → `403 csrf_required`.
+- Avatars: `GET .../avatar` answers `302` to a 5-minute presigned URL (works as
+  an `<img src>`; a `fetch` must follow redirects). `404 no avatar` when unset.
 - `X-Request-ID`: sent back on every response; send your own to correlate.
 - `traceparent` (W3C, version 00): honoured if sent, otherwise the API starts a
   trace. The `trace_id` is echoed as `X-Trace-Id`, written on every access-log
@@ -201,6 +216,11 @@ route is not mounted. School master also still has `GET /api/v1/schools?q=`.
   and `Retry-After` (seconds) on a `429`. Auth also limits login, register,
   email-verification resend and password-reset requests, and — failures only —
   admin TOTP verification. Other routes are not yet limited.
+- SSE (`GET /api/v1/events`): auth required (cookie or bearer). Carries
+  `chat.message` (with `channel_key`) for the channels named in `?channel=`
+  (default `lounge`, max 10) plus `notification.created` for the caller. The
+  server sends `retry: 3000`; reconnect with the browser `EventSource` default.
+  Backed by Postgres LISTEN/NOTIFY, so it works across API replicas.
 - Versioning: the team keeps changing `/api/v1` in coordination with the
   frontend; there is no `/api/v2` and no deprecation window.
 

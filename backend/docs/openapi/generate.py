@@ -33,9 +33,9 @@ OVERRIDES: dict[tuple[str, str], dict] = {
         },
     },
     ("post", "/api/v1/auth/login"): {
-        "summary": "Log in with username/email + password",
+        "summary": "Log in with username + password (username only, not email)",
         "requestBody": {
-            "identifier": {"type": "string", "description": "username or email"},
+            "username": {"type": "string"},
             "password": {"type": "string"},
         },
     },
@@ -72,16 +72,45 @@ def tag_for(path: str) -> str:
     return "meta"
 
 
-def security_for(path: str) -> list[dict]:
+# Auth endpoints reachable with no session (registration, login, the emailed
+# password-reset / verification confirms, and the OAuth entry points).
+_PUBLIC_AUTH = {
+    "/api/v1/auth/register",
+    "/api/v1/auth/login",
+    "/api/v1/auth/password-reset/request",
+    "/api/v1/auth/password-reset/confirm",
+    "/api/v1/auth/email-verification/confirm",
+    "/api/v1/auth/oauth/{provider}/start",
+    "/api/v1/auth/oauth/{provider}/callback",
+}
+
+
+def security_for(method: str, path: str) -> list[dict]:
+    mutating = method in ("post", "put", "patch", "delete")
+
     if "/api/v1/internal/" in path:
         return [{"serviceToken": []}]
-    if "/api/v1/admin/" in path:
-        return [{"sessionCookie": [], "csrf": [], "adminMFA": []}, {"bearer": [], "adminMFA": []}]
-    if path in ("/healthz", "/readyz", "/metrics") or path.endswith("/openapi.json"):
+    if path in ("/healthz", "/readyz", "/metrics") or path.endswith("/openapi.json") or path == "/api/v1/meta":
         return []
-    if "/api/v1/auth/" in path or path == "/api/v1/meta":
-        return []  # mostly public / self-authenticating
-    return [{"sessionCookie": []}, {"bearer": []}]
+    # HMAC-signed inbound webhooks (X-STA-Signature), not session auth.
+    if "/webhooks/" in path:
+        return [{"webhookSignature": []}]
+    if path in _PUBLIC_AUTH:
+        return []
+
+    if "/api/v1/admin/" in path:
+        cookie = {"sessionCookie": [], "adminMFA": []}
+        token = {"bearer": [], "adminMFA": []}
+        if mutating:
+            cookie["csrf"] = []
+        return [cookie, token]
+
+    # Everything else under /api/v1 needs a session; cookie callers add CSRF on
+    # any state-changing request (bearer-token callers are exempt).
+    cookie = {"sessionCookie": []}
+    if mutating:
+        cookie["csrf"] = []
+    return [cookie, {"bearer": []}]
 
 
 def summarize(method: str, path: str) -> str:
@@ -112,7 +141,7 @@ def main() -> int:
         }
         if params:
             op["parameters"] = params
-        sec = security_for(path)
+        sec = security_for(method, path)
         if sec:
             op["security"] = sec
         override = OVERRIDES.get((method, path))
@@ -148,6 +177,7 @@ def main() -> int:
                 "bearer": {"type": "http", "scheme": "bearer"},
                 "adminMFA": {"type": "apiKey", "in": "header", "name": "X-MFA-Code"},
                 "serviceToken": {"type": "http", "scheme": "bearer", "description": "extraction / agent service token"},
+                "webhookSignature": {"type": "apiKey", "in": "header", "name": "X-STA-Signature", "description": "HMAC-SHA256 of the raw body"},
             },
             "schemas": {
                 "Error": {
