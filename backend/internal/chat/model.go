@@ -114,6 +114,8 @@ type Repository interface {
 	CreateChannelMessage(ctx context.Context, channelKey string, accountID uuid.UUID, body string, parentID *uuid.UUID) (Message, error)
 	ListThreadReplies(ctx context.Context, parentID, viewer uuid.UUID, limit int, cursor pagination.Cursor) ([]Message, string, error)
 	ListPinned(ctx context.Context, channelKey string, viewer uuid.UUID) ([]Message, error)
+	EditOwnMessage(ctx context.Context, messageID, accountID uuid.UUID, newBody string) (Message, error)
+	WithdrawOwnMessage(ctx context.Context, messageID, accountID uuid.UUID) (Message, error)
 	SetReaction(ctx context.Context, messageID, accountID uuid.UUID, emoji string) error
 	RemoveReaction(ctx context.Context, messageID, accountID uuid.UUID, emoji string) error
 	SetPinned(ctx context.Context, messageID, adminID uuid.UUID, pinned bool) error

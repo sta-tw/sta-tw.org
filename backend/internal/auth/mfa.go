@@ -27,10 +27,11 @@ const (
 )
 
 var (
-	ErrAdminMFARequired = errors.New("administrator MFA is required")
-	ErrAdminMFAInvalid  = errors.New("administrator MFA code is invalid")
-	ErrAdminMFAConflict = errors.New("administrator MFA is already enabled")
-	ErrAdminRequired    = errors.New("administrator role is required")
+	ErrAdminMFARequired    = errors.New("administrator MFA is required")
+	ErrAdminMFAInvalid     = errors.New("administrator MFA code is invalid")
+	ErrAdminMFAConflict    = errors.New("administrator MFA is already enabled")
+	ErrAdminMFARateLimited = errors.New("too many administrator MFA attempts")
+	ErrAdminRequired       = errors.New("administrator role is required")
 )
 
 type AdminMFASetup struct {
@@ -99,6 +100,34 @@ func (s *Service) ConfigureAdminMFA(required bool) {
 		s.requireAdminMFA = required
 	}
 }
+
+// verifyAdminTOTP wraps a TOTP check with a per-account failure limiter so a
+// stolen admin session cannot brute-force the 6-digit X-MFA-Code. Only failed
+// attempts count; a correct code always passes and never trips the limit.
+func (s *Service) verifyAdminTOTP(ctx context.Context, accountID uuid.UUID, secret []byte, code string) error {
+	if s.mfaLimiter != nil {
+		if !s.mfaLimiter.Peek(accountID.String(), s.now().UTC()).Allowed {
+			return ErrAdminMFARateLimited
+		}
+	}
+	if _, valid := verifyTOTP(secret, code, s.now()); valid {
+		return nil
+	}
+	if s.mfaLimiter != nil {
+		s.mfaLimiter.Take(accountID.String(), s.now().UTC())
+	}
+	if s.distributedLimiter != nil {
+		if allowed, err := s.distributedLimiter.Allow(ctx, "auth-admin-mfa-fail", accountID.String(), mfaFailureLimit, mfaFailureWindow, s.now().UTC()); err == nil && !allowed {
+			return ErrAdminMFARateLimited
+		}
+	}
+	return ErrAdminMFAInvalid
+}
+
+const (
+	mfaFailureLimit  = 8
+	mfaFailureWindow = 15 * time.Minute
+)
 
 func (s *Service) AdminMFARequired() bool {
 	return s != nil && s.requireAdminMFA
@@ -183,8 +212,8 @@ func (s *Service) EnableAdminMFA(ctx context.Context, accountID uuid.UUID, code 
 	if err != nil {
 		return err
 	}
-	if _, valid := verifyTOTP(secret, code, s.now()); !valid {
-		return ErrAdminMFAInvalid
+	if err := s.verifyAdminTOTP(ctx, accountID, secret, code); err != nil {
+		return err
 	}
 	return store.EnableAdminMFA(ctx, accountID, s.now().UTC())
 }
@@ -215,8 +244,8 @@ func (s *Service) DisableAdminMFA(ctx context.Context, accountID uuid.UUID, code
 	if err != nil {
 		return err
 	}
-	if _, valid := verifyTOTP(secret, code, s.now()); !valid {
-		return ErrAdminMFAInvalid
+	if err := s.verifyAdminTOTP(ctx, accountID, secret, code); err != nil {
+		return err
 	}
 	return store.DisableAdminMFA(ctx, accountID)
 }
@@ -257,10 +286,7 @@ func (s *Service) RequireAdminMFA(ctx context.Context, accountID uuid.UUID, code
 	if err != nil {
 		return ErrAdminMFAInvalid
 	}
-	if _, valid := verifyTOTP(secret, code, s.now()); !valid {
-		return ErrAdminMFAInvalid
-	}
-	return nil
+	return s.verifyAdminTOTP(ctx, accountID, secret, code)
 }
 
 func (s *Service) requireAdminAccount(ctx context.Context, accountID uuid.UUID) error {

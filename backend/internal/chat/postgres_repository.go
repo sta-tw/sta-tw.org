@@ -34,17 +34,22 @@ func NewPostgresRepository(pool *pgxpool.Pool, lookupKey []byte) (*PostgresRepos
 // SetEventPublisher wires an SSE hub so new lounge messages emit a live event.
 func (r *PostgresRepository) SetEventPublisher(p eventPublisher) { r.publisher = p }
 
-func (r *PostgresRepository) announce(ctx context.Context, message Message) {
+func (r *PostgresRepository) announce(ctx context.Context, channelKey string, message Message) {
 	if r.publisher == nil {
 		return
 	}
-	_ = r.publisher.PublishData(ctx, "chat:lounge", "chat.message", map[string]any{
+	if channelKey == "" {
+		channelKey = defaultChannelKey
+	}
+	_ = r.publisher.PublishData(ctx, "chat:"+channelKey, "chat.message", map[string]any{
 		"id":              message.ID,
+		"channel_key":     channelKey,
 		"body":            message.Body,
 		"source_platform": message.SourcePlatform,
 		"status":          message.Status,
 		"created_at":      message.CreatedAt,
 		"edited_at":       message.EditedAt,
+		"parent_id":       message.ParentID,
 	})
 }
 
@@ -68,7 +73,7 @@ func (r *PostgresRepository) CreateWebsiteMessage(ctx context.Context, accountID
 	if err := tx.Commit(ctx); err != nil {
 		return Message{}, err
 	}
-	r.announce(ctx, message)
+	r.announce(ctx, defaultChannelKey, message)
 	return message, nil
 }
 
@@ -108,7 +113,7 @@ func (r *PostgresRepository) ApplyExternalMessage(ctx context.Context, input Ext
 		if err := tx.Commit(ctx); err != nil {
 			return Message{}, err
 		}
-		r.announce(ctx, message)
+		r.announce(ctx, defaultChannelKey, message)
 		return message, nil
 	} else if err != nil {
 		return Message{}, err
@@ -140,7 +145,7 @@ func (r *PostgresRepository) ApplyExternalMessage(ctx context.Context, input Ext
 	if err := tx.Commit(ctx); err != nil {
 		return Message{}, err
 	}
-	r.announce(ctx, message)
+	r.announce(ctx, defaultChannelKey, message)
 	return message, nil
 }
 

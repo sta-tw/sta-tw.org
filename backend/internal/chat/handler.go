@@ -54,6 +54,8 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/chat/channels/{channelKey}/messages", h.createChannelMessage)
 	mux.HandleFunc("GET /api/v1/chat/channels/{channelKey}/pins", h.listPins)
 	mux.HandleFunc("GET /api/v1/chat/messages/{messageID}/replies", h.listReplies)
+	mux.HandleFunc("PATCH /api/v1/chat/messages/{messageID}", h.editMessage)
+	mux.HandleFunc("DELETE /api/v1/chat/messages/{messageID}", h.withdrawMessage)
 	mux.HandleFunc("PUT /api/v1/chat/messages/{messageID}/reactions/{emoji}", h.addReaction)
 	mux.HandleFunc("DELETE /api/v1/chat/messages/{messageID}/reactions/{emoji}", h.removeReaction)
 	mux.HandleFunc("POST /api/v1/chat/messages/{messageID}/pin", h.pinMessage)
@@ -268,11 +270,56 @@ func (h *Handler) writeRepoError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, ErrNotFound):
 		writeChatError(w, http.StatusNotFound, "not_found", "chat resource not found")
+	case errors.Is(err, ErrForbidden):
+		writeChatError(w, http.StatusForbidden, "forbidden", "you cannot modify this message")
 	case errors.Is(err, ErrInvalidMessage), errors.Is(err, ErrInvalidReaction):
 		writeChatError(w, http.StatusBadRequest, "invalid_message", "request is invalid")
 	default:
 		writeChatError(w, http.StatusInternalServerError, "internal_error", "internal server error")
 	}
+}
+
+func (h *Handler) editMessage(w http.ResponseWriter, r *http.Request) {
+	session, ok := h.authedMutation(w, r)
+	if !ok {
+		return
+	}
+	messageID, err := uuid.Parse(r.PathValue("messageID"))
+	if err != nil {
+		writeChatError(w, http.StatusBadRequest, "invalid_message_id", "message id is invalid")
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 32<<10)
+	var input struct {
+		Body string `json:"body"`
+	}
+	if err := decodeChatJSON(r, &input); err != nil || strings.TrimSpace(input.Body) == "" || len(input.Body) > MaxMessageLength || containsDisallowedBodyControl(input.Body) {
+		writeChatError(w, http.StatusBadRequest, "invalid_message", "message is invalid")
+		return
+	}
+	message, err := h.repository.EditOwnMessage(r.Context(), messageID, session.Session.Account.ID, strings.TrimSpace(input.Body))
+	if err != nil {
+		h.writeRepoError(w, err)
+		return
+	}
+	writeChatJSON(w, http.StatusOK, map[string]any{"data": message})
+}
+
+func (h *Handler) withdrawMessage(w http.ResponseWriter, r *http.Request) {
+	session, ok := h.authedMutation(w, r)
+	if !ok {
+		return
+	}
+	messageID, err := uuid.Parse(r.PathValue("messageID"))
+	if err != nil {
+		writeChatError(w, http.StatusBadRequest, "invalid_message_id", "message id is invalid")
+		return
+	}
+	if _, err := h.repository.WithdrawOwnMessage(r.Context(), messageID, session.Session.Account.ID); err != nil {
+		h.writeRepoError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *Handler) listMessages(w http.ResponseWriter, r *http.Request) {

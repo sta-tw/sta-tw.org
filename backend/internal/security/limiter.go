@@ -96,6 +96,30 @@ func (l *FixedWindowLimiter) Take(key string, now time.Time) Result {
 	return Result{Allowed: true, Limit: l.limit, Remaining: l.limit - entry.count, Reset: reset}
 }
 
+// Peek reports the current window state for key without recording a hit. A nil
+// limiter always allows. Use it to reject before doing expensive work when a
+// separate Take already recorded the earlier attempts (e.g. only counting
+// failures).
+func (l *FixedWindowLimiter) Peek(key string, now time.Time) Result {
+	if l == nil {
+		return Result{Allowed: true}
+	}
+	if key == "" {
+		key = "unknown"
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	entry, exists := l.entries[key]
+	if !exists || now.Sub(entry.started) >= l.window || now.Before(entry.started) {
+		return Result{Allowed: true, Limit: l.limit, Remaining: l.limit, Reset: now.Add(l.window)}
+	}
+	reset := entry.started.Add(l.window)
+	if entry.count >= l.limit {
+		return Result{Allowed: false, Limit: l.limit, Remaining: 0, Reset: reset}
+	}
+	return Result{Allowed: true, Limit: l.limit, Remaining: l.limit - entry.count, Reset: reset}
+}
+
 // WriteRateLimitHeaders sets X-RateLimit-Limit/Remaining/Reset from r, and
 // Retry-After when r denied the request. It is a no-op for a zero Result
 // (nil limiter), so callers can pass it unconditionally.

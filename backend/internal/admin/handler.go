@@ -49,6 +49,10 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 func (h *Handler) requireAdmin(w http.ResponseWriter, r *http.Request) (auth.RequestSession, bool) {
 	session, err := h.auth.Authenticate(r.Context(), r)
 	if err != nil {
+		if errors.Is(err, auth.ErrAdminMFARateLimited) {
+			writeError(w, http.StatusTooManyRequests, "rate_limited", "too many MFA attempts; try again later")
+			return auth.RequestSession{}, false
+		}
 		if errors.Is(err, auth.ErrAdminMFARequired) || errors.Is(err, auth.ErrAdminMFAInvalid) {
 			writeError(w, http.StatusPreconditionRequired, "admin_mfa_required", "administrator MFA verification is required")
 			return auth.RequestSession{}, false
@@ -68,6 +72,10 @@ func (h *Handler) requireAdmin(w http.ResponseWriter, r *http.Request) (auth.Req
 		return auth.RequestSession{}, false
 	}
 	if err := h.auth.RequireAdminMFA(r.Context(), session.Session.Account.ID, r.Header.Get("X-MFA-Code")); err != nil {
+		if errors.Is(err, auth.ErrAdminMFARateLimited) {
+			writeError(w, http.StatusTooManyRequests, "rate_limited", "too many MFA attempts; try again later")
+			return auth.RequestSession{}, false
+		}
 		writeError(w, http.StatusPreconditionRequired, "admin_mfa_required", "administrator MFA verification is required")
 		return auth.RequestSession{}, false
 	}

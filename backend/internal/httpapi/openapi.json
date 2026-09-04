@@ -5703,6 +5703,111 @@
         }
       }
     },
+    "/api/v1/chat/messages/{messageID}": {
+      "delete": {
+        "operationId": "delete_api_v1_chat_messages_messageID",
+        "summary": "Delete chat messages messageID",
+        "tags": [
+          "chat"
+        ],
+        "parameters": [
+          {
+            "name": "messageID",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "operationId": "patch_api_v1_chat_messages_messageID",
+        "summary": "Update chat messages messageID",
+        "tags": [
+          "chat"
+        ],
+        "parameters": [
+          {
+            "name": "messageID",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/chat/messages/{messageID}/pin": {
       "delete": {
         "operationId": "delete_api_v1_chat_messages_messageID_pin",

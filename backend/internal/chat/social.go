@@ -226,9 +226,101 @@ func (r *PostgresRepository) CreateChannelMessage(ctx context.Context, channelKe
 		return Message{}, err
 	}
 	message.ChannelKey = channelKey
-	if isDefault && parentID == nil {
-		r.announce(ctx, message)
+	// Live-stream top-level messages on every channel; thread replies are
+	// fetched on demand.
+	if parentID == nil {
+		r.announce(ctx, channelKey, message)
 	}
+	return message, nil
+}
+
+// editableMessage loads a message for an owner-only mutation, taking a row lock.
+type editableMessage struct {
+	channelKey string
+	isDefault  bool
+}
+
+func lockOwnedWebsiteMessage(ctx context.Context, tx pgx.Tx, messageID, accountID uuid.UUID) (editableMessage, error) {
+	var (
+		author   *uuid.UUID
+		platform string
+		status   string
+		info     editableMessage
+	)
+	err := tx.QueryRow(ctx, `
+		SELECT m.author_account_id, m.source_platform, m.status, c.channel_key, c.is_default
+		FROM chat_messages m
+		JOIN chat_channels c ON c.id = m.channel_id
+		WHERE m.id = $1
+		FOR UPDATE OF m`, messageID).Scan(&author, &platform, &status, &info.channelKey, &info.isDefault)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return editableMessage{}, ErrNotFound
+	}
+	if err != nil {
+		return editableMessage{}, err
+	}
+	if status == "deleted" {
+		return editableMessage{}, ErrNotFound
+	}
+	if platform != string(PlatformWebsite) || author == nil || *author != accountID {
+		return editableMessage{}, ErrForbidden
+	}
+	return info, nil
+}
+
+func (r *PostgresRepository) EditOwnMessage(ctx context.Context, messageID, accountID uuid.UUID, newBody string) (Message, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return Message{}, err
+	}
+	defer tx.Rollback(ctx)
+
+	info, err := lockOwnedWebsiteMessage(ctx, tx, messageID, accountID)
+	if err != nil {
+		return Message{}, err
+	}
+	message, err := updateExistingMessage(ctx, tx, messageID, OperationEdit, newBody)
+	if err != nil {
+		return Message{}, err
+	}
+	if info.isDefault {
+		if err := createOutboundTasksExcept(ctx, tx, messageID, "", OperationEdit, newBody); err != nil {
+			return Message{}, err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Message{}, err
+	}
+	message.ChannelKey = info.channelKey
+	r.announce(ctx, info.channelKey, message)
+	return message, nil
+}
+
+func (r *PostgresRepository) WithdrawOwnMessage(ctx context.Context, messageID, accountID uuid.UUID) (Message, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return Message{}, err
+	}
+	defer tx.Rollback(ctx)
+
+	info, err := lockOwnedWebsiteMessage(ctx, tx, messageID, accountID)
+	if err != nil {
+		return Message{}, err
+	}
+	message, err := updateExistingMessage(ctx, tx, messageID, OperationDelete, "")
+	if err != nil {
+		return Message{}, err
+	}
+	if info.isDefault {
+		if err := createOutboundTasksExcept(ctx, tx, messageID, "", OperationDelete, ""); err != nil {
+			return Message{}, err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Message{}, err
+	}
+	message.ChannelKey = info.channelKey
+	r.announce(ctx, info.channelKey, message)
 	return message, nil
 }
 

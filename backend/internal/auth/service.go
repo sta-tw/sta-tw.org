@@ -53,6 +53,7 @@ type Service struct {
 	loginLimiter       *security.FixedWindowLimiter
 	registerLimiter    *security.FixedWindowLimiter
 	emailLimiter       *security.FixedWindowLimiter
+	mfaLimiter         *security.FixedWindowLimiter
 	distributedLimiter security.DistributedLimiter
 	now                func() time.Time
 	oauthProviders     map[string]oauthProvider
@@ -142,6 +143,7 @@ func NewService(store Store, emailCipher *FieldCipher, lookupHMACKey []byte, ses
 		loginLimiter:    security.NewFixedWindowLimiter(10, time.Minute, 10000),
 		registerLimiter: security.NewFixedWindowLimiter(5, time.Minute, 10000),
 		emailLimiter:    security.NewFixedWindowLimiter(3, 10*time.Minute, 10000),
+		mfaLimiter:      security.NewFixedWindowLimiter(mfaFailureLimit, mfaFailureWindow, 10000),
 		now:             time.Now,
 		oauthProviders:  make(map[string]oauthProvider),
 		oauthHTTPClient: &http.Client{Timeout: 10 * time.Second},

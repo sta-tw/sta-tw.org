@@ -29,7 +29,10 @@ value. Requests authenticated with `Authorization: Bearer <token>` skip CSRF.
 
 **Admin MFA**: once an admin has enrolled TOTP, every `/api/v1/admin/*` request
 must include `X-MFA-Code`. Missing/!valid → `428 Precondition Required`,
-`code: "admin_mfa_required"`.
+`code: "admin_mfa_required"`. Wrong codes are rate-limited per account (8
+failures / 15 min); further attempts — including a correct code — then get
+`429 rate_limited` until the window clears. A correct code never counts toward
+the limit.
 
 ## 2. Chat / messages / channels
 
@@ -51,8 +54,13 @@ The Go backend has:
   `GET /api/v1/chat/messages/{id}/replies` reads a thread oldest-first.
 - **Pins** (admin only): `POST`/`DELETE /api/v1/chat/messages/{id}/pin`;
   `GET /api/v1/chat/channels/{key}/pins` lists them.
-- Still no edit/withdraw from the website and no forward. The SSE stream
-  (`GET /api/v1/events`) still only carries the default `lounge` channel.
+- **Edit / withdraw** (author, website-origin messages only):
+  `PATCH /api/v1/chat/messages/{id}` `{body}` and
+  `DELETE /api/v1/chat/messages/{id}`. On the default channel the change also
+  syncs to Discord/Telegram. `403` for someone else's or a bridged message.
+- **SSE**: `GET /api/v1/events?channel=lounge,study` follows those chat channels
+  (default `lounge`, max 10); each `chat.message` event carries `channel_key`.
+  No `?channel` = lounge only, as before.
 - **Forum spaces** (a separate concept): a global space plus per-academic-year
   and per-school-program spaces, created automatically when an application is
   confirmed. `GET /api/v1/forum/spaces`, `.../spaces/{id}/threads`,
@@ -176,14 +184,16 @@ route is not mounted. School master also still has `GET /api/v1/schools?q=`.
   and the echoed `X-Trace-Id` is that span's trace id; unset, the propagation is
   log-correlation only with no external dependency.
 - Rate limiting: `429` with `code: "rate_limited"`. The rate-limited routes
-  (search, chat and support messages, portfolio / verification / brochure
-  uploads, the `/internal/extraction/*` callbacks) send `X-RateLimit-Limit`,
+  (search, chat and support messages, portfolio / verification / brochure /
+  avatar uploads, the `/internal/extraction/*` callbacks) send `X-RateLimit-Limit`,
   `X-RateLimit-Remaining`, `X-RateLimit-Reset` (unix seconds) on every response
-  and `Retry-After` (seconds) on a `429`. Other routes are not yet limited.
+  and `Retry-After` (seconds) on a `429`. Auth also limits login, register,
+  email-verification resend and password-reset requests, and — failures only —
+  admin TOTP verification. Other routes are not yet limited.
 - Versioning: the team keeps changing `/api/v1` in coordination with the
   frontend; there is no `/api/v2` and no deprecation window.
 
 ## Roadmap (tracked separately)
 
-broader rate-limit coverage (auth, admin mutations) · per-channel SSE fan-out
-(the live stream is still lounge-only) · message edit/withdraw from the website.
+reactions on forum posts and experiences · message forwarding · a long-lived
+admin MFA grant so a code is not needed on every single admin request.

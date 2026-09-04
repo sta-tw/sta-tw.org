@@ -316,6 +316,8 @@ func (h *Handler) writeMFAServiceError(w http.ResponseWriter, err error) {
 		writeAuthError(w, http.StatusForbidden, "csrf_required", "request verification failed")
 	case errors.Is(err, ErrAdminRequired):
 		writeAuthError(w, http.StatusForbidden, "admin_required", "administrator permission is required")
+	case errors.Is(err, ErrAdminMFARateLimited):
+		writeAuthError(w, http.StatusTooManyRequests, "rate_limited", "too many MFA attempts; try again later")
 	case errors.Is(err, ErrAdminMFARequired), errors.Is(err, ErrAdminMFAInvalid):
 		writeAuthError(w, http.StatusPreconditionRequired, "admin_mfa_required", "administrator MFA verification is required")
 	case errors.Is(err, ErrAdminMFAConflict):
