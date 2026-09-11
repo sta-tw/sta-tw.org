@@ -156,7 +156,7 @@ function ExternalLinksTab({ previews }: { previews: OpenGraphPreview[] }) {
 
 function RegistrationTab({ items }: { items: BrochureTimelineItem[] }) {
     return (
-        <section className="mt-8 max-w-3xl sm:mt-10" aria-labelledby="admission-timeline-title">
+        <section className="mt-8 max-w-2xl sm:mt-10" aria-labelledby="admission-timeline-title">
             <div className="flex flex-col gap-4 border-b border-ink/10 pb-5 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                     <h2
@@ -217,12 +217,12 @@ function TimelineItem({ item }: { item: BrochureTimelineItem }) {
             />
             <label
                 htmlFor={`timeline-${item.id}`}
-                className="absolute top-0 -left-5 flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border-2 sm:-left-6 sm:h-12 sm:w-12"
+                className="absolute top-0 -left-5 flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border sm:-left-6 sm:h-12 sm:w-12"
             >
                 <span
                     className={`flex h-8 w-8 items-center justify-center rounded-full ${appearance.className}`}
                 >
-                    <Icon aria-hidden className="h-4 w-4" />
+                    <Icon aria-hidden className="h-5 w-5" />
                 </span>
                 <span className="sr-only">選擇 {item.title}</span>
             </label>

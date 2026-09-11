@@ -31,7 +31,7 @@ export default function JoinDiscordSection() {
 
                         <div className="flex min-w-0 flex-col justify-center gap-4 px-5 py-6 sm:px-7 sm:py-8 lg:px-8 lg:py-9">
                             <div className="flex flex-col gap-3">
-                                <h3 className="font-serif text-3xl leading-tight text-balance text-ink sm:text-4xl lg:text-[2.75rem]">
+                                <h3 className="font-serif text-[26px] leading-tight text-balance text-ink sm:text-[32px] lg:text-[40px]">
                                     加入 116 特選 Discord 群
                                 </h3>
                                 <p className="max-w-3xl font-sans text-base leading-relaxed font-medium text-copy-muted sm:text-lg">
