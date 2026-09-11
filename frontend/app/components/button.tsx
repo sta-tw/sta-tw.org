@@ -11,7 +11,7 @@ export default function Button({ asChild, className, children, ...props }: Butto
     return (
         <Comp
             className={twMerge(
-                "inline-flex h-12 cursor-pointer items-center justify-center rounded-[var(--radius-control)] bg-button px-6 font-sans text-xl font-bold text-button-foreground transition-colors hover:bg-button-hover active:bg-button-active disabled:pointer-events-none disabled:opacity-50",
+                "inline-flex h-12 cursor-pointer items-center justify-center rounded-[var(--radius-control)] bg-button px-6 font-serif text-xl font-bold text-button-foreground transition-colors hover:bg-button-hover active:bg-button-active disabled:pointer-events-none disabled:opacity-50",
                 className
             )}
             {...props}
