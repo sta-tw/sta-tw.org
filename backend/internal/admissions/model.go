@@ -679,4 +679,3 @@ func normalizeDash(value string) string {
 	}
 	return value
 }
-

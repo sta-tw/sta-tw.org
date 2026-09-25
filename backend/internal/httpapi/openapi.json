@@ -4285,6 +4285,56 @@
       }
     },
     "/api/v1/admin/admissions/programs/{identifier}": {
+      "delete": {
+        "operationId": "delete_api_v1_admin_admissions_programs_identifier",
+        "summary": "Delete admin admissions programs identifier",
+        "tags": [
+          "admin-admissions"
+        ],
+        "parameters": [
+          {
+            "name": "identifier",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "adminMFA": [],
+            "csrf": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
       "get": {
         "operationId": "get_api_v1_admin_admissions_programs_identifier",
         "summary": "Get admin admissions programs identifier",
@@ -14603,6 +14653,45 @@
                       }
                     }
                   }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/stats/public": {
+      "get": {
+        "operationId": "get_api_v1_stats_public",
+        "summary": "Get stats public",
+        "tags": [
+          "stats"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
                 }
               }
             }

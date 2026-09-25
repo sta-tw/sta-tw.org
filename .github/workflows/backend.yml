@@ -3,7 +3,9 @@ name: backend
 on:
   push:
     branches: [main, "backend-**"]
+    paths: ["backend/**", ".github/workflows/backend.yml"]
   pull_request:
+    paths: ["backend/**", ".github/workflows/backend.yml"]
 
 permissions:
   contents: read
@@ -11,6 +13,10 @@ permissions:
 env:
   GO_VERSION: "1.26.0"
   GOCACHE: /tmp/sta-go-cache
+
+defaults:
+  run:
+    working-directory: backend
 
 jobs:
   build:
@@ -22,6 +28,7 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
+          cache-dependency-path: backend/go.sum
       - name: gofmt
         run: |
           unformatted=$(gofmt -l ./cmd ./internal)
@@ -46,10 +53,12 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
+          cache-dependency-path: backend/go.sum
       - uses: golangci/golangci-lint-action@v6
         with:
           version: v1.62.2
           args: --timeout=5m
+          working-directory: backend
 
   vuln:
     name: govulncheck
@@ -60,6 +69,7 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
+          cache-dependency-path: backend/go.sum
       - run: go install golang.org/x/vuln/cmd/govulncheck@latest
       - run: govulncheck ./...
 
@@ -72,6 +82,7 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
+          cache-dependency-path: backend/go.sum
       - run: go test -race ./...
 
   integration-test:
@@ -99,6 +110,7 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
+          cache-dependency-path: backend/go.sum
       - name: apply migrations
         run: go run ./cmd/migrate -dir migrations -include-telegram
       - name: migration checksum is stable (second run is a no-op)
