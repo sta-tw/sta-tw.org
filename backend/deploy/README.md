@@ -1,19 +1,38 @@
-# Deploying the STA backend (single host, docker compose)
+# Deploying STA (single host, docker compose)
 
-`docker-compose.yml` runs the whole backend on one machine: PostgreSQL, MinIO,
+`docker-compose.yml` runs the whole stack on one machine: PostgreSQL, MinIO,
 optionally RabbitMQ, ClamAV, MailHog (local SMTP capture), SearXNG, the Go API,
-the Go workers and the two Python workers. It is meant for local development and
-small staging hosts — production should use managed datastores, a secret
-manager and real TLS termination in front of the API (see `../docs/deployment.md`
-and `../docs/security.md`).
+the Go workers, the two Python workers, and **Caddy**, which builds the static
+Next.js frontend and serves it together with a reverse proxy to the API on one
+domain (`/api/*` and `/healthz` go to `api`, everything else is the static
+site). This is the setup used for both local development and the production
+host — see `../docs/deployment.md` and `../docs/security.md` for the
+non-compose parts (secret management, backups, monitoring).
 
-## Quick start
+## Quick start (development)
 
 ```sh
 cd deploy
-cp .env.example .env          # then edit secrets/keys
+cp .env.example .env          # STA_DOMAIN=:80, no TLS
 docker compose up -d --build  # HTTP extraction transport (no RabbitMQ)
 ```
+
+Open `http://localhost/`.
+
+## Production
+
+```sh
+cd deploy
+cp .env.production.example .env   # fill in every blank (secrets, SMTP, STA_DOMAIN=your domain)
+docker compose up -d --build
+```
+
+With `STA_DOMAIN` set to a real domain (e.g. `sta-tw.org`), Caddy automatically
+requests a Let's Encrypt certificate for it (works whether the domain's DNS is
+plain or Cloudflare-proxied with SSL/TLS mode set to "Full (strict)" — the
+ACME HTTP-01 challenge still reaches the origin either way). Only Caddy's
+ports 80/443 need to be reachable from the internet; every other service
+already binds to `127.0.0.1` only.
 
 `migrate` runs automatically as an init dependency of `api`, applying
 `migrations/` (including the detached Telegram adapter, `-include-telegram`).

@@ -9,7 +9,7 @@ export type BrochureFilter = {
     }>;
 };
 
-// This static shape mirrors the query parameters expected by the future brochure API.
+// These are the filters supported by the live admissions API view.
 export const brochureFilters: BrochureFilter[] = [
     {
         id: "skills-test",

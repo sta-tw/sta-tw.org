@@ -3,7 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .brochure_local import PROGRAM_CODE_PATTERN, extract_local_candidates
+from .brochure_local import (
+    PROGRAM_CODE_PATTERN,
+    BrochureIdentity,
+    extract_local_candidates,
+    infer_brochure_identity,
+)
 from .contracts import (
     BrochureExtractJob,
     ExtractionCandidate,
@@ -12,6 +17,8 @@ from .contracts import (
     result_payload,
     sha256_file,
 )
+from .ai_extract import PROCESSOR_SUFFIX as AI_PROCESSOR_SUFFIX, ai_extract_brochure
+from .pdf_ocr import ocr_sparse_pages
 
 
 PROGRAM_CODE_LABEL = PROGRAM_CODE_PATTERN
@@ -40,12 +47,46 @@ def extract_document(
     if sha256_file(path, max_bytes) != job.sha256_hex:
         raise InvalidJob("document checksum does not match job")
 
-    pages = _read_pdf_pages(path)
-    return result_payload(job, processor_version, _fallback_candidates(job, pages))
+    pages = _read_pdf_pages(path, logger=logger)
+
+    # Cloudflare Workers AI is the primary engine when configured; the
+    # rule-based parser stays as the fallback for when it is disabled, the API
+    # is unreachable, or the answer is unusable.
+    ai_result = ai_extract_brochure(job, pages, logger=logger)
+    if ai_result is not None:
+        identity, candidates = ai_result
+        return result_payload(
+            job,
+            f"{processor_version}+{AI_PROCESSOR_SUFFIX}",
+            candidates,
+            academic_year=identity.academic_year,
+            school_code=identity.school_code,
+            school_name=identity.school_name,
+        )
+
+    identity = infer_brochure_identity(job, pages)
+    return result_payload(
+        job,
+        processor_version,
+        _fallback_candidates(job, pages, identity),
+        academic_year=identity.academic_year,
+        school_code=identity.school_code,
+        school_name=identity.school_name,
+    )
 
 
-def _fallback_candidates(job: BrochureExtractJob, pages: list[str]) -> list[ExtractionCandidate]:
-    local_candidates = extract_local_candidates(job, pages)
+def _fallback_candidates(
+    job: BrochureExtractJob,
+    pages: list[str],
+    identity: BrochureIdentity | None = None,
+) -> list[ExtractionCandidate]:
+    local_candidates = extract_local_candidates(
+        job,
+        pages,
+        academic_year=identity.academic_year if identity else None,
+        school_code=identity.school_code if identity else None,
+        school_name=identity.school_name if identity else "",
+    )
     if local_candidates:
         # Rule-based extraction is useful but intentionally remains low
         # confidence until an administrator verifies the source evidence.
@@ -74,7 +115,7 @@ def _fallback_candidates(job: BrochureExtractJob, pages: list[str]) -> list[Extr
     return candidates
 
 
-def _read_pdf_pages(path: Path) -> list[str]:
+def _read_pdf_pages(path: Path, logger=None) -> list[str]:
     try:
         from pypdf import PdfReader
     except ImportError as exc:
@@ -83,7 +124,8 @@ def _read_pdf_pages(path: Path) -> list[str]:
         reader = PdfReader(str(path), strict=False)
         if len(reader.pages) > 2000:
             raise InvalidJob("document contains too many pages")
-        return [page.extract_text() or "" for page in reader.pages]
+        pages = [page.extract_text() or "" for page in reader.pages]
+        return ocr_sparse_pages(path, pages, logger=logger)
     except InvalidJob:
         raise
     except Exception as exc:  # pypdf exposes parser-specific exception types.

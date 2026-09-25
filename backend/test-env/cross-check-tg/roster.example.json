@@ -1,0 +1,51 @@
+{
+  "programs": [
+    {
+      "academic_year": 116,
+      "school_code": "001",
+      "program_code": "901",
+      "admission_program_name": "交叉查榜 API 驗收學系",
+      "admission_quota": 1,
+      "source_page": 1
+    }
+  ],
+  "result_sources": [
+    {
+      "academic_year": 116,
+      "school_code": "001",
+      "source_url": "https://admissions.ntu.edu.tw/sta-cross-check-api-test.pdf",
+      "source_sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+    }
+  ],
+  "participants": [
+    {
+      "telegram_user_id": 999000000001,
+      "assignments": [
+        {
+          "program_identifier": "116-001-901",
+          "candidate_number": "TGTEST0001",
+          "masked_name": "測○甲",
+          "result_status": "admitted",
+          "official_rank": 1,
+          "quota": 1,
+          "source_page": 1
+        }
+      ]
+    },
+    {
+      "telegram_user_id": 999000000002,
+      "assignments": [
+        {
+          "program_identifier": "116-001-901",
+          "candidate_number": "TGTEST0002",
+          "masked_name": "測○乙",
+          "result_status": "waitlisted",
+          "official_rank": 1,
+          "quota": 1,
+          "source_page": 1
+        }
+      ]
+    }
+  ]
+}
+

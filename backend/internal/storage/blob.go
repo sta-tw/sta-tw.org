@@ -26,9 +26,28 @@ type BlobStore interface {
 	PresignGet(context.Context, string, time.Duration) (*url.URL, error)
 }
 
+// BlobObject is a private object opened by an authenticated API handler. It
+// keeps the object-storage client behind a small interface so browsers never
+// need to resolve the internal MinIO hostname or receive storage credentials.
+type BlobObject struct {
+	io.ReadCloser
+	Size        int64
+	ContentType string
+}
+
+type BlobReader interface {
+	Get(context.Context, string) (BlobObject, error)
+}
+
 type MinioStore struct {
 	client *minio.Client
-	bucket string
+	// presignClient signs GET URLs handed to browsers. It defaults to client,
+	// but when the object storage endpoint is an internal-only host (e.g. a
+	// docker-network service name), a browser can never resolve it — a
+	// separate client signed against a publicly reachable, reverse-proxied
+	// host is required so download links actually work.
+	presignClient *minio.Client
+	bucket        string
 }
 
 func NewMinioStore(endpoint, accessKey, secretKey, bucket string, useSSL bool) (*MinioStore, error) {
@@ -42,7 +61,28 @@ func NewMinioStore(endpoint, accessKey, secretKey, bucket string, useSSL bool) (
 	if err != nil {
 		return nil, fmt.Errorf("create object storage client: %w", err)
 	}
-	return &MinioStore{client: client, bucket: bucket}, nil
+	return &MinioStore{client: client, presignClient: client, bucket: bucket}, nil
+}
+
+// UsePublicEndpointForPresign switches PresignGet to sign URLs against a
+// separate, publicly routable host instead of the internal endpoint the
+// store otherwise talks to. Call it once at startup when a public endpoint
+// is configured; a no-op (leaving the internal endpoint) otherwise leaves
+// download links broken for browsers, so callers should always set this
+// when STA_OBJECT_STORAGE_PUBLIC_ENDPOINT is present.
+func (s *MinioStore) UsePublicEndpointForPresign(endpoint, accessKey, secretKey string, useSSL bool) error {
+	if endpoint == "" {
+		return errors.New("public object storage endpoint is empty")
+	}
+	client, err := minio.New(endpoint, &minio.Options{
+		Creds:  credentials.NewStaticV4(accessKey, secretKey, ""),
+		Secure: useSSL,
+	})
+	if err != nil {
+		return fmt.Errorf("create public object storage client: %w", err)
+	}
+	s.presignClient = client
+	return nil
 }
 
 // Ping verifies the configured bucket is reachable. Suitable for a readiness
@@ -89,11 +129,31 @@ func (s *MinioStore) PresignGet(ctx context.Context, key string, expiry time.Dur
 	if expiry <= 0 || expiry > 15*time.Minute {
 		expiry = 5 * time.Minute
 	}
-	result, err := s.client.PresignedGetObject(ctx, s.bucket, key, expiry, nil)
+	result, err := s.presignClient.PresignedGetObject(ctx, s.bucket, key, expiry, nil)
 	if err != nil {
 		return nil, fmt.Errorf("presign object: %w", err)
 	}
 	return result, nil
+}
+
+func (s *MinioStore) Get(ctx context.Context, key string) (BlobObject, error) {
+	if err := validateStorageKey(key); err != nil {
+		return BlobObject{}, err
+	}
+	object, err := s.client.GetObject(ctx, s.bucket, key, minio.GetObjectOptions{})
+	if err != nil {
+		return BlobObject{}, fmt.Errorf("get object: %w", err)
+	}
+	info, err := object.Stat()
+	if err != nil {
+		_ = object.Close()
+		return BlobObject{}, fmt.Errorf("stat object: %w", err)
+	}
+	return BlobObject{
+		ReadCloser:  object,
+		Size:        info.Size,
+		ContentType: info.ContentType,
+	}, nil
 }
 
 func validateStorageKey(key string) error {

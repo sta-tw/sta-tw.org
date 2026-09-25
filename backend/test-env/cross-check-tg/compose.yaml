@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: ${CROSS_CHECK_TG_TEST_POSTGRES_IMAGE:-postgres:16-alpine}
+    environment:
+      POSTGRES_USER: ${CROSS_CHECK_TG_TEST_POSTGRES_USER:-sta_cross_check_tg_test}
+      POSTGRES_PASSWORD: ${CROSS_CHECK_TG_TEST_POSTGRES_PASSWORD:-local-cross-check-tg-test-only}
+      POSTGRES_DB: ${CROSS_CHECK_TG_TEST_POSTGRES_DB:-sta_cross_check_tg_test}
+    ports:
+      - "127.0.0.1:${CROSS_CHECK_TG_TEST_POSTGRES_PORT:-55436}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  postgres-data:
+

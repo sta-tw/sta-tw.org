@@ -3,7 +3,6 @@ package admissions
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -50,10 +49,13 @@ func NewBrochureHandlerWithDispatcherAndScanner(authService *auth.Service, repos
 
 func (h *BrochureHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/admissions/brochures/{academicYear}/{schoolCode}/download", h.downloadPublic)
+	mux.HandleFunc("GET /api/v1/admissions/brochures/{schoolCode}", h.listPublicBySchool)
 	mux.HandleFunc("GET /api/v1/admin/admissions/brochures", h.list)
 	mux.HandleFunc("GET /api/v1/admin/admissions/brochures/{academicYear}/{schoolCode}/events", h.listEvents)
 	mux.HandleFunc("GET /api/v1/admin/admissions/brochures/{academicYear}/{schoolCode}/download", h.downloadAdmin)
+	mux.HandleFunc("GET /api/v1/admin/admissions/brochures/{academicYear}/{schoolCode}/content", h.contentAdmin)
 	mux.HandleFunc("POST /api/v1/admin/admissions/brochures", h.upload)
+	mux.HandleFunc("POST /api/v1/admin/admissions/brochures/direct", h.uploadDirect)
 	mux.HandleFunc("POST /api/v1/admin/admissions/brochures/{academicYear}/{schoolCode}/review", h.review)
 	mux.HandleFunc("POST /api/v1/admin/admissions/brochures/{academicYear}/{schoolCode}/visibility", h.visibility)
 }
@@ -78,6 +80,21 @@ func (h *BrochureHandler) downloadPublic(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	h.writeDownload(w, r, document)
+}
+
+// listPublicBySchool lists every published academic_year's brochure for a school (歷史簡章).
+func (h *BrochureHandler) listPublicBySchool(w http.ResponseWriter, r *http.Request) {
+	schoolCode := r.PathValue("schoolCode")
+	if !validSchoolCode(schoolCode) {
+		writeAdmissionError(w, http.StatusBadRequest, "invalid_school_code", "school code is invalid")
+		return
+	}
+	documents, err := h.repository.ListPublishedBrochures(r.Context(), schoolCode)
+	if err != nil {
+		writeAdmissionError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	writeAdmissionJSON(w, http.StatusOK, map[string]any{"data": documents})
 }
 
 func (h *BrochureHandler) downloadAdmin(w http.ResponseWriter, r *http.Request) {
@@ -105,6 +122,58 @@ func (h *BrochureHandler) downloadAdmin(w http.ResponseWriter, r *http.Request) 
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	h.writeDownload(w, r, document)
+}
+
+// contentAdmin proxies a published brochure's PDF bytes instead of a presigned
+// URL, since the object-storage host isn't always browser-resolvable.
+func (h *BrochureHandler) contentAdmin(w http.ResponseWriter, r *http.Request) {
+	if h.blobStore == nil {
+		writeAdmissionError(w, http.StatusServiceUnavailable, "storage_unavailable", "brochure storage is unavailable")
+		return
+	}
+	session, ok := h.requireAdmin(w, r)
+	if !ok {
+		return
+	}
+	year, schoolCode, err := parseBrochurePath(r)
+	if err != nil {
+		writeAdmissionError(w, http.StatusBadRequest, "invalid_brochure_path", "brochure path is invalid")
+		return
+	}
+	document, err := h.repository.GetBrochure(r.Context(), session.Session.Account.ID, year, schoolCode)
+	if errors.Is(err, ErrNotFound) {
+		writeAdmissionError(w, http.StatusNotFound, "not_found", "brochure was not found")
+		return
+	}
+	if err != nil {
+		h.writeAdminError(w, err)
+		return
+	}
+	reader, ok := h.blobStore.(storage.BlobReader)
+	if !ok {
+		writeAdmissionError(w, http.StatusServiceUnavailable, "storage_unavailable", "brochure content proxy is unavailable")
+		return
+	}
+	object, err := reader.Get(r.Context(), brochureStorageKey(document))
+	if err != nil {
+		writeAdmissionError(w, http.StatusBadGateway, "storage_unavailable", "brochure storage is unavailable")
+		return
+	}
+	defer object.Close()
+	contentType := object.ContentType
+	if contentType == "" {
+		contentType = "application/pdf"
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Disposition", `inline; filename="brochure.pdf"`)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	if object.Size > 0 {
+		w.Header().Set("Content-Length", strconv.FormatInt(object.Size, 10))
+	}
+	if _, err := io.Copy(w, object); err != nil {
+		return
+	}
 }
 
 func (h *BrochureHandler) writeDownload(w http.ResponseWriter, r *http.Request, document BrochureDocument) {
@@ -177,17 +246,6 @@ func (h *BrochureHandler) upload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer r.MultipartForm.RemoveAll()
-	year, err := strconv.Atoi(strings.TrimSpace(r.FormValue("academic_year")))
-	schoolCode := strings.TrimSpace(r.FormValue("school_code"))
-	if err != nil || year < 100 || year > 999 || !validSchoolCode(schoolCode) {
-		writeAdmissionError(w, http.StatusBadRequest, "invalid_brochure_path", "brochure year or school is invalid")
-		return
-	}
-	sourceURL := strings.TrimSpace(r.FormValue("source_url"))
-	if ValidateOfficialURL(sourceURL) != nil {
-		writeAdmissionError(w, http.StatusBadRequest, "invalid_source_url", "source URL must be an official .edu.tw or .gov.tw URL")
-		return
-	}
 	file, header, err := r.FormFile("file")
 	if err != nil {
 		writeAdmissionError(w, http.StatusBadRequest, "file_required", "brochure PDF is required")
@@ -208,11 +266,9 @@ func (h *BrochureHandler) upload(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	// The public storage convention is stable and human-auditable:
-	// brochures/{academic-year}-{school-code}.pdf. The database/event row keeps
-	// the checksum and upload history, so replacing the current file remains
-	// traceable without exposing a random object key to clients.
-	storageKey := fmt.Sprintf("brochures/%03d-%s.pdf", year, schoolCode)
+	// Identity isn't required at upload time; the worker detects it and the admin confirms on review.
+	uploadID := uuid.New()
+	storageKey := "brochures/uploads/" + uploadID.String() + ".pdf"
 	stagedFile, err := os.Open(staged.Path)
 	if err != nil {
 		writeAdmissionError(w, http.StatusInternalServerError, "internal_error", "internal server error")
@@ -225,50 +281,144 @@ func (h *BrochureHandler) upload(w http.ResponseWriter, r *http.Request) {
 		writeAdmissionError(w, http.StatusBadGateway, "storage_unavailable", "brochure storage is unavailable")
 		return
 	}
-	document, oldStorageKey, err := h.repository.CreateBrochure(r.Context(), session.Session.Account.ID, BrochureDocumentInput{
-		AcademicYear: year, SchoolCode: schoolCode, OriginalFileName: staged.OriginalName,
-		StorageKey: storageKey, MIMEType: staged.ContentType, FileSizeBytes: staged.Size,
-		SHA256: staged.SHA256Hex, SourceURL: sourceURL,
-	})
-	if err != nil {
+	jobDispatcher, ok := h.dispatcher.(BrochureUploadExtractionDispatcher)
+	if !ok {
 		_ = h.blobStore.Remove(r.Context(), storageKey)
-		h.writeAdminError(w, err)
+		writeAdmissionError(w, http.StatusServiceUnavailable, "extraction_unavailable", "brochure extraction service is unavailable")
 		return
 	}
-	if oldStorageKey != "" && oldStorageKey != storageKey {
-		_ = h.blobStore.Remove(r.Context(), oldStorageKey)
+	jobID, dispatchErr := jobDispatcher.QueueUploadedBrochureExtraction(r.Context(), session.Session.Account.ID, BrochureDocumentInput{
+		OriginalFileName: staged.OriginalName,
+		StorageKey:       storageKey,
+		MIMEType:         staged.ContentType,
+		FileSizeBytes:    staged.Size,
+		SHA256:           staged.SHA256Hex,
+	})
+	if jobID == uuid.Nil {
+		_ = h.blobStore.Remove(r.Context(), storageKey)
+		if dispatchErr != nil {
+			h.writeAdminError(w, dispatchErr)
+		} else {
+			writeAdmissionError(w, http.StatusServiceUnavailable, "extraction_unavailable", "brochure extraction service is unavailable")
+		}
+		return
 	}
 	responseStatus := http.StatusCreated
-	response := map[string]any{"data": document}
-	if h.dispatcher != nil {
-		var jobID uuid.UUID
-		var dispatchErr error
-		if jobDispatcher, ok := h.dispatcher.(BrochureExtractionJobDispatcher); ok {
-			jobID, dispatchErr = jobDispatcher.QueueBrochureExtractionWithID(r.Context(), session.Session.Account.ID, year, schoolCode, storageKey, staged.SHA256Hex)
+	response := map[string]any{
+		"data": map[string]any{
+			"upload_id":          jobID,
+			"job_id":             jobID,
+			"original_file_name": staged.OriginalName,
+			"mime_type":          staged.ContentType,
+			"file_size_bytes":    staged.Size,
+			"sha256":             staged.SHA256Hex,
+			"status":             "queued",
+		},
+		"job_id": jobID,
+	}
+	if dispatchErr != nil {
+		// Broker outage: keep the stored PDF, let the admin retry extraction later.
+		var retryable interface{ Retryable() bool }
+		if errors.As(dispatchErr, &retryable) && retryable.Retryable() {
+			responseStatus = http.StatusAccepted
+			response["extraction_status"] = "retrying"
 		} else {
-			dispatchErr = h.dispatcher.QueueBrochureExtraction(r.Context(), session.Session.Account.ID, year, schoolCode, storageKey, staged.SHA256Hex)
+			_ = h.blobStore.Remove(r.Context(), storageKey)
+			h.writeAdminError(w, dispatchErr)
+			return
 		}
-		if jobID != uuid.Nil {
-			response["job_id"] = jobID
-		}
-		if dispatchErr != nil {
-			// The brochure row and durable ingestion job already exist. A broker
-			// outage must not discard the uploaded source; expose an accepted
-			// response so the admin can retry the job from the ingestion console.
-			var retryable interface{ Retryable() bool }
-			if errors.As(dispatchErr, &retryable) && retryable.Retryable() {
-				responseStatus = http.StatusAccepted
-				response["extraction_status"] = "retrying"
-			} else {
-				h.writeAdminError(w, dispatchErr)
-				return
-			}
-		} else {
-			response["extraction_status"] = "queued"
-		}
+	} else {
+		response["extraction_status"] = "queued"
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	writeAdmissionJSON(w, responseStatus, response)
+}
+
+// uploadDirect stages/scans/stores like upload(), but skips extraction and takes
+// an admin-declared academic_year/school_code directly; still lands as pending.
+func (h *BrochureHandler) uploadDirect(w http.ResponseWriter, r *http.Request) {
+	session, ok := h.requireAdmin(w, r)
+	if !ok {
+		return
+	}
+	if h.blobStore == nil {
+		writeAdmissionError(w, http.StatusServiceUnavailable, "storage_unavailable", "brochure storage is unavailable")
+		return
+	}
+	now := time.Now()
+	rl := h.uploadLimiter.Take(session.Session.Account.ID.String(), now)
+	security.WriteRateLimitHeaders(w, rl, now)
+	if !rl.Allowed {
+		writeAdmissionError(w, http.StatusTooManyRequests, "rate_limited", "too many uploads")
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, storage.MaxPortfolioFileBytes+1<<20)
+	if err := r.ParseMultipartForm(8 << 20); err != nil {
+		writeAdmissionError(w, http.StatusBadRequest, "invalid_multipart", "brochure upload is invalid")
+		return
+	}
+	defer r.MultipartForm.RemoveAll()
+	academicYear, err := strconv.Atoi(strings.TrimSpace(r.FormValue("academic_year")))
+	if err != nil {
+		writeAdmissionError(w, http.StatusBadRequest, "invalid_academic_year", "academic_year must be a 3-digit number")
+		return
+	}
+	schoolCode := strings.TrimSpace(r.FormValue("school_code"))
+	sourceURL := strings.TrimSpace(r.FormValue("source_url"))
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		writeAdmissionError(w, http.StatusBadRequest, "file_required", "brochure PDF is required")
+		return
+	}
+	defer file.Close()
+	staged, err := storage.StageUpload(header.Filename, header.Header.Get("Content-Type"), file)
+	if err != nil || staged.ContentType != "application/pdf" {
+		writeAdmissionError(w, http.StatusBadRequest, "invalid_file", "brochure must be a valid PDF")
+		return
+	}
+	defer staged.Close()
+	if err := storage.ScanStagedUpload(r.Context(), h.scanner, staged); err != nil {
+		if errors.Is(err, storage.ErrMalwareDetected) {
+			writeAdmissionError(w, http.StatusUnprocessableEntity, "malware_detected", "uploaded file was rejected")
+		} else {
+			writeAdmissionError(w, http.StatusServiceUnavailable, "scan_unavailable", "file scanning is temporarily unavailable")
+		}
+		return
+	}
+	storageKey := "brochures/uploads/" + uuid.New().String() + ".pdf"
+	stagedFile, err := os.Open(staged.Path)
+	if err != nil {
+		writeAdmissionError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	err = h.blobStore.Put(r.Context(), storageKey, stagedFile, staged.Size, staged.ContentType)
+	_ = stagedFile.Close()
+	if err != nil {
+		_ = h.blobStore.Remove(r.Context(), storageKey)
+		writeAdmissionError(w, http.StatusBadGateway, "storage_unavailable", "brochure storage is unavailable")
+		return
+	}
+	document, _, err := h.repository.CreateBrochure(r.Context(), session.Session.Account.ID, BrochureDocumentInput{
+		AcademicYear:     academicYear,
+		SchoolCode:       schoolCode,
+		OriginalFileName: staged.OriginalName,
+		StorageKey:       storageKey,
+		MIMEType:         staged.ContentType,
+		FileSizeBytes:    staged.Size,
+		SHA256:           staged.SHA256Hex,
+		SourceURL:        sourceURL,
+	})
+	if err != nil {
+		_ = h.blobStore.Remove(r.Context(), storageKey)
+		if errors.Is(err, ErrInvalidProgram) {
+			writeAdmissionError(w, http.StatusBadRequest, "invalid_input", "academic_year, school_code or source_url is invalid")
+			return
+		}
+		writeAdmissionError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeAdmissionJSON(w, http.StatusCreated, map[string]any{"data": document})
 }
 
 func (h *BrochureHandler) review(w http.ResponseWriter, r *http.Request) {

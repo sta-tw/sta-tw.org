@@ -1,8 +1,7 @@
 import type { Metadata } from "next";
 import { Noto_Sans_TC, Noto_Serif_TC } from "next/font/google";
 import "./globals.css";
-import Navbar from "./components/navbar";
-import Footer from "./components/footer";
+import SiteChrome from "./site-chrome";
 
 const notoSansTC = Noto_Sans_TC({
     variable: "--font-noto-sans-tc",
@@ -30,11 +29,15 @@ export default function RootLayout({
         <html
             lang="zh-TW"
             className={`${notoSansTC.variable} ${notoSerifTC.variable} h-full antialiased`}
+            suppressHydrationWarning
         >
-            <body className="flex min-h-full flex-col">
-                <Navbar />
-                {children}
-                <Footer />
+            {/* suppressHydrationWarning above only covers this <html> tag's own
+                attributes: it silences the harmless mismatch some browser
+                extensions (e.g. Immersive Translate) cause by injecting a
+                data-* attribute here before React hydrates. It does not hide
+                real hydration bugs elsewhere in the tree. */}
+            <body className="flex min-h-full flex-col" suppressHydrationWarning>
+                <SiteChrome>{children}</SiteChrome>
             </body>
         </html>
     );

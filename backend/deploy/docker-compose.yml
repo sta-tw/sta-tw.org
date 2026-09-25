@@ -39,7 +39,7 @@ services:
       retries: 30
 
   minio:
-    image: minio/minio:latest
+    image: quay.io/minio/minio:latest
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-sta-minio-root}
@@ -56,7 +56,7 @@ services:
       retries: 30
 
   minio-init:
-    image: minio/mc:latest
+    image: quay.io/minio/mc:latest
     depends_on:
       minio:
         condition: service_healthy
@@ -117,6 +117,48 @@ services:
     ports:
       - "127.0.0.1:${STA_COMPOSE_MAILHOG_UI_PORT:-8025}:8025"
 
+  postfix:
+    image: sta-postfix:local
+    build:
+      context: ./postfix
+    ports:
+      - "25:25"
+    environment:
+      MAIL_HOSTNAME: ${STA_MAIL_HOSTNAME:-mail.sta-tw.org}
+      MAIL_DOMAIN: ${STA_MAIL_DOMAIN:-sta-tw.org}
+      STA_ACCOUNT_APPLICATION_MAIL_TOKEN: ${STA_ACCOUNT_APPLICATION_MAIL_TOKEN:-}
+    # The host's default resolver is Tailscale's MagicDNS (100.100.100.100),
+    # which has been observed to intermittently SERVFAIL on real *.edu.tw
+    # zones (e.g. nchu.edu.tw) — Postfix needs reliable MX lookups to deliver
+    # the registration/verification mail this whole flow depends on.
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+      - 1.1.1.1
+    depends_on:
+      api:
+        condition: service_started
+    volumes:
+      - postfix-tls:/etc/postfix/tls
+      - postfix-dkim:/etc/opendkim/keys
+      # A message still queued (e.g. deferred, retrying MX lookup) must
+      # survive a container rebuild/restart — an MTA that drops in-flight
+      # mail on redeploy isn't acceptable.
+      - postfix-spool:/var/spool/postfix
+      # Read-only: Caddy's ACME storage. The mail hostname's Let's Encrypt
+      # cert (obtained via the placeholder site block in the Caddyfile) is
+      # copied out of here on startup instead of using a self-signed cert, so
+      # STARTTLS to this relay passes normal certificate verification.
+      - caddy-data:/caddy-data:ro
+    networks:
+      default:
+        # So other containers can reach it by the same name its cert is
+        # issued for (STA_SMTP_HOST=mail.sta-tw.org) — TLS hostname
+        # verification needs the connection name to match the cert.
+        aliases:
+          - ${STA_MAIL_HOSTNAME:-mail.sta-tw.org}
+    restart: unless-stopped
+
   searxng:
     image: searxng/searxng:latest
     environment:
@@ -174,6 +216,16 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  telegram-bot:
+    <<: *app-image
+    profiles: ["telegram-bot"]
+    command: ["telegram-bot"]
+    stop_grace_period: 10s
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
   notification-worker:
     <<: *app-image
     command: ["notification-worker"]
@@ -189,7 +241,7 @@ services:
     depends_on:
       api:
         condition: service_healthy
-      mailhog:
+      postfix:
         condition: service_started
     restart: unless-stopped
 
@@ -268,9 +320,38 @@ services:
       postgres:
         condition: service_healthy
 
+  caddy:
+    image: sta-caddy:local
+    build:
+      context: ../..
+      dockerfile: backend/deploy/caddy/Dockerfile
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ${STA_FRONTEND_API_BASE_URL:-}
+    environment:
+      STA_DOMAIN: ${STA_DOMAIN:-:80}
+      STA_ACME_EMAIL: ${STA_ACME_EMAIL:-admin@sta-tw.org}
+      STA_MAIL_HOSTNAME: ${STA_MAIL_HOSTNAME:-:8081}
+      STA_OBJECT_STORAGE_PUBLIC_HOSTNAME: ${STA_OBJECT_STORAGE_PUBLIC_HOSTNAME:-:8082}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   postgres-data:
   minio-data:
   rabbitmq-data:
   clamav-signatures:
   meili-data:
+  caddy-data:
+  caddy-config:
+  postfix-tls:
+  postfix-dkim:
+  postfix-spool:

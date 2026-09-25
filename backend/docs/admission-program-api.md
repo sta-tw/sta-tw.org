@@ -51,13 +51,6 @@ Authorization: Bearer <admin-session-token>
         }
       ],
       "brochure_is_tentative": false,
-      "brochure_announcement_date": "-",
-      "brochure_scheduled_date": "-",
-      "registration_start_date": "-",
-      "registration_end_date": "-",
-      "exam_start_date": "-",
-      "exam_end_date": "-",
-      "result_date": "-",
       "consultation_phone": "-",
       "brochure_url": "-",
       "special_talent_target": "-",

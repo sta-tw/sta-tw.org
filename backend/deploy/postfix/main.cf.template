@@ -1,0 +1,52 @@
+myhostname = __MAIL_HOSTNAME__
+mydomain = __MAIL_DOMAIN__
+myorigin = $mydomain
+mydestination = $myhostname, localhost
+
+# Inbound: only account@__MAIL_HOSTNAME__ is accepted, and routed to the
+# `intake` pipe transport (see master.cf) instead of local mailbox delivery.
+# Every other address at this domain is rejected — this is not a general
+# mail sink.
+#
+# Deliberately NOT virtual_alias_domains/virtual_alias_maps: that mechanism
+# is for aliasing to a *different* final address. Mapping an address to
+# itself (which is what "only accept this one address" needs) makes cleanup(8)
+# treat the alias as a no-op expansion and bounce with "User unknown in
+# virtual alias table" — confirmed by reproducing it against this exact
+# config. mydestination + local_recipient_maps (existence check) +
+# transport_maps (routing to the intake pipe) is the correct combination.
+local_recipient_maps = hash:/etc/postfix/virtual
+transport_maps = hash:/etc/postfix/transport
+
+# Port 25 is published to the host (see docker-compose.yml) — real senders
+# on the internet connect here, not just the compose network. mynetworks
+# only affects RELAY (mail to domains we're not authoritative for); mail to
+# our own mydestination is always accepted regardless.
+mynetworks = 127.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
+smtpd_relay_restrictions = permit_mynetworks, reject_unauth_destination
+
+# Direct delivery: no smarthost, Postfix resolves MX and delivers straight to
+# the recipient's mail server using __MAIL_HOSTNAME__ as HELO (matches the PTR
+# record for this host's public IP).
+relayhost =
+inet_interfaces = all
+inet_protocols = ipv4
+
+smtpd_tls_cert_file = /etc/postfix/tls/cert.pem
+smtpd_tls_key_file = /etc/postfix/tls/key.pem
+smtpd_tls_security_level = may
+smtpd_tls_auth_only = yes
+smtp_tls_security_level = may
+smtp_tls_CApath = /etc/ssl/certs
+
+smtpd_milters = inet:localhost:8891
+non_smtpd_milters = inet:localhost:8891
+milter_default_action = accept
+milter_protocol = 6
+
+maillog_file = /var/log/postfix.log
+disable_vrfy_command = yes
+smtpd_banner = $myhostname ESMTP
+biff = no
+append_dot_mydomain = no
+compatibility_level = 3.6

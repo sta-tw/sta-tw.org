@@ -63,11 +63,23 @@ func run(logger *slog.Logger) error {
 		Store: repository, InquiryStore: repository, Notifier: repository, Cipher: fieldCipher, Sender: mailer,
 		BatchSize: 20, PollInterval: 2 * time.Second, Logger: logger,
 	}
+	authStore, err := auth.NewPostgresStore(databasePool)
+	if err != nil {
+		return err
+	}
+	pendingAccountCleanup := &auth.PendingAccountCleanupWorker{
+		Store: authStore, PollInterval: time.Hour, Logger: logger,
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	go func() {
 		if err := httpapi.RunWorkerHealth(ctx, os.Getenv("STA_WORKER_HEALTH_ADDR"), logger, databasePool.Ping); err != nil {
 			logger.Warn("worker health server stopped", "error", err)
+		}
+	}()
+	go func() {
+		if err := pendingAccountCleanup.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			logger.Warn("pending account cleanup worker stopped", "error", err)
 		}
 	}()
 	if err := worker.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {

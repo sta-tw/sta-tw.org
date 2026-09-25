@@ -43,6 +43,26 @@ func (s *PostgresStore) CreateAccount(ctx context.Context, username string, emai
 	return account, nil
 }
 
+func (s *PostgresStore) CreatePendingAccount(ctx context.Context, username string, emailCiphertext, emailLookupHash []byte, passwordHash string) (Account, error) {
+	var idText string
+	var account Account
+	err := s.pool.QueryRow(ctx, `
+		INSERT INTO accounts (username, email_ciphertext, email_lookup_hash, password_hash, account_status)
+		VALUES ($1, $2, $3, $4, 'pending_verification')
+		RETURNING id::text, username, identity_status, account_status, email_verified_at IS NOT NULL
+	`, username, emailCiphertext, emailLookupHash, passwordHash).Scan(
+		&idText, &account.Username, &account.IdentityStatus, &account.AccountStatus, &account.EmailVerified,
+	)
+	if err != nil {
+		return Account{}, mapStoreError(err)
+	}
+	account.ID, err = uuid.Parse(idText)
+	if err != nil {
+		return Account{}, fmt.Errorf("parse created account id: %w", err)
+	}
+	return account, nil
+}
+
 func (s *PostgresStore) FindAccountByUsername(ctx context.Context, username string) (Account, string, error) {
 	var idText string
 	var account Account
@@ -216,12 +236,12 @@ func (s *PostgresStore) FindAccountByOAuthSubjectHashes(ctx context.Context, pro
 	return account, matched, nil
 }
 
-func (s *PostgresStore) CreateOAuthState(ctx context.Context, provider string, accountID *uuid.UUID, stateHash, codeVerifierCiphertext []byte, redirectURL string, expiresAt time.Time) error {
+func (s *PostgresStore) CreateOAuthState(ctx context.Context, provider string, accountID *uuid.UUID, stateHash, codeVerifierCiphertext []byte, redirectURL, returnTo string, expiresAt time.Time) error {
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO oauth_states
-			(provider, account_id, state_hash, code_verifier_ciphertext, redirect_url, expires_at)
-		VALUES ($1, $2, $3, $4, $5, $6)
-	`, provider, accountID, stateHash, codeVerifierCiphertext, redirectURL, expiresAt)
+			(provider, account_id, state_hash, code_verifier_ciphertext, redirect_url, return_to, expires_at)
+		VALUES ($1, $2, $3, $4, $5, NULLIF($6, ''), $7)
+	`, provider, accountID, stateHash, codeVerifierCiphertext, redirectURL, returnTo, expiresAt)
 	if err != nil {
 		return mapStoreError(err)
 	}
@@ -230,6 +250,7 @@ func (s *PostgresStore) CreateOAuthState(ctx context.Context, provider string, a
 
 func (s *PostgresStore) ConsumeOAuthState(ctx context.Context, provider string, stateHash []byte, now time.Time) (OAuthState, error) {
 	var accountIDText string
+	var returnTo *string
 	var state OAuthState
 	err := s.pool.QueryRow(ctx, `
 		UPDATE oauth_states
@@ -238,13 +259,16 @@ func (s *PostgresStore) ConsumeOAuthState(ctx context.Context, provider string, 
 		  AND state_hash = $2
 		  AND consumed_at IS NULL
 		  AND expires_at > $3
-		RETURNING COALESCE(account_id::text, ''), code_verifier_ciphertext, redirect_url
-	`, provider, stateHash, now).Scan(&accountIDText, &state.CodeVerifierCiphertext, &state.RedirectURL)
+		RETURNING COALESCE(account_id::text, ''), code_verifier_ciphertext, redirect_url, return_to
+	`, provider, stateHash, now).Scan(&accountIDText, &state.CodeVerifierCiphertext, &state.RedirectURL, &returnTo)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return OAuthState{}, ErrExpired
 	}
 	if err != nil {
 		return OAuthState{}, fmt.Errorf("consume OAuth state: %w", err)
+	}
+	if returnTo != nil {
+		state.ReturnTo = *returnTo
 	}
 	state.Provider = provider
 	if accountIDText != "" {
@@ -388,7 +412,7 @@ func (s *PostgresStore) LookupAccountIDByEmailHashes(ctx context.Context, emailL
 	return id, nil
 }
 
-func (s *PostgresStore) CreatePasswordResetChallenge(ctx context.Context, accountID uuid.UUID, tokenHash []byte, expiresAt time.Time) error {
+func (s *PostgresStore) CreatePasswordResetChallenge(ctx context.Context, accountID uuid.UUID, tokenHash []byte, expiresAt time.Time, activatesAccount bool) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -401,9 +425,9 @@ func (s *PostgresStore) CreatePasswordResetChallenge(ctx context.Context, accoun
 		return err
 	}
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO password_reset_challenges (account_id, token_hash, expires_at)
-		VALUES ($1, $2, $3)
-	`, accountID, tokenHash, expiresAt); err != nil {
+		INSERT INTO password_reset_challenges (account_id, token_hash, expires_at, activates_account)
+		VALUES ($1, $2, $3, $4)
+	`, accountID, tokenHash, expiresAt, activatesAccount); err != nil {
 		return mapStoreError(err)
 	}
 	return tx.Commit(ctx)
@@ -416,11 +440,12 @@ func (s *PostgresStore) ConsumePasswordResetChallenge(ctx context.Context, token
 	}
 	defer tx.Rollback(ctx)
 	var challengeID, accountID uuid.UUID
+	var activatesAccount bool
 	err = tx.QueryRow(ctx, `
-		SELECT id, account_id FROM password_reset_challenges
+		SELECT id, account_id, activates_account FROM password_reset_challenges
 		WHERE token_hash = $1 AND consumed_at IS NULL AND expires_at > $2
 		ORDER BY created_at DESC LIMIT 1 FOR UPDATE
-	`, tokenHash, now).Scan(&challengeID, &accountID)
+	`, tokenHash, now).Scan(&challengeID, &accountID, &activatesAccount)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrExpired
 	}
@@ -430,10 +455,22 @@ func (s *PostgresStore) ConsumePasswordResetChallenge(ctx context.Context, token
 	if _, err := tx.Exec(ctx, `UPDATE password_reset_challenges SET consumed_at = $2 WHERE id = $1`, challengeID, now); err != nil {
 		return err
 	}
-	tag, err := tx.Exec(ctx, `
-		UPDATE accounts SET password_hash = $2, updated_at = CURRENT_TIMESTAMP
-		WHERE id = $1 AND account_status = 'active'
-	`, accountID, newPasswordHash)
+	// activates_account challenges (school-email registration) target a
+	// still-'pending_verification' account and also flip it to active +
+	// verified-student; an ordinary reset only ever touches an already-active
+	// account and leaves its statuses alone.
+	var tag pgconn.CommandTag
+	if activatesAccount {
+		tag, err = tx.Exec(ctx, `
+			UPDATE accounts SET password_hash = $2, account_status = 'active', identity_status = 'student', updated_at = CURRENT_TIMESTAMP
+			WHERE id = $1 AND account_status = 'pending_verification'
+		`, accountID, newPasswordHash)
+	} else {
+		tag, err = tx.Exec(ctx, `
+			UPDATE accounts SET password_hash = $2, updated_at = CURRENT_TIMESTAMP
+			WHERE id = $1 AND account_status = 'active'
+		`, accountID, newPasswordHash)
+	}
 	if err != nil {
 		return err
 	}
@@ -447,6 +484,68 @@ func (s *PostgresStore) ConsumePasswordResetChallenge(ctx context.Context, token
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+// PurgeExpiredPendingAccounts deletes every 'pending_verification' account
+// whose activation link (the activates_account challenge from Register)
+// expired without ever being used, releasing its username and contact
+// email so the person can just register again. There's no resend-link flow
+// (2026-09 decision, revisit once profile pages land: log in as a
+// 'temporary' account, gate real platform features on verification instead
+// of deleting) — for now this is the only recovery path from a missed
+// 24-hour window.
+func (s *PostgresStore) PurgeExpiredPendingAccounts(ctx context.Context, now time.Time) (int, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback(ctx)
+
+	rows, err := tx.Query(ctx, `
+		SELECT DISTINCT a.id
+		FROM accounts a
+		JOIN password_reset_challenges c ON c.account_id = a.id AND c.activates_account
+		WHERE a.account_status = 'pending_verification'
+		  AND c.consumed_at IS NULL
+		  AND c.expires_at < $1
+	`, now)
+	if err != nil {
+		return 0, fmt.Errorf("find expired pending accounts: %w", err)
+	}
+	var ids []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return 0, fmt.Errorf("scan expired pending account: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+	if len(ids) == 0 {
+		return 0, tx.Commit(ctx)
+	}
+
+	// Referencing rows with ON DELETE RESTRICT must go first, or the
+	// account delete below fails with a foreign-key violation. A
+	// never-logged-in pending account shouldn't have anything else.
+	if _, err := tx.Exec(ctx, `DELETE FROM password_reset_challenges WHERE account_id = ANY($1)`, ids); err != nil {
+		return 0, fmt.Errorf("delete pending account challenges: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM email_outbox WHERE account_id = ANY($1)`, ids); err != nil {
+		return 0, fmt.Errorf("delete pending account outbox rows: %w", err)
+	}
+	tag, err := tx.Exec(ctx, `DELETE FROM accounts WHERE id = ANY($1) AND account_status = 'pending_verification'`, ids)
+	if err != nil {
+		return 0, fmt.Errorf("delete expired pending accounts: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return 0, err
+	}
+	return int(tag.RowsAffected()), nil
 }
 
 func (s *PostgresStore) UpdatePasswordForAccount(ctx context.Context, accountID uuid.UUID, newPasswordHash string, keepSessionID uuid.UUID) error {
@@ -483,6 +582,56 @@ func (s *PostgresStore) IsAdmin(ctx context.Context, accountID uuid.UUID) (bool,
 	`, accountID).Scan(&exists)
 	if err != nil {
 		return false, fmt.Errorf("check administrator role: %w", err)
+	}
+	return exists, nil
+}
+
+func (s *PostgresStore) IsAdmissionsModerator(ctx context.Context, accountID uuid.UUID) (bool, error) {
+	var exists bool
+	err := s.pool.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM account_roles WHERE account_id = $1 AND role = 'admissions_moderator'
+		)
+	`, accountID).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("check admissions moderator role: %w", err)
+	}
+	return exists, nil
+}
+
+func (s *PostgresStore) GrantRole(ctx context.Context, accountID uuid.UUID, role string) error {
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO account_roles (account_id, role)
+		VALUES ($1, $2)
+		ON CONFLICT (account_id, role) DO NOTHING
+	`, accountID, role)
+	if err != nil {
+		return fmt.Errorf("grant account role: %w", err)
+	}
+	return nil
+}
+
+func (s *PostgresStore) GetRequireAdminMFA(ctx context.Context) (bool, bool, error) {
+	var value string
+	err := s.pool.QueryRow(ctx, `SELECT value FROM app_settings WHERE key = 'require_admin_mfa'`).Scan(&value)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, false, nil
+	}
+	if err != nil {
+		return false, false, fmt.Errorf("get require_admin_mfa setting: %w", err)
+	}
+	return value == "true", true, nil
+}
+
+func (s *PostgresStore) IsServiceAccount(ctx context.Context, accountID uuid.UUID) (bool, error) {
+	var exists bool
+	err := s.pool.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM account_roles WHERE account_id = $1 AND role = 'service'
+		)
+	`, accountID).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("check service account role: %w", err)
 	}
 	return exists, nil
 }
@@ -549,6 +698,47 @@ func (s *PostgresStore) TouchAdminMFAVerified(ctx context.Context, accountID uui
 	return nil
 }
 
+// FindAccountByServiceToken mirrors ingestion.PostgresRepository.
+// ResolveAISystemToken exactly, generalized from role='ai_system' to
+// role='service' — same account_api_tokens table, same "unrevoked token +
+// active account" shape, just a different role.
+func (s *PostgresStore) FindAccountByServiceToken(ctx context.Context, tokenHash []byte, now time.Time) (Account, error) {
+	var idText string
+	var account Account
+	var tokenID uuid.UUID
+	err := s.pool.QueryRow(ctx, `
+		SELECT t.id, a.id::text, a.username, a.identity_status, a.account_status, a.email_verified_at IS NOT NULL
+		FROM account_api_tokens t
+		JOIN account_roles r ON r.account_id = t.account_id AND r.role = 'service'
+		JOIN accounts a ON a.id = t.account_id AND a.account_status = 'active'
+		WHERE t.token_hash = $1 AND t.revoked_at IS NULL
+	`, tokenHash).Scan(&tokenID, &idText, &account.Username, &account.IdentityStatus, &account.AccountStatus, &account.EmailVerified)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Account{}, ErrNotFound
+	}
+	if err != nil {
+		return Account{}, fmt.Errorf("find account by service token: %w", err)
+	}
+	account.ID, err = uuid.Parse(idText)
+	if err != nil {
+		return Account{}, fmt.Errorf("parse account id: %w", err)
+	}
+	// Best-effort: a failed timestamp touch must never block authentication.
+	_, _ = s.pool.Exec(ctx, `UPDATE account_api_tokens SET last_used_at = $2 WHERE id = $1`, tokenID, now)
+	return account, nil
+}
+
+func (s *PostgresStore) CreateServiceAPIToken(ctx context.Context, accountID uuid.UUID, tokenHash []byte, label string) error {
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO account_api_tokens (account_id, token_hash, label)
+		VALUES ($1, $2, $3)
+	`, accountID, tokenHash, label)
+	if err != nil {
+		return fmt.Errorf("create service api token: %w", err)
+	}
+	return nil
+}
+
 func (s *PostgresStore) DisableAdminMFA(ctx context.Context, accountID uuid.UUID) error {
 	command, err := s.pool.Exec(ctx, `
 		DELETE FROM account_admin_mfa WHERE account_id = $1
@@ -558,6 +748,47 @@ func (s *PostgresStore) DisableAdminMFA(ctx context.Context, accountID uuid.UUID
 	}
 	if command.RowsAffected() != 1 {
 		return ErrNotFound
+	}
+	return nil
+}
+
+func (s *PostgresStore) SaveCalendarGrant(ctx context.Context, accountID uuid.UUID, provider string, refreshTokenCiphertext []byte, scope string) error {
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO oauth_calendar_grants (account_id, provider, refresh_token_ciphertext, scope)
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (account_id) DO UPDATE SET
+			provider = EXCLUDED.provider,
+			refresh_token_ciphertext = EXCLUDED.refresh_token_ciphertext,
+			scope = EXCLUDED.scope,
+			updated_at = CURRENT_TIMESTAMP
+	`, accountID, provider, refreshTokenCiphertext, scope)
+	if err != nil {
+		return fmt.Errorf("save calendar grant: %w", err)
+	}
+	return nil
+}
+
+func (s *PostgresStore) GetCalendarGrant(ctx context.Context, accountID uuid.UUID, provider string) ([]byte, string, error) {
+	var refreshTokenCiphertext []byte
+	var scope string
+	err := s.pool.QueryRow(ctx, `
+		SELECT refresh_token_ciphertext, scope FROM oauth_calendar_grants
+		WHERE account_id = $1 AND provider = $2
+	`, accountID, provider).Scan(&refreshTokenCiphertext, &scope)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, "", ErrNotFound
+	}
+	if err != nil {
+		return nil, "", fmt.Errorf("get calendar grant: %w", err)
+	}
+	return refreshTokenCiphertext, scope, nil
+}
+
+func (s *PostgresStore) DeleteCalendarGrant(ctx context.Context, accountID uuid.UUID, provider string) error {
+	if _, err := s.pool.Exec(ctx, `
+		DELETE FROM oauth_calendar_grants WHERE account_id = $1 AND provider = $2
+	`, accountID, provider); err != nil {
+		return fmt.Errorf("delete calendar grant: %w", err)
 	}
 	return nil
 }

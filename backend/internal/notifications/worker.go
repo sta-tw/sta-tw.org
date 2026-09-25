@@ -45,7 +45,7 @@ func (w *EmailWorker) ProcessOnce(ctx context.Context) error {
 			if decryptErr == nil {
 				decryptErr = json.Unmarshal([]byte(payloadText), &payload)
 			}
-			message = email.Message{To: recipient, Subject: payload.Subject, Text: payload.Text}
+			message = email.Message{To: recipient, Subject: payload.Subject, Text: payload.Text, HTML: payload.HTML}
 		}
 		if decryptErr != nil {
 			if markErr := w.Store.MarkEmailFailed(ctx, task.ID, safeEmailError(decryptErr)); markErr != nil && firstErr == nil {
@@ -99,7 +99,7 @@ func (w *EmailWorker) processInquiryNotifications(ctx context.Context) error {
 		key := "willingness:" + task.ID.String()
 		var notifyErr error
 		if _, notifyErr = w.Notifier.CreateInApp(ctx, task.AccountID, "willingness", key, title, body); notifyErr == nil {
-			notifyErr = w.Notifier.EnqueueEmailForAccount(ctx, task.AccountID, key, title, body, "willingness")
+			notifyErr = w.Notifier.EnqueueEmailForAccount(ctx, task.AccountID, key, title, body, "", "willingness")
 		}
 		if notifyErr != nil {
 			if markErr := w.InquiryStore.MarkInquiryNotificationFailed(ctx, task.ID, safeEmailError(notifyErr)); markErr != nil && firstErr == nil {

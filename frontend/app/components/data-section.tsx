@@ -1,10 +1,56 @@
-const stats = [
-    { number: "50+", label: "公開備審" },
-    { number: "50+", label: "公開備審" },
-    { number: "50+", label: "公開備審" }
+"use client";
+
+import { useEffect, useState } from "react";
+import { getDiscordCommunityStats } from "../lib/api/community";
+import { getPublicStats } from "../lib/api/public-stats";
+
+type Stat = {
+    number: string;
+    label: string;
+};
+
+const FALLBACK_STATS: Stat[] = [
+    { number: "-", label: "特選簡章數" },
+    { number: "-", label: "網站已註冊人數" },
+    { number: "-", label: "DC 群人數" }
 ];
 
 export default function DataSection() {
+    const [stats, setStats] = useState<Stat[]>(FALLBACK_STATS);
+
+    useEffect(() => {
+        const controller = new AbortController();
+
+        Promise.allSettled([
+            getPublicStats(controller.signal),
+            getDiscordCommunityStats(controller.signal)
+        ]).then(([publicStatsResult, discordResult]) => {
+            if (controller.signal.aborted) return;
+            setStats((previous) => {
+                const next = [...previous];
+                if (publicStatsResult.status === "fulfilled") {
+                    next[0] = {
+                        ...next[0],
+                        number: publicStatsResult.value.data.brochure_count.toLocaleString("zh-TW")
+                    };
+                    next[1] = {
+                        ...next[1],
+                        number: publicStatsResult.value.data.registered_accounts.toLocaleString("zh-TW")
+                    };
+                }
+                if (discordResult.status === "fulfilled") {
+                    next[2] = {
+                        ...next[2],
+                        number: discordResult.value.member_count.toLocaleString("zh-TW") + "+"
+                    };
+                }
+                return next;
+            });
+        });
+
+        return () => controller.abort();
+    }, []);
+
     return (
         <section className="relative min-h-[530px] overflow-hidden bg-surface">
             <p

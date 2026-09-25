@@ -99,11 +99,17 @@ func (s *ClamAVScanner) Scan(ctx context.Context, path string) error {
 	if err := writeAll(connection, length); err != nil {
 		return fmt.Errorf("finish ClamAV stream: %w", err)
 	}
-	response, err := bufio.NewReader(io.LimitReader(connection, 4<<10)).ReadString('\n')
+	// zINSTREAM's response is NUL-terminated, not newline-terminated (same
+	// protocol detail Ping already accounts for) — reading for '\n' here
+	// blocks until the connection deadline since clamd never sends one,
+	// which is why every real scan through this path failed with
+	// "file scanning is temporarily unavailable" despite clamd itself
+	// being reachable and healthy.
+	response, err := bufio.NewReader(io.LimitReader(connection, 4<<10)).ReadString('\x00')
 	if err != nil {
 		return fmt.Errorf("read ClamAV response: %w", err)
 	}
-	message := strings.TrimSpace(string(response))
+	message := strings.TrimSpace(strings.TrimRight(response, "\x00"))
 	if strings.HasSuffix(message, "FOUND") || strings.Contains(message, "FOUND") {
 		return ErrMalwareDetected
 	}
@@ -132,11 +138,11 @@ func (s *ClamAVScanner) Ping(ctx context.Context) error {
 	if err := writeAll(connection, []byte("zPING\x00")); err != nil {
 		return fmt.Errorf("send ClamAV ping: %w", err)
 	}
-	response, err := bufio.NewReader(io.LimitReader(connection, 64)).ReadString('\n')
+	response, err := bufio.NewReader(io.LimitReader(connection, 64)).ReadString('\x00')
 	if err != nil {
 		return fmt.Errorf("read ClamAV ping response: %w", err)
 	}
-	if strings.TrimSpace(response) != "PONG" {
+	if strings.TrimRight(response, "\x00") != "PONG" {
 		return fmt.Errorf("%w: unexpected ping response %q", ErrScannerUnavailable, strings.TrimSpace(response))
 	}
 	return nil

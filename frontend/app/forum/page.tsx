@@ -1,21 +1,15 @@
 import type { Metadata } from "next";
-import StatusPage from "../components/status-page";
+import ForumView from "./forum-view";
 
 export const metadata: Metadata = {
-    title: "論壇建置中 | S.T.A 特殊選才資源網",
-    description: "論壇頁面正在建置中。"
+    title: "討論區 | S.T.A 特殊選才資源網",
+    description: "依學年度與校系分開的討論空間，交流特殊選才準備經驗。"
 };
 
 export default function ForumPage() {
     return (
-        <StatusPage
-            eyebrow="Coming Soon"
-            title="論壇空間準備中"
-            description="我們正在規劃適合提問、交流與整理回覆的討論區。正式上線前，歡迎先加入 Discord，和其他準備特殊選才的同學交流。"
-            actions={[
-                { label: "回到首頁", href: "/", variant: "primary" },
-                { label: "簡章搜尋", href: "/search", variant: "secondary" }
-            ]}
-        />
+        <main className="mx-auto w-full max-w-screen-xl px-5 py-12 sm:px-6 sm:py-16 lg:px-16 lg:py-20">
+            <ForumView />
+        </main>
     );
 }

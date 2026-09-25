@@ -104,7 +104,7 @@ func (s *Service) CreateSchoolEmailRequest(ctx context.Context, accountID uuid.U
 		return Request{}, time.Time{}, errors.New("notification email delivery is not configured")
 	}
 	body := fmt.Sprintf("STA 學生身份驗證碼：%s\n此驗證碼 10 分鐘內有效，請勿轉交他人。", code)
-	if err := s.notifications.EnqueueEmailTo(ctx, accountID, emailCiphertext, "verification-"+request.ID.String(), "STA 學生身份驗證碼", body); err != nil {
+	if err := s.notifications.EnqueueEmailTo(ctx, accountID, emailCiphertext, "verification-"+request.ID.String(), "STA 學生身份驗證碼", body, ""); err != nil {
 		return Request{}, time.Time{}, err
 	}
 	return request, expiresAt, nil

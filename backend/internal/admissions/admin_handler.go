@@ -27,6 +27,7 @@ func (h *AdminHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/admin/admissions/programs/{identifier}/history", h.history)
 	mux.HandleFunc("POST /api/v1/admin/admissions/programs/sync", h.sync)
 	mux.HandleFunc("PUT /api/v1/admin/admissions/programs/{identifier}", h.update)
+	mux.HandleFunc("DELETE /api/v1/admin/admissions/programs/{identifier}", h.delete)
 	mux.HandleFunc("POST /api/v1/admin/admissions/programs/{identifier}/review", h.review)
 }
 
@@ -163,6 +164,30 @@ func (h *AdminHandler) review(w http.ResponseWriter, r *http.Request) {
 	writeAdmissionJSON(w, http.StatusOK, map[string]any{"data": item})
 }
 
+func (h *AdminHandler) delete(w http.ResponseWriter, r *http.Request) {
+	session, ok := h.requireAdminMutation(w, r)
+	if !ok {
+		return
+	}
+	identifier, err := parseAdminProgramIdentifier(r)
+	if err != nil {
+		writeAdmissionError(w, http.StatusBadRequest, "invalid_program_identifier", "program identifier is invalid")
+		return
+	}
+	var input struct {
+		Reason string `json:"reason"`
+	}
+	if err := decodeBrochureJSON(r, &input); err != nil {
+		writeAdmissionError(w, http.StatusBadRequest, "invalid_delete", "delete reason is required")
+		return
+	}
+	if err := h.repository.DeleteProgram(r.Context(), session.Session.Account.ID, identifier, input.Reason); err != nil {
+		h.writeAdminError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (h *AdminHandler) requireAdmin(w http.ResponseWriter, r *http.Request) (auth.RequestSession, bool) {
 	session, err := h.authService.Authenticate(r.Context(), r)
 	if err != nil {
@@ -213,6 +238,8 @@ func (h *AdminHandler) writeAdminError(w http.ResponseWriter, err error) {
 		writeAdmissionError(w, http.StatusForbidden, "admin_required", "administrator permission is required")
 	case errors.Is(err, ErrInvalidStatus):
 		writeAdmissionError(w, http.StatusConflict, "invalid_status", "admission program state does not allow this operation")
+	case errors.Is(err, ErrProgramNotDeletable):
+		writeAdmissionError(w, http.StatusConflict, "not_deletable", "only an empty placeholder program can be deleted")
 	case errors.Is(err, ErrNotFound):
 		writeAdmissionError(w, http.StatusNotFound, "not_found", "admission program was not found")
 	default:
@@ -227,6 +254,10 @@ func parseProgramAdminQuery(r *http.Request) (ProgramAdminQuery, error) {
 	}
 	schoolCode := strings.TrimSpace(r.URL.Query().Get("school_code"))
 	if schoolCode != "" && !validSchoolCode(schoolCode) {
+		return ProgramAdminQuery{}, ErrInvalidProgram
+	}
+	programCode := strings.TrimSpace(r.URL.Query().Get("program_code"))
+	if programCode != "" && !validProgramCode(programCode) {
 		return ProgramAdminQuery{}, ErrInvalidProgram
 	}
 	reviewStatus := strings.TrimSpace(r.URL.Query().Get("review_status"))
@@ -251,7 +282,7 @@ func parseProgramAdminQuery(r *http.Request) (ProgramAdminQuery, error) {
 			return ProgramAdminQuery{}, ErrInvalidProgram
 		}
 	}
-	return ProgramAdminQuery{AcademicYear: year, SchoolCode: schoolCode, ReviewStatus: reviewStatus, Search: search, Limit: limit, Offset: offset}, nil
+	return ProgramAdminQuery{AcademicYear: year, SchoolCode: schoolCode, ProgramCode: programCode, ReviewStatus: reviewStatus, Search: search, Limit: limit, Offset: offset}, nil
 }
 
 func parseAdminProgramIdentifier(r *http.Request) (ProgramIdentifier, error) {

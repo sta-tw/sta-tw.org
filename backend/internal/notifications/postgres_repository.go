@@ -84,25 +84,25 @@ func (r *PostgresRepository) CreateInApp(ctx context.Context, accountID uuid.UUI
 	return notification, nil
 }
 
-func (r *PostgresRepository) EnqueueEmailForAccount(ctx context.Context, accountID uuid.UUID, dedupKey, subject, body, kind string) error {
+func (r *PostgresRepository) EnqueueEmailForAccount(ctx context.Context, accountID uuid.UUID, dedupKey, subject, text, html, kind string) error {
 	var recipientCiphertext []byte
 	if err := r.pool.QueryRow(ctx, `SELECT email_ciphertext FROM accounts WHERE id = $1 AND account_status = 'active'`, accountID).Scan(&recipientCiphertext); errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
 	} else if err != nil {
 		return err
 	}
-	return r.enqueueEmail(ctx, accountID, nil, recipientCiphertext, dedupKey, subject, body, kind)
+	return r.enqueueEmail(ctx, accountID, nil, recipientCiphertext, dedupKey, subject, text, html, kind)
 }
 
-func (r *PostgresRepository) EnqueueEmailTo(ctx context.Context, accountID uuid.UUID, recipientCiphertext []byte, dedupKey, subject, body string) error {
-	return r.enqueueEmail(ctx, accountID, nil, recipientCiphertext, dedupKey, subject, body, "verification")
+func (r *PostgresRepository) EnqueueEmailTo(ctx context.Context, accountID uuid.UUID, recipientCiphertext []byte, dedupKey, subject, text, html string) error {
+	return r.enqueueEmail(ctx, accountID, nil, recipientCiphertext, dedupKey, subject, text, html, "verification")
 }
 
-func (r *PostgresRepository) enqueueEmail(ctx context.Context, accountID uuid.UUID, notificationID *uuid.UUID, recipientCiphertext []byte, dedupKey, subject, body, kind string) error {
-	if len(recipientCiphertext) == 0 || strings.TrimSpace(dedupKey) == "" || strings.TrimSpace(subject) == "" || strings.TrimSpace(body) == "" || strings.TrimSpace(kind) == "" {
+func (r *PostgresRepository) enqueueEmail(ctx context.Context, accountID uuid.UUID, notificationID *uuid.UUID, recipientCiphertext []byte, dedupKey, subject, text, html, kind string) error {
+	if len(recipientCiphertext) == 0 || strings.TrimSpace(dedupKey) == "" || strings.TrimSpace(subject) == "" || strings.TrimSpace(text) == "" || strings.TrimSpace(kind) == "" {
 		return errors.New("email notification data is invalid")
 	}
-	payload, err := json.Marshal(EmailPayload{Subject: subject, Text: body})
+	payload, err := json.Marshal(EmailPayload{Subject: subject, Text: text, HTML: html})
 	if err != nil {
 		return err
 	}

@@ -38,10 +38,14 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/admin/stats", h.stats)
 	mux.HandleFunc("GET /api/v1/admin/audit-log", h.auditLog)
 	mux.HandleFunc("GET /api/v1/admin/users", h.listUsers)
+	mux.HandleFunc("POST /api/v1/admin/users", h.createUser)
+	mux.HandleFunc("GET /api/v1/admin/settings/require-admin-mfa", h.getRequireAdminMFA)
+	mux.HandleFunc("POST /api/v1/admin/settings/require-admin-mfa", h.setRequireAdminMFA)
 	mux.HandleFunc("GET /api/v1/admin/users/{accountID}", h.getUser)
 	mux.HandleFunc("POST /api/v1/admin/users/{accountID}/suspend", h.suspendUser)
 	mux.HandleFunc("POST /api/v1/admin/users/{accountID}/reinstate", h.reinstateUser)
 	mux.HandleFunc("POST /api/v1/admin/users/{accountID}/force-logout", h.forceLogoutUser)
+	mux.HandleFunc("POST /api/v1/admin/users/{accountID}/admissions-moderator", h.setAdmissionsModerator)
 }
 
 // requireAdmin authenticates the caller, confirms the admin role and enforces

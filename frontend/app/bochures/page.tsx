@@ -1,32 +1,24 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import BrochureSearch from "../components/brochure-search";
-import { brochureFilters } from "../data/brochure-filters";
-import { searchBrochures, type BrochureSearchFilters } from "../data/brochures";
 
 export const metadata: Metadata = {
     title: "簡章搜尋 | S.T.A 特殊選才資源網",
     description: "依照校系與招生條件搜尋特殊選才簡章。"
 };
 
-type BrochuresPageProps = {
-    searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
-};
-
-function firstValue(value: string | string[] | undefined) {
-    return typeof value === "string" ? value : undefined;
+function LoadingState() {
+    return (
+        <main className="article-dots flex flex-1 items-center justify-center bg-surface px-5 py-20">
+            <p className="font-sans text-base text-ink/65">正在載入簡章搜尋…</p>
+        </main>
+    );
 }
 
-export default async function BrochuresPage({ searchParams }: BrochuresPageProps) {
-    const params = await searchParams;
-    const query = firstValue(params.q);
-    const filters: BrochureSearchFilters = query ? { q: query } : {};
-
-    brochureFilters.forEach((filter) => {
-        const value = firstValue(params[filter.id]);
-        if (value === "required" || value === "not-required") {
-            filters[filter.id] = value;
-        }
-    });
-
-    return <BrochureSearch filters={filters} results={searchBrochures(filters)} />;
+export default function BrochuresPage() {
+    return (
+        <Suspense fallback={<LoadingState />}>
+            <BrochureSearch />
+        </Suspense>
+    );
 }

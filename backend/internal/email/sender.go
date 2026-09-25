@@ -2,10 +2,13 @@ package email
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/tls"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net"
 	"net/mail"
 	"net/smtp"
@@ -15,9 +18,32 @@ import (
 )
 
 type Message struct {
-	To      string
+	To string
+	// Subject is RFC 2047 encoded automatically when it contains non-ASCII
+	// text; an unencoded 8-bit Subject has been observed making at least one
+	// real *.edu.tw gateway demand SMTPUTF8 and hard-bounce when the next hop
+	// doesn't offer it.
 	Subject string
-	Text    string
+	// Text is the plain-text part. Always required: it's the fallback for
+	// clients that don't render HTML, and the only part when HTML is empty.
+	Text string
+	// HTML, when set, is sent as a multipart/alternative sibling to Text —
+	// a plain-text-only "click this token" email reads as spam to a lot of
+	// filters, so anything with a link/button should set this via
+	// ButtonEmail rather than relying on the Text fallback alone.
+	HTML string
+	// MessageID overrides the random one formatMessage would otherwise
+	// generate, for a caller that wants a reply to this message to be
+	// recognisable later (e.g. matched against an inbound In-Reply-To
+	// header). Must already be a valid RFC 5322 msg-id, angle brackets
+	// included.
+	MessageID string
+	// InReplyTo, when set, is echoed as both the In-Reply-To and References
+	// headers — without it, a reply to something the recipient sent us
+	// shows up in their mail client as an unrelated new email instead of
+	// threading under the one they sent. Must already be a valid RFC 5322
+	// msg-id, angle brackets included.
+	InReplyTo string
 }
 
 type Sender interface {
@@ -81,13 +107,14 @@ func (s *SMTPSender) Send(ctx context.Context, message Message) error {
 	// Only the Subject becomes a header, so only it must be free of CR/LF; the
 	// body is multi-line by nature and formatMessage normalises its line
 	// endings, while net/smtp's DATA writer handles dot-stuffing.
-	if hasHeaderInjection(message.Subject) {
+	if hasHeaderInjection(message.Subject) || hasHeaderInjection(message.InReplyTo) {
 		return errors.New("email subject contains invalid line breaks")
 	}
-	if hasNULOrControlEscape(message.Text) {
+	if hasNULOrControlEscape(message.Text) || hasNULOrControlEscape(message.HTML) {
 		return errors.New("email body contains disallowed control characters")
 	}
-	if strings.TrimSpace(message.Subject) == "" || len(message.Subject) > 200 || len(message.Text) > 1<<20 {
+	if strings.TrimSpace(message.Subject) == "" || len(message.Subject) > 200 ||
+		len(message.Text) > 1<<20 || len(message.HTML) > 1<<20 {
 		return errors.New("email content is invalid")
 	}
 	if err := ctx.Err(); err != nil {
@@ -171,13 +198,62 @@ func hasNULOrControlEscape(value string) bool {
 }
 
 func formatMessage(from, to string, message Message) string {
-	body := strings.ReplaceAll(message.Text, "\r\n", "\n")
-	body = strings.ReplaceAll(body, "\r", "\n")
-	body = strings.ReplaceAll(body, "\n", "\r\n")
-	return "From: " + from + "\r\n" +
+	textBody := normalizeLineEndings(message.Text)
+	messageID := message.MessageID
+	if messageID == "" {
+		messageID = generateMessageID(from)
+	}
+	headers := "From: " + from + "\r\n" +
 		"To: " + to + "\r\n" +
-		"Subject: " + message.Subject + "\r\n" +
-		"MIME-Version: 1.0\r\n" +
+		"Subject: " + mime.QEncoding.Encode("UTF-8", message.Subject) + "\r\n" +
+		"Date: " + time.Now().Format(time.RFC1123Z) + "\r\n" +
+		"Message-ID: " + messageID + "\r\n"
+	if message.InReplyTo != "" {
+		headers += "In-Reply-To: " + message.InReplyTo + "\r\n" +
+			"References: " + message.InReplyTo + "\r\n"
+	}
+	headers += "MIME-Version: 1.0\r\n"
+
+	if message.HTML == "" {
+		return headers +
+			"Content-Type: text/plain; charset=UTF-8\r\n" +
+			"Content-Transfer-Encoding: 8bit\r\n\r\n" + textBody + "\r\n"
+	}
+
+	htmlBody := normalizeLineEndings(message.HTML)
+	boundary := "sta-" + hex.EncodeToString(randomBytes(12))
+	return headers +
+		"Content-Type: multipart/alternative; boundary=\"" + boundary + "\"\r\n\r\n" +
+		"--" + boundary + "\r\n" +
 		"Content-Type: text/plain; charset=UTF-8\r\n" +
-		"Content-Transfer-Encoding: 8bit\r\n\r\n" + body + "\r\n"
+		"Content-Transfer-Encoding: 8bit\r\n\r\n" + textBody + "\r\n\r\n" +
+		"--" + boundary + "\r\n" +
+		"Content-Type: text/html; charset=UTF-8\r\n" +
+		"Content-Transfer-Encoding: 8bit\r\n\r\n" + htmlBody + "\r\n\r\n" +
+		"--" + boundary + "--\r\n"
+}
+
+func normalizeLineEndings(text string) string {
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	text = strings.ReplaceAll(text, "\r", "\n")
+	return strings.ReplaceAll(text, "\n", "\r\n")
+}
+
+func randomBytes(n int) []byte {
+	raw := make([]byte, n)
+	_, _ = rand.Read(raw)
+	return raw
+}
+
+// generateMessageID builds an RFC 5322 Message-ID; Gmail and other major
+// providers reject mail that lacks one. from is the envelope sender address,
+// used only for its domain part.
+func generateMessageID(from string) string {
+	domain := "localhost"
+	if at := strings.LastIndex(from, "@"); at >= 0 {
+		domain = from[at+1:]
+	}
+	var raw [16]byte
+	_, _ = rand.Read(raw[:])
+	return fmt.Sprintf("<%d.%s@%s>", time.Now().UnixNano(), hex.EncodeToString(raw[:]), domain)
 }

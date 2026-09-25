@@ -46,3 +46,4 @@ logs/
 
 # Developer md files
 developer/
+.npm-cache/

@@ -57,11 +57,12 @@ func ValidateOfficialURL(raw string) error {
 var codePattern = regexp.MustCompile(`^[0-9]{3}$`)
 
 var (
-	ErrInvalidIdentifier = errors.New("invalid program identifier")
-	ErrInvalidProgram    = errors.New("invalid admission program")
-	ErrNotFound          = errors.New("admission program not found")
-	ErrInvalidStatus     = errors.New("invalid admission program status")
-	ErrAdminRequired     = errors.New("administrator role is required")
+	ErrInvalidIdentifier   = errors.New("invalid program identifier")
+	ErrInvalidProgram      = errors.New("invalid admission program")
+	ErrNotFound            = errors.New("admission program not found")
+	ErrInvalidStatus       = errors.New("invalid admission program status")
+	ErrAdminRequired       = errors.New("administrator role is required")
+	ErrProgramNotDeletable = errors.New("only an empty placeholder program (zero quota) can be deleted")
 )
 
 type ProgramIdentifier struct {
@@ -87,30 +88,59 @@ func ParseProgramIdentifier(raw string) (ProgramIdentifier, error) {
 }
 
 type Program struct {
-	AcademicYear                  int        `json:"academic_year"`
-	ProgramIdentifier             string     `json:"program_identifier"`
-	SchoolCode                    string     `json:"school_code"`
-	SchoolName                    string     `json:"school_name"`
-	ProgramCode                   string     `json:"program_code"`
-	AdmissionProgramName          string     `json:"admission_program_name"`
-	AdmissionQuota                int        `json:"admission_quota"`
-	WillingnessValues             []int16    `json:"willingness_values"`
-	ExamItems                     []ExamItem `json:"exam_items"`
-	BrochureIsTentative           bool       `json:"brochure_is_tentative"`
-	BrochureAnnouncementDate      string     `json:"brochure_announcement_date"`
-	BrochureScheduledDate         string     `json:"brochure_scheduled_date"`
-	RegistrationStartDate         string     `json:"registration_start_date"`
-	RegistrationEndDate           string     `json:"registration_end_date"`
-	ExamStartDate                 string     `json:"exam_start_date"`
-	ExamEndDate                   string     `json:"exam_end_date"`
-	ResultDate                    string     `json:"result_date"`
-	ConsultationPhone             string     `json:"consultation_phone"`
-	BrochureURL                   string     `json:"brochure_url"`
-	SpecialTalentTarget           string     `json:"special_talent_target"`
-	DifferentEducationBackgrounds string     `json:"different_education_backgrounds"`
-	DifferentEducationOther       string     `json:"different_education_other"`
-	Notes                         string     `json:"notes"`
-	SourceLocator                 string     `json:"source_locator"`
+	AcademicYear                  int             `json:"academic_year"`
+	ProgramIdentifier             string          `json:"program_identifier"`
+	SchoolCode                    string          `json:"school_code"`
+	SchoolName                    string          `json:"school_name"`
+	ProgramCode                   string          `json:"program_code"`
+	AdmissionProgramName          string          `json:"admission_program_name"`
+	AdmissionQuota                int             `json:"admission_quota"`
+	WillingnessValues             []int16         `json:"willingness_values"`
+	ExamItems                     []ExamItem      `json:"exam_items"`
+	TimelineEvents                []TimelineEvent `json:"timeline_events"`
+	BrochureIsTentative           bool            `json:"brochure_is_tentative"`
+	ConsultationPhone             string          `json:"consultation_phone"`
+	ConsultationEmail             string          `json:"consultation_email"`
+	ConsultationContact           string          `json:"consultation_contact"`
+	BrochureURL                   string          `json:"brochure_url"`
+	SpecialTalentTarget           string          `json:"special_talent_target"`
+	DifferentEducationBackgrounds string          `json:"different_education_backgrounds"`
+	DifferentEducationOther       string          `json:"different_education_other"`
+	Notes                         string          `json:"notes"`
+	SourceLocator                 string          `json:"source_locator"`
+	RegistrationFee               string          `json:"registration_fee"`
+	ExamLocation                  string          `json:"exam_location"`
+	// RecommendationLetterDeadline/PortfolioDeadline double as their own
+	// requirement flag: MissingValue means the program does not require it,
+	// any date means it does and that date is the deadline.
+	RecommendationLetterDeadline string `json:"recommendation_letter_deadline"`
+	PortfolioDeadline            string `json:"portfolio_deadline"`
+	CheckinWaitlistProcess       string `json:"checkin_waitlist_process"`
+	FeeReductionEligibility      string `json:"fee_reduction_eligibility"`
+	// The fields below mirror the columns of the community-maintained "大表"
+	// (master spreadsheet) that is now the primary source for admissions
+	// data entry. They are free text like everything else here rather than
+	// enums/booleans because the sheet itself mixes values with explanatory
+	// text (e.g. "Y/不同教育資歷", "尚未公告").
+	AdmissionGroup           string `json:"admission_group"`
+	CrossGroup               string `json:"cross_group"`
+	AdmissionCategory        string `json:"admission_category"`
+	PriorityAdmission        string `json:"priority_admission"`
+	PortfolioRequired        string `json:"portfolio_required"`
+	RecommendationLetterType string `json:"recommendation_letter_type"`
+	MaxApplicablePrograms    string `json:"max_applicable_programs"`
+	ApplicantCount           string `json:"applicant_count"`
+	InterviewCount           string `json:"interview_count"`
+	AdmittedCount            string `json:"admitted_count"`
+	WaitlistedCount          string `json:"waitlisted_count"`
+	AdmissionRate            string `json:"admission_rate"`
+	FirstStagePassRate       string `json:"first_stage_pass_rate"`
+	CompetitionRatio         string `json:"competition_ratio"`
+	// SchoolOfficialURL/DepartmentOfficialURL are the school's and the
+	// department's own homepages — distinct from BrochureURL, which is
+	// specifically the admissions/simplified-talent-admission info page.
+	SchoolOfficialURL     string `json:"school_official_url"`
+	DepartmentOfficialURL string `json:"department_official_url"`
 }
 
 // ProgramInput is the manual admission-data form. The public identifiers are
@@ -121,26 +151,44 @@ type ProgramInput struct {
 	SchoolCode   string `json:"school_code"`
 	// SchoolName is resolved from the school master by the repository and is
 	// intentionally not accepted from API clients.
-	SchoolName                    string     `json:"-"`
-	ProgramCode                   string     `json:"program_code"`
-	AdmissionProgramName          string     `json:"admission_program_name"`
-	AdmissionQuota                int        `json:"admission_quota"`
-	ExamItems                     []ExamItem `json:"exam_items"`
-	BrochureIsTentative           bool       `json:"brochure_is_tentative"`
-	BrochureAnnouncementDate      string     `json:"brochure_announcement_date"`
-	BrochureScheduledDate         string     `json:"brochure_scheduled_date"`
-	RegistrationStartDate         string     `json:"registration_start_date"`
-	RegistrationEndDate           string     `json:"registration_end_date"`
-	ExamStartDate                 string     `json:"exam_start_date"`
-	ExamEndDate                   string     `json:"exam_end_date"`
-	ResultDate                    string     `json:"result_date"`
-	ConsultationPhone             string     `json:"consultation_phone"`
-	BrochureURL                   string     `json:"brochure_url"`
-	SpecialTalentTarget           string     `json:"special_talent_target"`
-	DifferentEducationBackgrounds string     `json:"different_education_backgrounds"`
-	DifferentEducationOther       string     `json:"different_education_other"`
-	Notes                         string     `json:"notes"`
-	SourcePage                    *int       `json:"source_page,omitempty"`
+	SchoolName                    string          `json:"-"`
+	ProgramCode                   string          `json:"program_code"`
+	AdmissionProgramName          string          `json:"admission_program_name"`
+	AdmissionQuota                int             `json:"admission_quota"`
+	ExamItems                     []ExamItem      `json:"exam_items"`
+	TimelineEvents                []TimelineEvent `json:"timeline_events"`
+	BrochureIsTentative           bool            `json:"brochure_is_tentative"`
+	ConsultationPhone             string          `json:"consultation_phone"`
+	ConsultationEmail             string          `json:"consultation_email"`
+	ConsultationContact           string          `json:"consultation_contact"`
+	BrochureURL                   string          `json:"brochure_url"`
+	SpecialTalentTarget           string          `json:"special_talent_target"`
+	DifferentEducationBackgrounds string          `json:"different_education_backgrounds"`
+	DifferentEducationOther       string          `json:"different_education_other"`
+	Notes                         string          `json:"notes"`
+	SourcePage                    *int            `json:"source_page,omitempty"`
+	RegistrationFee               string          `json:"registration_fee"`
+	ExamLocation                  string          `json:"exam_location"`
+	RecommendationLetterDeadline  string          `json:"recommendation_letter_deadline"`
+	PortfolioDeadline             string          `json:"portfolio_deadline"`
+	CheckinWaitlistProcess        string          `json:"checkin_waitlist_process"`
+	FeeReductionEligibility       string          `json:"fee_reduction_eligibility"`
+	AdmissionGroup                string          `json:"admission_group"`
+	CrossGroup                    string          `json:"cross_group"`
+	AdmissionCategory             string          `json:"admission_category"`
+	PriorityAdmission             string          `json:"priority_admission"`
+	PortfolioRequired             string          `json:"portfolio_required"`
+	RecommendationLetterType      string          `json:"recommendation_letter_type"`
+	MaxApplicablePrograms         string          `json:"max_applicable_programs"`
+	ApplicantCount                string          `json:"applicant_count"`
+	InterviewCount                string          `json:"interview_count"`
+	AdmittedCount                 string          `json:"admitted_count"`
+	WaitlistedCount               string          `json:"waitlisted_count"`
+	AdmissionRate                 string          `json:"admission_rate"`
+	FirstStagePassRate            string          `json:"first_stage_pass_rate"`
+	CompetitionRatio              string          `json:"competition_ratio"`
+	SchoolOfficialURL             string          `json:"school_official_url"`
+	DepartmentOfficialURL         string          `json:"department_official_url"`
 }
 
 // Materialize derives the two system fields from the manual input. The
@@ -175,21 +223,39 @@ func (input ProgramInput) materialize(schoolName string) (Program, error) {
 		AdmissionQuota:                input.AdmissionQuota,
 		WillingnessValues:             make([]int16, 0),
 		ExamItems:                     input.ExamItems,
+		TimelineEvents:                input.TimelineEvents,
 		BrochureIsTentative:           input.BrochureIsTentative,
-		BrochureAnnouncementDate:      input.BrochureAnnouncementDate,
-		BrochureScheduledDate:         input.BrochureScheduledDate,
-		RegistrationStartDate:         input.RegistrationStartDate,
-		RegistrationEndDate:           input.RegistrationEndDate,
-		ExamStartDate:                 input.ExamStartDate,
-		ExamEndDate:                   input.ExamEndDate,
-		ResultDate:                    input.ResultDate,
 		ConsultationPhone:             input.ConsultationPhone,
+		ConsultationEmail:             input.ConsultationEmail,
+		ConsultationContact:           input.ConsultationContact,
 		BrochureURL:                   input.BrochureURL,
 		SpecialTalentTarget:           input.SpecialTalentTarget,
 		DifferentEducationBackgrounds: input.DifferentEducationBackgrounds,
 		DifferentEducationOther:       input.DifferentEducationOther,
 		Notes:                         input.Notes,
 		SourceLocator:                 locator,
+		RegistrationFee:               input.RegistrationFee,
+		ExamLocation:                  input.ExamLocation,
+		RecommendationLetterDeadline:  input.RecommendationLetterDeadline,
+		PortfolioDeadline:             input.PortfolioDeadline,
+		CheckinWaitlistProcess:        input.CheckinWaitlistProcess,
+		FeeReductionEligibility:       input.FeeReductionEligibility,
+		AdmissionGroup:                input.AdmissionGroup,
+		CrossGroup:                    input.CrossGroup,
+		AdmissionCategory:             input.AdmissionCategory,
+		PriorityAdmission:             input.PriorityAdmission,
+		PortfolioRequired:             input.PortfolioRequired,
+		RecommendationLetterType:      input.RecommendationLetterType,
+		MaxApplicablePrograms:         input.MaxApplicablePrograms,
+		ApplicantCount:                input.ApplicantCount,
+		InterviewCount:                input.InterviewCount,
+		AdmittedCount:                 input.AdmittedCount,
+		WaitlistedCount:               input.WaitlistedCount,
+		AdmissionRate:                 input.AdmissionRate,
+		FirstStagePassRate:            input.FirstStagePassRate,
+		CompetitionRatio:              input.CompetitionRatio,
+		SchoolOfficialURL:             input.SchoolOfficialURL,
+		DepartmentOfficialURL:         input.DepartmentOfficialURL,
 	}
 	if err := program.Validate(); err != nil {
 		return Program{}, err
@@ -211,24 +277,28 @@ func (input ProgramInput) Validate() error {
 	if err := ValidateOfficialURL(input.BrochureURL); err != nil {
 		return err
 	}
+	if err := ValidateOfficialURL(input.SchoolOfficialURL); err != nil {
+		return err
+	}
+	if err := ValidateOfficialURL(input.DepartmentOfficialURL); err != nil {
+		return err
+	}
 	for _, value := range []string{
-		input.BrochureAnnouncementDate, input.BrochureScheduledDate,
-		input.RegistrationStartDate, input.RegistrationEndDate,
-		input.ExamStartDate, input.ExamEndDate, input.ResultDate,
-		input.ConsultationPhone, input.BrochureURL, input.SpecialTalentTarget,
+		input.ConsultationPhone, input.ConsultationEmail, input.ConsultationContact, input.BrochureURL, input.SpecialTalentTarget,
 		input.DifferentEducationBackgrounds, input.DifferentEducationOther, input.Notes,
+		input.RegistrationFee, input.ExamLocation, input.CheckinWaitlistProcess, input.FeeReductionEligibility,
+		input.AdmissionGroup, input.CrossGroup, input.AdmissionCategory, input.PriorityAdmission,
+		input.PortfolioRequired, input.RecommendationLetterType, input.MaxApplicablePrograms,
+		input.ApplicantCount, input.InterviewCount, input.AdmittedCount, input.WaitlistedCount,
+		input.AdmissionRate, input.FirstStagePassRate, input.CompetitionRatio,
+		input.SchoolOfficialURL, input.DepartmentOfficialURL,
 	} {
 		if len([]rune(value)) > 10000 {
 			return ErrInvalidProgram
 		}
 	}
-	if !validDateRange(input.RegistrationStartDate, input.RegistrationEndDate) || !validDateRange(input.ExamStartDate, input.ExamEndDate) {
-		return ErrInvalidProgram
-	}
 	for _, value := range []string{
-		input.BrochureAnnouncementDate, input.BrochureScheduledDate,
-		input.RegistrationStartDate, input.RegistrationEndDate,
-		input.ExamStartDate, input.ExamEndDate, input.ResultDate,
+		input.RecommendationLetterDeadline, input.PortfolioDeadline,
 	} {
 		if value != MissingValue {
 			if _, err := time.Parse("2006-01-02", value); err != nil {
@@ -251,6 +321,9 @@ func (input ProgramInput) Validate() error {
 			return ErrInvalidProgram
 		}
 		seenSortOrders[item.SortOrder] = struct{}{}
+	}
+	if err := validateTimelineEvents(input.TimelineEvents); err != nil {
+		return err
 	}
 	return nil
 }
@@ -282,11 +355,25 @@ func sourceLocator(schoolCode string, sourcePage *int) (string, error) {
 
 type ExamItem struct {
 	Name          string   `json:"name"`
+	Stage         string   `json:"stage"`
 	SortOrder     int      `json:"sort_order"`
 	WeightPercent *float64 `json:"weight_percent,omitempty"`
 	Multiplier    *float64 `json:"multiplier,omitempty"`
 	Description   string   `json:"description"`
 	SourcePage    string   `json:"source_page"`
+}
+
+// TimelineEvent is one row of a program's admissions schedule (招生時程),
+// stored as an ordered list rather than fixed named columns. Blank EndDate
+// means a one-day event; a set EndDate means a span.
+type TimelineEvent struct {
+	Name      string `json:"name"`
+	StartDate string `json:"start_date"`
+	StartTime string `json:"start_time"`
+	EndDate   string `json:"end_date"`
+	EndTime   string `json:"end_time"`
+	SortOrder int    `json:"sort_order"`
+	Notes     string `json:"notes"`
 }
 
 type School struct {
@@ -348,6 +435,13 @@ type BrochureExtractionJobDispatcher interface {
 	QueueBrochureExtractionWithID(context.Context, uuid.UUID, int, string, string, string) (uuid.UUID, error)
 }
 
+// BrochureUploadExtractionDispatcher handles the upload-only admin flow. The
+// PDF is stored first; the worker infers its identity and the reviewer decides
+// the final academic year, school, and program records.
+type BrochureUploadExtractionDispatcher interface {
+	QueueUploadedBrochureExtraction(context.Context, uuid.UUID, BrochureDocumentInput) (uuid.UUID, error)
+}
+
 type BrochureRepository interface {
 	IsAdmin(context.Context, uuid.UUID) (bool, error)
 	CreateBrochure(context.Context, uuid.UUID, BrochureDocumentInput) (BrochureDocument, string, error)
@@ -357,6 +451,7 @@ type BrochureRepository interface {
 	SetBrochurePublished(context.Context, uuid.UUID, int, string, bool, string) (BrochureDocument, error)
 	GetBrochure(context.Context, uuid.UUID, int, string) (BrochureDocument, error)
 	GetPublishedBrochure(context.Context, int, string) (BrochureDocument, error)
+	ListPublishedBrochures(context.Context, string) ([]BrochureDocument, error)
 }
 
 // SystemBrochureRepository is the narrow write boundary for authenticated
@@ -369,6 +464,7 @@ type SystemBrochureRepository interface {
 type ProgramQuery struct {
 	AcademicYear int
 	SchoolCode   string
+	ProgramCode  string
 	Search       string
 	Limit        int
 	Offset       int
@@ -385,25 +481,30 @@ func (p Program) Validate() error {
 	if err := ValidateOfficialURL(p.BrochureURL); err != nil {
 		return err
 	}
+	if err := ValidateOfficialURL(p.SchoolOfficialURL); err != nil {
+		return err
+	}
+	if err := ValidateOfficialURL(p.DepartmentOfficialURL); err != nil {
+		return err
+	}
 	for _, value := range []string{
-		p.BrochureAnnouncementDate, p.BrochureScheduledDate,
-		p.RegistrationStartDate, p.RegistrationEndDate,
-		p.ExamStartDate, p.ExamEndDate, p.ResultDate,
 		p.ConsultationPhone, p.BrochureURL, p.SpecialTalentTarget,
 		p.DifferentEducationBackgrounds, p.DifferentEducationOther, p.Notes,
 		p.SourceLocator,
+		p.RegistrationFee, p.ExamLocation, p.CheckinWaitlistProcess, p.FeeReductionEligibility,
+		p.RecommendationLetterDeadline, p.PortfolioDeadline,
+		p.AdmissionGroup, p.CrossGroup, p.AdmissionCategory, p.PriorityAdmission,
+		p.PortfolioRequired, p.RecommendationLetterType, p.MaxApplicablePrograms,
+		p.ApplicantCount, p.InterviewCount, p.AdmittedCount, p.WaitlistedCount,
+		p.AdmissionRate, p.FirstStagePassRate, p.CompetitionRatio,
+		p.SchoolOfficialURL, p.DepartmentOfficialURL,
 	} {
 		if strings.TrimSpace(value) == "" {
 			return ErrInvalidProgram
 		}
 	}
-	if !validDateRange(p.RegistrationStartDate, p.RegistrationEndDate) || !validDateRange(p.ExamStartDate, p.ExamEndDate) {
-		return ErrInvalidProgram
-	}
 	for _, value := range []string{
-		p.BrochureAnnouncementDate, p.BrochureScheduledDate,
-		p.RegistrationStartDate, p.RegistrationEndDate,
-		p.ExamStartDate, p.ExamEndDate, p.ResultDate,
+		p.RecommendationLetterDeadline, p.PortfolioDeadline,
 	} {
 		if value != MissingValue {
 			if _, err := time.Parse("2006-01-02", value); err != nil {
@@ -430,6 +531,9 @@ func (p Program) Validate() error {
 		}
 		seenSortOrders[item.SortOrder] = struct{}{}
 	}
+	if err := validateTimelineEvents(p.TimelineEvents); err != nil {
+		return ErrInvalidProgram
+	}
 	return nil
 }
 
@@ -445,7 +549,7 @@ func validateExamItem(item ExamItem) error {
 	if strings.TrimSpace(item.Name) == "" || len([]rune(item.Name)) > 500 || item.SortOrder < 1 || (item.WeightPercent == nil && item.Multiplier == nil) {
 		return ErrInvalidProgram
 	}
-	if len([]rune(item.Description)) > 10000 || len([]rune(item.SourcePage)) > 16 {
+	if len([]rune(item.Description)) > 10000 || len([]rune(item.SourcePage)) > 16 || len([]rune(item.Stage)) > 100 {
 		return ErrInvalidProgram
 	}
 	if item.WeightPercent != nil && (*item.WeightPercent < 0 || *item.WeightPercent > 100) {
@@ -456,6 +560,48 @@ func validateExamItem(item ExamItem) error {
 	}
 	if _, err := parseExamItemPage(item.SourcePage); err != nil {
 		return err
+	}
+	return nil
+}
+
+// validateTimelineEvents allows an empty list but rejects a malformed one outright.
+func validateTimelineEvents(events []TimelineEvent) error {
+	if len(events) > 100 {
+		return ErrInvalidProgram
+	}
+	seenSortOrders := make(map[int]struct{}, len(events))
+	for _, event := range events {
+		if err := validateTimelineEvent(event); err != nil {
+			return err
+		}
+		if _, exists := seenSortOrders[event.SortOrder]; exists {
+			return ErrInvalidProgram
+		}
+		seenSortOrders[event.SortOrder] = struct{}{}
+	}
+	return nil
+}
+
+func validateTimelineEvent(event TimelineEvent) error {
+	if strings.TrimSpace(event.Name) == "" || len([]rune(event.Name)) > 500 || event.SortOrder < 1 {
+		return ErrInvalidProgram
+	}
+	if len([]rune(event.Notes)) > 2000 {
+		return ErrInvalidProgram
+	}
+	for _, value := range []string{event.StartDate, event.EndDate} {
+		if value != MissingValue {
+			if _, err := time.Parse("2006-01-02", value); err != nil {
+				return ErrInvalidProgram
+			}
+		}
+	}
+	for _, value := range []string{event.StartTime, event.EndTime} {
+		if value != MissingValue {
+			if _, err := time.Parse("15:04", value); err != nil {
+				return ErrInvalidProgram
+			}
+		}
 	}
 	return nil
 }
@@ -476,26 +622,52 @@ func normalizeProgramInput(input ProgramInput) ProgramInput {
 	input.SchoolCode = strings.TrimSpace(input.SchoolCode)
 	input.ProgramCode = strings.TrimSpace(input.ProgramCode)
 	input.AdmissionProgramName = strings.TrimSpace(input.AdmissionProgramName)
-	input.BrochureAnnouncementDate = normalizeDash(input.BrochureAnnouncementDate)
-	input.BrochureScheduledDate = normalizeDash(input.BrochureScheduledDate)
-	input.RegistrationStartDate = normalizeDash(input.RegistrationStartDate)
-	input.RegistrationEndDate = normalizeDash(input.RegistrationEndDate)
-	input.ExamStartDate = normalizeDash(input.ExamStartDate)
-	input.ExamEndDate = normalizeDash(input.ExamEndDate)
-	input.ResultDate = normalizeDash(input.ResultDate)
 	input.ConsultationPhone = normalizeDash(input.ConsultationPhone)
+	input.ConsultationEmail = normalizeDash(input.ConsultationEmail)
+	input.ConsultationContact = normalizeDash(input.ConsultationContact)
 	input.BrochureURL = normalizeDash(input.BrochureURL)
 	input.SpecialTalentTarget = normalizeDash(input.SpecialTalentTarget)
 	input.DifferentEducationBackgrounds = normalizeDash(input.DifferentEducationBackgrounds)
 	input.DifferentEducationOther = normalizeDash(input.DifferentEducationOther)
 	input.Notes = normalizeDash(input.Notes)
+	input.RegistrationFee = normalizeDash(input.RegistrationFee)
+	input.ExamLocation = normalizeDash(input.ExamLocation)
+	input.RecommendationLetterDeadline = normalizeDash(input.RecommendationLetterDeadline)
+	input.PortfolioDeadline = normalizeDash(input.PortfolioDeadline)
+	input.CheckinWaitlistProcess = normalizeDash(input.CheckinWaitlistProcess)
+	input.FeeReductionEligibility = normalizeDash(input.FeeReductionEligibility)
+	input.AdmissionGroup = normalizeDash(input.AdmissionGroup)
+	input.CrossGroup = normalizeDash(input.CrossGroup)
+	input.AdmissionCategory = normalizeDash(input.AdmissionCategory)
+	input.PriorityAdmission = normalizeDash(input.PriorityAdmission)
+	input.PortfolioRequired = normalizeDash(input.PortfolioRequired)
+	input.RecommendationLetterType = normalizeDash(input.RecommendationLetterType)
+	input.MaxApplicablePrograms = normalizeDash(input.MaxApplicablePrograms)
+	input.ApplicantCount = normalizeDash(input.ApplicantCount)
+	input.InterviewCount = normalizeDash(input.InterviewCount)
+	input.AdmittedCount = normalizeDash(input.AdmittedCount)
+	input.WaitlistedCount = normalizeDash(input.WaitlistedCount)
+	input.AdmissionRate = normalizeDash(input.AdmissionRate)
+	input.FirstStagePassRate = normalizeDash(input.FirstStagePassRate)
+	input.CompetitionRatio = normalizeDash(input.CompetitionRatio)
+	input.SchoolOfficialURL = normalizeDash(input.SchoolOfficialURL)
+	input.DepartmentOfficialURL = normalizeDash(input.DepartmentOfficialURL)
 	for index := range input.ExamItems {
 		input.ExamItems[index].Name = strings.TrimSpace(input.ExamItems[index].Name)
+		input.ExamItems[index].Stage = normalizeDash(input.ExamItems[index].Stage)
 		input.ExamItems[index].Description = normalizeDash(input.ExamItems[index].Description)
 		input.ExamItems[index].SourcePage = normalizeDash(input.ExamItems[index].SourcePage)
 		if page, err := parseExamItemPage(input.ExamItems[index].SourcePage); err == nil && page != nil {
 			input.ExamItems[index].SourcePage = strconv.Itoa(*page)
 		}
+	}
+	for index := range input.TimelineEvents {
+		input.TimelineEvents[index].Name = strings.TrimSpace(input.TimelineEvents[index].Name)
+		input.TimelineEvents[index].StartDate = normalizeDash(input.TimelineEvents[index].StartDate)
+		input.TimelineEvents[index].StartTime = normalizeDash(input.TimelineEvents[index].StartTime)
+		input.TimelineEvents[index].EndDate = normalizeDash(input.TimelineEvents[index].EndDate)
+		input.TimelineEvents[index].EndTime = normalizeDash(input.TimelineEvents[index].EndTime)
+		input.TimelineEvents[index].Notes = normalizeDash(input.TimelineEvents[index].Notes)
 	}
 	return input
 }
@@ -508,14 +680,3 @@ func normalizeDash(value string) string {
 	return value
 }
 
-func validDateRange(start, end string) bool {
-	if start == MissingValue || end == MissingValue {
-		return true
-	}
-	parsedStart, err := time.Parse("2006-01-02", start)
-	if err != nil {
-		return false
-	}
-	parsedEnd, err := time.Parse("2006-01-02", end)
-	return err == nil && !parsedEnd.Before(parsedStart)
-}

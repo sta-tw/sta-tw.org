@@ -1,0 +1,8 @@
+#!/bin/sh
+# Postfix's pipe(8) transport feeds the raw RFC 5322 message on stdin.
+# Forwarded as-is to the API, which does its own MIME parsing.
+exec curl -fsS --max-time 20 \
+    -H "Authorization: Bearer __STA_ACCOUNT_APPLICATION_MAIL_TOKEN__" \
+    -H "Content-Type: message/rfc822" \
+    --data-binary @- \
+    "http://api:8080/api/v1/internal/account-applications/mail-intake"

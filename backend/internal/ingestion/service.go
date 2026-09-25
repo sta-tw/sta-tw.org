@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"sta-backend/internal/admissions"
 	"sta-backend/internal/jobs"
 )
 
@@ -49,6 +50,71 @@ func (s *Service) QueueBrochureExtraction(ctx context.Context, adminID uuid.UUID
 // retry a failed local extraction without uploading the PDF again.
 func (s *Service) QueueBrochureExtractionWithID(ctx context.Context, adminID uuid.UUID, academicYear int, schoolCode, storageKey, sha256Hex string) (uuid.UUID, error) {
 	return s.queueBrochureExtraction(ctx, &adminID, academicYear, schoolCode, storageKey, sha256Hex, "", "")
+}
+
+// QueueUploadedBrochureExtraction creates a source-only intake. The worker is
+// explicitly asked to infer the academic year and school from the PDF; no
+// placeholder identity is written to the admissions tables.
+func (s *Service) QueueUploadedBrochureExtraction(ctx context.Context, adminID uuid.UUID, input admissions.BrochureDocumentInput) (uuid.UUID, error) {
+	if s == nil || s.repository == nil {
+		return uuid.Nil, errors.New("ingestion service is not configured")
+	}
+	record, err := s.repository.queueUploadedBrochureJob(ctx, &adminID, input, s.processorVersion, s.now(), UploadChannelAdmin)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	return s.dispatchUploadedBrochureJob(ctx, record)
+}
+
+// QueueAISystemBrochureUpload creates a source-only intake submitted by an
+// account holding the ai_system role (authenticated with its own personal API
+// token, resolved by the caller). Like QueueUploadedBrochureExtraction it
+// never trusts a caller-declared identity — the worker infers the academic
+// year and school from the PDF — but unlike an administrator's own upload it
+// surfaces in the shared manual-review queue, and the submitting account is
+// recorded so every ai_system submission stays attributable to its source.
+func (s *Service) QueueAISystemBrochureUpload(ctx context.Context, accountID uuid.UUID, input admissions.BrochureDocumentInput) (uuid.UUID, error) {
+	if s == nil || s.repository == nil {
+		return uuid.Nil, errors.New("ingestion service is not configured")
+	}
+	record, err := s.repository.queueUploadedBrochureJob(ctx, &accountID, input, s.processorVersion, s.now(), UploadChannelAISystem)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	return s.dispatchUploadedBrochureJob(ctx, record)
+}
+
+// QueueExternalBrochureUpload creates a service-submitted brochure intake.
+// Unlike an administrator upload, it is intentionally surfaced in the
+// manual-review queue after extraction rather than opening an admin draft.
+func (s *Service) QueueExternalBrochureUpload(ctx context.Context, input admissions.BrochureDocumentInput) (uuid.UUID, error) {
+	if s == nil || s.repository == nil {
+		return uuid.Nil, errors.New("ingestion service is not configured")
+	}
+	record, err := s.repository.queueUploadedBrochureJob(ctx, nil, input, s.processorVersion, s.now(), UploadChannelExternal)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	return s.dispatchUploadedBrochureJob(ctx, record)
+}
+
+func (s *Service) dispatchUploadedBrochureJob(ctx context.Context, record brochureJobRecord) (uuid.UUID, error) {
+	if !record.ShouldPublish || record.Status == "succeeded" {
+		return record.Job.JobID, nil
+	}
+	if s.broker == nil {
+		return record.Job.JobID, nil
+	}
+	if err := s.broker.Publish(ctx, jobs.ExtractRoutingKey, record.Job.JobID, record.Job); err != nil {
+		if markErr := s.repository.markDispatchFailed(ctx, record.Job.JobID, err); markErr != nil {
+			s.logger.ErrorContext(ctx, "mark upload-only brochure dispatch failure", "error", markErr)
+		}
+		return record.Job.JobID, DispatchError{err: err}
+	}
+	if err := s.repository.markDispatchStarted(ctx, record.Job.JobID); err != nil {
+		s.logger.ErrorContext(ctx, "mark upload-only brochure dispatch started", "error", err, "job_id", record.Job.JobID)
+	}
+	return record.Job.JobID, nil
 }
 
 // QueueDiscoveredBrochureExtraction is the service-to-service entry point used

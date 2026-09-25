@@ -3,10 +3,12 @@
 import Image from "next/image";
 import Link from "next/link";
 import { ChevronLeft, ChevronRight, Search } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { twMerge } from "tailwind-merge";
-import { articles, type Article } from "../data/articles";
+import { listExperiences, type Experience } from "../lib/api/content";
+import { ApiError } from "../lib/api/types";
 import { publicPath } from "../lib/public-path";
+import { normalizeSearchText } from "../lib/text-normalize";
 import FaqAccordion from "./faq-accordion";
 
 const slides = [
@@ -37,21 +39,54 @@ const tagCloud = [
     { label: "不分系", size: "text-3xl sm:text-4xl", position: "self-end mr-[18%] -mt-5" }
 ];
 
+type ExperienceArticle = {
+    id: string;
+    title: string;
+    summary: string;
+    date: string;
+    readTime: string;
+    accent: "green" | "yellow";
+    searchText: string;
+};
+
 export default function ArticleOverview() {
     const [activeSlide, setActiveSlide] = useState(0);
     const [query, setQuery] = useState("");
+    const [articles, setArticles] = useState<ExperienceArticle[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+
+    useEffect(() => {
+        const controller = new AbortController();
+
+        listExperiences({ limit: 100, signal: controller.signal })
+            .then((response) => {
+                if (controller.signal.aborted) return;
+                setArticles(response.data.map(experienceToArticle));
+                setError(null);
+            })
+            .catch((cause: unknown) => {
+                if (controller.signal.aborted) return;
+                setArticles([]);
+                setError(
+                    cause instanceof ApiError ? cause.message : "目前無法取得公開心得，請稍後再試。"
+                );
+            })
+            .finally(() => {
+                if (!controller.signal.aborted) setLoading(false);
+            });
+
+        return () => controller.abort();
+    }, []);
 
     const filteredArticles = useMemo(() => {
-        const normalizedQuery = query.trim().toLowerCase();
+        const normalizedQuery = normalizeSearchText(query.trim().toLowerCase());
         if (!normalizedQuery) return articles;
 
         return articles.filter((article) =>
-            [article.title, article.summary, ...article.tags]
-                .join(" ")
-                .toLowerCase()
-                .includes(normalizedQuery)
+            normalizeSearchText(article.searchText.toLowerCase()).includes(normalizedQuery)
         );
-    }, [query]);
+    }, [articles, query]);
 
     const changeSlide = (direction: -1 | 1) => {
         setActiveSlide((current) => (current + direction + slides.length) % slides.length);
@@ -133,13 +168,27 @@ export default function ArticleOverview() {
                         aria-label="文章列表"
                         className="mx-auto mt-8 flex max-w-6xl flex-col gap-5 sm:mt-10 sm:gap-6"
                     >
-                        {filteredArticles.length ? (
+                        {loading ? (
+                            <p className="rounded-[var(--radius-small)] bg-ink/5 px-5 py-12 text-center text-lg text-ink/70">
+                                正在從後端載入公開心得…
+                            </p>
+                        ) : error ? (
+                            <div
+                                role="alert"
+                                className="rounded-[var(--radius-small)] border border-dashed border-ink/20 bg-ink/5 px-5 py-12 text-center"
+                            >
+                                <p className="text-lg font-medium text-ink">無法載入文章</p>
+                                <p className="mt-2 text-base text-ink/70">{error}</p>
+                            </div>
+                        ) : filteredArticles.length ? (
                             filteredArticles.map((article) => (
                                 <ArticleCard key={article.title} article={article} />
                             ))
                         ) : (
                             <p className="rounded-[var(--radius-small)] bg-ink/5 px-5 py-12 text-center text-lg text-ink/70">
-                                找不到符合「{query}」的文章。
+                                {query.trim()
+                                    ? `找不到符合「${query}」的文章。`
+                                    : "目前沒有可公開的心得文章。"}
                             </p>
                         )}
                     </section>
@@ -170,10 +219,7 @@ export default function ArticleOverview() {
                         </div>
                     </section>
 
-                    <section
-                        aria-labelledby="article-faq-title"
-                        className="mt-20 sm:mt-24"
-                    >
+                    <section aria-labelledby="article-faq-title" className="mt-20 sm:mt-24">
                         <h2
                             id="article-faq-title"
                             className="font-serif text-3xl text-ink sm:text-4xl"
@@ -198,10 +244,10 @@ export default function ArticleOverview() {
     );
 }
 
-function ArticleCard({ article }: { article: Article }) {
+function ArticleCard({ article }: { article: ExperienceArticle }) {
     return (
         <Link
-            href={`/article/${article.slug}`}
+            href={`/article/experience?id=${encodeURIComponent(article.id)}`}
             className="block rounded-[var(--radius-small)] focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2 focus-visible:outline-none"
             aria-label={`閱讀文章：${article.title}`}
         >
@@ -215,7 +261,7 @@ function ArticleCard({ article }: { article: Article }) {
                 />
                 <div className="flex min-w-0 flex-col">
                     <h2 className="font-sans text-xl leading-snug font-medium text-ink sm:text-2xl lg:text-3xl">
-                        {article.listingTitle}
+                        {article.title}
                     </h2>
                     <p className="mt-4 text-base leading-relaxed text-ink/80 sm:text-lg">
                         {article.summary}
@@ -230,4 +276,21 @@ function ArticleCard({ article }: { article: Article }) {
             </article>
         </Link>
     );
+}
+
+function experienceToArticle(experience: Experience, index: number): ExperienceArticle {
+    const body = experience.body.trim();
+    const summary = body.replace(/\s+/g, " ").slice(0, 160) || "查看這篇特殊選才經驗分享。";
+    const date = experience.updated_at.slice(0, 10);
+    const minutes = Math.max(1, Math.ceil(Array.from(body).length / 300));
+
+    return {
+        id: experience.id,
+        title: experience.title,
+        summary: summary.length < body.length ? `${summary}…` : summary,
+        date,
+        readTime: `${minutes} min`,
+        accent: index % 2 === 0 ? "green" : "yellow",
+        searchText: `${experience.title} ${body}`
+    };
 }

@@ -1,0 +1,78 @@
+services:
+  postgres:
+    image: ${BROCHURE_TG_TEST_POSTGRES_IMAGE:-postgres:16-alpine}
+    environment:
+      POSTGRES_USER: ${BROCHURE_TG_TEST_POSTGRES_USER:-sta_brochure_tg_test}
+      POSTGRES_PASSWORD: ${BROCHURE_TG_TEST_POSTGRES_PASSWORD:-local-brochure-tg-test-only}
+      POSTGRES_DB: ${BROCHURE_TG_TEST_POSTGRES_DB:-sta_brochure_tg_test}
+    ports:
+      - "127.0.0.1:${BROCHURE_TG_TEST_POSTGRES_PORT:-55432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  rabbitmq:
+    image: ${BROCHURE_TG_TEST_RABBITMQ_IMAGE:-rabbitmq:management-alpine}
+    environment:
+      RABBITMQ_DEFAULT_USER: ${BROCHURE_TG_TEST_RABBITMQ_USER:-sta_brochure_tg_test}
+      RABBITMQ_DEFAULT_PASS: ${BROCHURE_TG_TEST_RABBITMQ_PASSWORD:-local-brochure-tg-test-only}
+    ports:
+      - "127.0.0.1:${BROCHURE_TG_TEST_RABBITMQ_PORT:-55672}:5672"
+      - "127.0.0.1:${BROCHURE_TG_TEST_RABBITMQ_MANAGEMENT_PORT:-15673}:15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  minio:
+    image: ${BROCHURE_TG_TEST_MINIO_IMAGE:-minio/minio:latest}
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${BROCHURE_TG_TEST_MINIO_ACCESS_KEY:-sta_brochure_tg_test}
+      MINIO_ROOT_PASSWORD: ${BROCHURE_TG_TEST_MINIO_SECRET_KEY:-local-brochure-tg-test-only}
+    ports:
+      - "127.0.0.1:${BROCHURE_TG_TEST_MINIO_PORT:-59000}:9000"
+      - "127.0.0.1:${BROCHURE_TG_TEST_MINIO_CONSOLE_PORT:-59001}:9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:9000/minio/health/live"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+
+  minio-init:
+    image: ${BROCHURE_TG_TEST_MINIO_MC_IMAGE:-minio/mc:latest}
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${BROCHURE_TG_TEST_MINIO_ACCESS_KEY:-sta_brochure_tg_test}
+      MINIO_ROOT_PASSWORD: ${BROCHURE_TG_TEST_MINIO_SECRET_KEY:-local-brochure-tg-test-only}
+      MINIO_BUCKET: ${BROCHURE_TG_TEST_MINIO_BUCKET:-sta-brochure-tg-test}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD" &&
+        mc mb --ignore-existing "local/$$MINIO_BUCKET"
+
+  clamav:
+    image: ${BROCHURE_TG_TEST_CLAMAV_IMAGE:-clamav/clamav:stable}
+    ports:
+      - "127.0.0.1:${BROCHURE_TG_TEST_CLAMAV_PORT:-53310}:3310"
+    volumes:
+      - clamav-signatures:/var/lib/clamav
+
+volumes:
+  postgres-data:
+  rabbitmq-data:
+  minio-data:
+  clamav-signatures:
+

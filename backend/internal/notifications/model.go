@@ -39,8 +39,8 @@ type InquiryNotificationTask struct {
 
 type Repository interface {
 	CreateInApp(context.Context, uuid.UUID, string, string, string, string) (Notification, error)
-	EnqueueEmailForAccount(context.Context, uuid.UUID, string, string, string, string) error
-	EnqueueEmailTo(context.Context, uuid.UUID, []byte, string, string, string) error
+	EnqueueEmailForAccount(ctx context.Context, accountID uuid.UUID, dedupKey, subject, text, html, kind string) error
+	EnqueueEmailTo(ctx context.Context, accountID uuid.UUID, recipientCiphertext []byte, dedupKey, subject, text, html string) error
 	List(context.Context, uuid.UUID, int, pagination.Cursor) ([]Notification, string, error)
 	UnreadCount(context.Context, uuid.UUID) (int, error)
 	MarkRead(context.Context, uuid.UUID, uuid.UUID) error
@@ -63,4 +63,8 @@ type EmailPayload struct {
 	To      string `json:"to"`
 	Subject string `json:"subject"`
 	Text    string `json:"text"`
+	// HTML, when set, is sent as a multipart/alternative sibling to Text —
+	// see email.ButtonEmail. Empty for plain-text-only mail (e.g. a short
+	// numeric code with nothing to click).
+	HTML string `json:"html,omitempty"`
 }

@@ -1,17 +1,15 @@
 import type { Metadata } from "next";
-import StatusPage from "../components/status-page";
+import SearchView from "./search-view";
 
 export const metadata: Metadata = {
-    title: "簡章搜尋建置中 | S.T.A 特殊選才資源網",
-    description: "簡章搜尋頁面正在建置中。"
+    title: "搜尋 | S.T.A 特殊選才資源網",
+    description: "搜尋學校、校系管道與心得文章。"
 };
 
 export default function SearchPage() {
     return (
-        <StatusPage
-            eyebrow="Coming Soon"
-            title="簡章搜尋正在整理中"
-            description="我們正在把校系簡章、招生條件與重要時程整理成更容易篩選的搜尋體驗。完成前，可以先從文章總覽查看特殊選才準備方向。"
-        />
+        <main className="mx-auto w-full max-w-screen-xl px-5 py-12 sm:px-6 sm:py-16 lg:px-16 lg:py-20">
+            <SearchView />
+        </main>
     );
 }

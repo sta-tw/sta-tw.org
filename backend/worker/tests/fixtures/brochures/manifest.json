@@ -1,0 +1,53 @@
+{
+  "_comment": "Golden expectations for the format-agnostic brochure extractor. Each fixture is a `pdftotext -layout` dump of a real special-selection (特殊選才) admission brochure from a different university. They deliberately span four different section layouts so the extractor cannot be tuned to a single school. Values are lower bounds / sampled facts that a human reviewer would confirm; the extractor stays low-confidence.",
+  "fixtures": [
+    {
+      "file": "tainan_arts_116.layout.txt",
+      "school_name_contains": "臺南藝術大學",
+      "section_heading": "壹拾肆、各學系招生規定",
+      "layout_note": "left-gutter row labels; program row is `學系 <name> 代碼 <ALNUM>`; quota stacked on its own line",
+      "program_count": 2,
+      "programs": [
+        {"printed_code": "QS116", "name": "材質創作與設計系 一般組", "quota": 3},
+        {"printed_code": "MS116", "name": "應用音樂學系 一般組", "quota": 4}
+      ]
+    },
+    {
+      "file": "ntue_116.layout.txt",
+      "school_name_contains": "臺北教育大學",
+      "section_heading": "拾、招生學系、名額、考試科目及規定",
+      "layout_note": "`招 生 學 系 <name> <group>` with spaced CJK label; inline `招生名額 N名`",
+      "program_count": 5,
+      "programs": [
+        {"name": "語文與創作學系 文學創作組", "quota": 4},
+        {"name": "語文與創作學系 語文師資組", "quota": 2},
+        {"name": "藝術與造形設計學系 藝術組", "quota": 4},
+        {"name": "藝術與造形設計學系 設計組", "quota": 4},
+        {"name": "自然科學教育學系 一般組", "quota": 2}
+      ]
+    },
+    {
+      "file": "nuk_116.layout.txt",
+      "school_name_contains": "高雄大學",
+      "section_heading": "肆、招生學系(組)別：",
+      "layout_note": "`系 所 別  <name>` label; weights carried inside labels e.g. `資料審查 (30%)`",
+      "program_count": 2,
+      "programs": [
+        {"name": "工藝與創意設計學系 一般組", "quota": 7},
+        {"name": "資訊工程學系 一般組", "quota": 3}
+      ]
+    },
+    {
+      "file": "ntnu_116.layout.txt",
+      "school_name_contains": "臺灣師範大學",
+      "section_heading": "學系招生資訊（一般生）",
+      "layout_note": "numbered `N. <name>` headings only; `招生名額 N名  報名費 …` on one line; separate 一般生 and 新住民 分則 sections",
+      "program_count_min": 40,
+      "programs": [
+        {"name": "社會教育學系 一般組", "quota": 6},
+        {"name": "資訊工程學系 資安組", "quota": 3},
+        {"name": "東亞學系 新住民組", "quota": 1}
+      ]
+    }
+  ]
+}

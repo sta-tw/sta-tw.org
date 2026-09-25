@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 import hashlib
 import re
 from typing import Any, Mapping
+from uuid import UUID
 
 
 SCHOOL_CODE_RE = re.compile(r"^[0-9]{3}$")
@@ -28,6 +29,8 @@ class BrochureExtractJob:
     storage_key: str
     sha256_hex: str
     requested_at: str
+    upload_id: str = ""
+    infer_identity: bool = False
     processor_hint: str = ""
     source_type: str = "brochure"
     source_url: str = ""
@@ -49,6 +52,8 @@ class BrochureExtractJob:
             storage_key=str(payload["storage_key"]),
             sha256_hex=str(payload["sha256_hex"]),
             requested_at=str(payload["requested_at"]),
+            upload_id=str(payload.get("upload_id", "")),
+            infer_identity=bool(payload.get("infer_identity", False)),
             processor_hint=str(payload.get("processor_hint", "")),
             source_type=str(payload.get("source_type", "brochure")) or "brochure",
             source_url=str(payload.get("source_url", "")),
@@ -60,10 +65,23 @@ class BrochureExtractJob:
     def validate(self) -> None:
         if not self.job_id or len(self.job_id) > 128:
             raise InvalidJob("job_id is invalid")
-        if not 100 <= self.academic_year <= 999:
-            raise InvalidJob("academic_year is invalid")
-        if not SCHOOL_CODE_RE.fullmatch(self.school_code):
-            raise InvalidJob("school_code is invalid")
+        upload_only = bool(self.upload_id)
+        if upload_only:
+            try:
+                UUID(self.upload_id)
+            except (ValueError, AttributeError):
+                raise InvalidJob("upload_id is invalid")
+            if self.source_type != "brochure" or not self.infer_identity:
+                raise InvalidJob("upload-only brochure job is invalid")
+            if self.academic_year and not 100 <= self.academic_year <= 999:
+                raise InvalidJob("optional academic_year is invalid")
+            if self.school_code and not SCHOOL_CODE_RE.fullmatch(self.school_code):
+                raise InvalidJob("optional school_code is invalid")
+        else:
+            if not 100 <= self.academic_year <= 999:
+                raise InvalidJob("academic_year is invalid")
+            if not SCHOOL_CODE_RE.fullmatch(self.school_code):
+                raise InvalidJob("school_code is invalid")
         if not self.storage_key or len(self.storage_key) > 1024 or self.storage_key.startswith("/"):
             raise InvalidJob("storage_key is invalid")
         if any(ord(character) < 32 for character in self.storage_key):
@@ -98,14 +116,22 @@ class ExtractionCandidate:
             raise InvalidJob("confidence is invalid")
 
 
-def result_payload(job: BrochureExtractJob, processor: str, candidates: list[ExtractionCandidate]) -> dict[str, Any]:
+def result_payload(
+    job: BrochureExtractJob,
+    processor: str,
+    candidates: list[ExtractionCandidate],
+    *,
+    academic_year: int | None = None,
+    school_code: str | None = None,
+    school_name: str = "",
+) -> dict[str, Any]:
     for candidate in candidates:
         candidate.validate()
-    return {
+    result: dict[str, Any] = {
         "result_type": "brochure",
         "job_id": job.job_id,
-        "academic_year": job.academic_year,
-        "school_code": job.school_code,
+        "academic_year": job.academic_year if academic_year is None else academic_year,
+        "school_code": job.school_code if school_code is None else school_code,
         "sha256_hex": job.sha256_hex,
         "processor": processor,
         "candidates": [
@@ -119,6 +145,11 @@ def result_payload(job: BrochureExtractJob, processor: str, candidates: list[Ext
         ],
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }
+    if job.upload_id:
+        result["upload_id"] = job.upload_id
+    if school_name.strip():
+        result["school_name"] = school_name.strip()
+    return result
 
 
 def sha256_file(path, max_bytes: int) -> str:

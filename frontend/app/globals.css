@@ -18,7 +18,7 @@
     --shadow-card: 0 18px 40px rgba(16, 24, 40, 0.06), 0 8px 18px rgba(16, 24, 40, 0.04);
     --font-size-brand: 1.75rem;
     --font-size-nav: 1.25rem;
-    --font-size-hero-title: clamp(2.75rem, 10vw, 6rem);
+    --font-size-hero-title: clamp(2.25rem, 7vw, 5rem);
     --font-size-hero-subtitle: clamp(1.5rem, 4.8vw, 4rem);
     --font-size-watermark: clamp(4.5rem, 8vw, 6.9375rem);
     --font-size-stat-number: clamp(4rem, 6vw, 4.9375rem);

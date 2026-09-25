@@ -1,37 +1,236 @@
 package ingestion
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
+	"sta-backend/internal/admissions"
 	"sta-backend/internal/auth"
+	"sta-backend/internal/storage"
 )
 
 type Handler struct {
 	authService *auth.Service
 	repository  Repository
 	service     *Service
+	blobStore   storage.BlobStore
 }
 
 func NewHandler(authService *auth.Service, repository Repository, service *Service) (*Handler, error) {
+	return NewHandlerWithBlobStore(authService, repository, service, nil)
+}
+
+func NewHandlerWithBlobStore(authService *auth.Service, repository Repository, service *Service, blobStore storage.BlobStore) (*Handler, error) {
 	if authService == nil || repository == nil || service == nil {
 		return nil, errors.New("ingestion handler dependencies are missing")
 	}
-	return &Handler{authService: authService, repository: repository, service: service}, nil
+	return &Handler{authService: authService, repository: repository, service: service, blobStore: blobStore}, nil
 }
 
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /api/v1/admin/admissions/brochure-uploads", h.listBrochureUploads)
+	mux.HandleFunc("GET /api/v1/admin/admissions/brochure-uploads/{uploadID}", h.getBrochureUpload)
+	mux.HandleFunc("GET /api/v1/admin/admissions/brochure-uploads/{uploadID}/content", h.contentBrochureUpload)
+	mux.HandleFunc("GET /api/v1/admin/admissions/brochure-uploads/{uploadID}/download", h.downloadBrochureUpload)
+	mux.HandleFunc("POST /api/v1/admin/admissions/brochure-uploads/{uploadID}/confirm", h.confirmBrochureUpload)
+	mux.HandleFunc("POST /api/v1/admin/admissions/brochure-uploads/{uploadID}/reject", h.rejectBrochureUpload)
 	mux.HandleFunc("GET /api/v1/admin/ingestion/brochure-runs", h.listRuns)
 	mux.HandleFunc("GET /api/v1/admin/ingestion/brochure-runs/{runID}", h.getRun)
 	mux.HandleFunc("GET /api/v1/admin/ingestion/jobs/{jobID}", h.getJobStatus)
 	mux.HandleFunc("POST /api/v1/admin/ingestion/brochure-runs/{runID}/review", h.reviewRun)
 	mux.HandleFunc("POST /api/v1/admin/ingestion/brochure-candidates/{candidateID}/review", h.reviewCandidate)
 	mux.HandleFunc("POST /api/v1/admin/ingestion/jobs/{jobID}/retry", h.retryJob)
+}
+
+func (h *Handler) listBrochureUploads(w http.ResponseWriter, r *http.Request) {
+	session, ok := h.requireAdmin(w, r)
+	if !ok {
+		return
+	}
+	status := strings.TrimSpace(r.URL.Query().Get("status"))
+	if status != "" && !validUploadStatus(status) {
+		writeIngestionError(w, http.StatusBadRequest, "invalid_upload_status", "brochure upload status is invalid")
+		return
+	}
+	limit, offset, err := parseLimitOffset(r)
+	if err != nil {
+		writeIngestionError(w, http.StatusBadRequest, "invalid_pagination", "brochure upload pagination is invalid")
+		return
+	}
+	items, err := h.repository.ListBrochureUploads(r.Context(), session.Session.Account.ID, status, limit, offset)
+	if err != nil {
+		h.writeRepositoryError(w, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeIngestionJSON(w, http.StatusOK, map[string]any{
+		"data": items,
+		"meta": map[string]any{"limit": limit, "offset": offset, "count": len(items)},
+	})
+}
+
+func (h *Handler) getBrochureUpload(w http.ResponseWriter, r *http.Request) {
+	session, ok := h.requireAdmin(w, r)
+	if !ok {
+		return
+	}
+	uploadID, err := uuid.Parse(r.PathValue("uploadID"))
+	if err != nil {
+		writeIngestionError(w, http.StatusBadRequest, "invalid_upload_id", "brochure upload id is invalid")
+		return
+	}
+	item, err := h.repository.GetBrochureUpload(r.Context(), session.Session.Account.ID, uploadID)
+	if err != nil {
+		h.writeRepositoryError(w, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeIngestionJSON(w, http.StatusOK, map[string]any{"data": item})
+}
+
+func (h *Handler) downloadBrochureUpload(w http.ResponseWriter, r *http.Request) {
+	if h.blobStore == nil {
+		writeIngestionError(w, http.StatusServiceUnavailable, "storage_unavailable", "brochure storage is unavailable")
+		return
+	}
+	session, ok := h.requireAdmin(w, r)
+	if !ok {
+		return
+	}
+	uploadID, err := uuid.Parse(r.PathValue("uploadID"))
+	if err != nil {
+		writeIngestionError(w, http.StatusBadRequest, "invalid_upload_id", "brochure upload id is invalid")
+		return
+	}
+	storageReader, ok := h.repository.(interface {
+		GetBrochureUploadStorageKey(context.Context, uuid.UUID, uuid.UUID) (string, error)
+	})
+	if !ok {
+		writeIngestionError(w, http.StatusServiceUnavailable, "storage_unavailable", "brochure storage lookup is unavailable")
+		return
+	}
+	storageKey, err := storageReader.GetBrochureUploadStorageKey(r.Context(), session.Session.Account.ID, uploadID)
+	if err != nil {
+		h.writeRepositoryError(w, err)
+		return
+	}
+	url, err := h.blobStore.PresignGet(r.Context(), storageKey, 5*time.Minute)
+	if err != nil {
+		writeIngestionError(w, http.StatusBadGateway, "storage_unavailable", "brochure storage is unavailable")
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeIngestionJSON(w, http.StatusOK, map[string]any{"url": url.String(), "expires_in": 300})
+}
+
+func (h *Handler) contentBrochureUpload(w http.ResponseWriter, r *http.Request) {
+	if h.blobStore == nil {
+		writeIngestionError(w, http.StatusServiceUnavailable, "storage_unavailable", "brochure storage is unavailable")
+		return
+	}
+	session, ok := h.requireAdmin(w, r)
+	if !ok {
+		return
+	}
+	uploadID, err := uuid.Parse(r.PathValue("uploadID"))
+	if err != nil {
+		writeIngestionError(w, http.StatusBadRequest, "invalid_upload_id", "brochure upload id is invalid")
+		return
+	}
+	storageReader, ok := h.repository.(interface {
+		GetBrochureUploadStorageKey(context.Context, uuid.UUID, uuid.UUID) (string, error)
+	})
+	if !ok {
+		writeIngestionError(w, http.StatusServiceUnavailable, "storage_unavailable", "brochure storage lookup is unavailable")
+		return
+	}
+	storageKey, err := storageReader.GetBrochureUploadStorageKey(r.Context(), session.Session.Account.ID, uploadID)
+	if err != nil {
+		h.writeRepositoryError(w, err)
+		return
+	}
+	reader, ok := h.blobStore.(storage.BlobReader)
+	if !ok {
+		writeIngestionError(w, http.StatusServiceUnavailable, "storage_unavailable", "brochure content proxy is unavailable")
+		return
+	}
+	object, err := reader.Get(r.Context(), storageKey)
+	if err != nil {
+		writeIngestionError(w, http.StatusBadGateway, "storage_unavailable", "brochure storage is unavailable")
+		return
+	}
+	defer object.Close()
+	contentType := object.ContentType
+	if contentType == "" {
+		contentType = "application/pdf"
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Disposition", `inline; filename="brochure.pdf"`)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	if object.Size > 0 {
+		w.Header().Set("Content-Length", strconv.FormatInt(object.Size, 10))
+	}
+	if _, err := io.Copy(w, object); err != nil {
+		return
+	}
+}
+
+func (h *Handler) confirmBrochureUpload(w http.ResponseWriter, r *http.Request) {
+	session, ok := h.requireAdminMutation(w, r)
+	if !ok {
+		return
+	}
+	uploadID, err := uuid.Parse(r.PathValue("uploadID"))
+	if err != nil {
+		writeIngestionError(w, http.StatusBadRequest, "invalid_upload_id", "brochure upload id is invalid")
+		return
+	}
+	var input BrochureUploadConfirmInput
+	if err := decodeIngestionJSON(r, &input); err != nil {
+		writeIngestionError(w, http.StatusBadRequest, "invalid_upload_confirmation", "brochure upload confirmation is invalid")
+		return
+	}
+	item, err := h.repository.ConfirmBrochureUpload(r.Context(), session.Session.Account.ID, uploadID, input)
+	if err != nil {
+		h.writeRepositoryError(w, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeIngestionJSON(w, http.StatusOK, map[string]any{"data": item})
+}
+
+func (h *Handler) rejectBrochureUpload(w http.ResponseWriter, r *http.Request) {
+	session, ok := h.requireAdminMutation(w, r)
+	if !ok {
+		return
+	}
+	uploadID, err := uuid.Parse(r.PathValue("uploadID"))
+	if err != nil {
+		writeIngestionError(w, http.StatusBadRequest, "invalid_upload_id", "brochure upload id is invalid")
+		return
+	}
+	var input struct {
+		Reason string `json:"reason"`
+	}
+	if err := decodeIngestionJSON(r, &input); err != nil {
+		writeIngestionError(w, http.StatusBadRequest, "invalid_upload_rejection", "brochure upload rejection is invalid")
+		return
+	}
+	item, err := h.repository.RejectBrochureUpload(r.Context(), session.Session.Account.ID, uploadID, input.Reason)
+	if err != nil {
+		h.writeRepositoryError(w, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeIngestionJSON(w, http.StatusOK, map[string]any{"data": item})
 }
 
 func (h *Handler) listRuns(w http.ResponseWriter, r *http.Request) {
@@ -210,9 +409,31 @@ func (h *Handler) writeRepositoryError(w http.ResponseWriter, err error) {
 		writeIngestionError(w, http.StatusNotFound, "not_found", "ingestion resource was not found")
 	case errors.Is(err, ErrInvalidStatus):
 		writeIngestionError(w, http.StatusConflict, "invalid_status", "ingestion resource is not in a mutable state")
+	case errors.Is(err, admissions.ErrInvalidStatus):
+		writeIngestionError(w, http.StatusConflict, "invalid_status", "admission resource is not in a mutable state")
+	case errors.Is(err, admissions.ErrInvalidProgram):
+		writeIngestionError(w, http.StatusBadRequest, "invalid_admission", "admission data is invalid")
 	default:
 		writeIngestionError(w, http.StatusInternalServerError, "internal_error", "internal server error")
 	}
+}
+
+func parseLimitOffset(r *http.Request) (int, int, error) {
+	limit, offset := 50, 0
+	var err error
+	if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
+		limit, err = strconv.Atoi(raw)
+		if err != nil || limit < 1 || limit > 100 {
+			return 0, 0, ErrInvalid
+		}
+	}
+	if raw := strings.TrimSpace(r.URL.Query().Get("offset")); raw != "" {
+		offset, err = strconv.Atoi(raw)
+		if err != nil || offset < 0 || offset > 10000 {
+			return 0, 0, ErrInvalid
+		}
+	}
+	return limit, offset, nil
 }
 
 func parseRunQuery(r *http.Request) (RunQuery, error) {

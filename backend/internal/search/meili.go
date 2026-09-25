@@ -80,18 +80,31 @@ func (c *Client) request(ctx context.Context, method, path string, body any) ([]
 
 // EnsureIndexes creates the indexes (id primary key) and sets searchable /
 // filterable attributes. Idempotent.
+// taiVariantSynonyms maps 台/臺 both directions so either variant matches.
+var taiVariantSynonyms = map[string][]string{
+	"台": {"臺"}, "臺": {"台"},
+	"台灣": {"臺灣"}, "臺灣": {"台灣"},
+	"台北": {"臺北"}, "臺北": {"台北"},
+	"台中": {"臺中"}, "臺中": {"台中"},
+	"台南": {"臺南"}, "臺南": {"台南"},
+	"台東": {"臺東"}, "臺東": {"台東"},
+}
+
 func (c *Client) EnsureIndexes(ctx context.Context) error {
 	settings := map[string]map[string]any{
 		IndexSchools: {
 			"searchableAttributes": []string{"school_name", "school_code"},
 			"filterableAttributes": []string{"institution_type", "is_active"},
+			"synonyms":             taiVariantSynonyms,
 		},
 		IndexPrograms: {
 			"searchableAttributes": []string{"admission_program_name", "school_name", "program_identifier", "special_talent_target"},
 			"filterableAttributes": []string{"academic_year", "school_code"},
+			"synonyms":             taiVariantSynonyms,
 		},
 		IndexExperiences: {
 			"searchableAttributes": []string{"title", "snippet"},
+			"synonyms":             taiVariantSynonyms,
 		},
 	}
 	for name, s := range settings {

@@ -28,9 +28,13 @@ const (
 var schoolCodePattern = regexp.MustCompile(`^[0-9]{3}$`)
 
 type BrochureExtractJob struct {
-	JobID         uuid.UUID `json:"job_id"`
+	JobID uuid.UUID `json:"job_id"`
+	// UploadID identifies the upload-only intake flow. Legacy jobs leave it
+	// empty and carry their identity in AcademicYear/SchoolCode.
+	UploadID      uuid.UUID `json:"upload_id,omitempty"`
 	AcademicYear  int       `json:"academic_year"`
 	SchoolCode    string    `json:"school_code"`
+	InferIdentity bool      `json:"infer_identity,omitempty"`
 	StorageKey    string    `json:"storage_key"`
 	SHA256Hex     string    `json:"sha256_hex"`
 	RequestedAt   time.Time `json:"requested_at"`
@@ -50,8 +54,10 @@ type BrochureExtractJob struct {
 type BrochureExtractionResult struct {
 	ResultType   string                `json:"result_type,omitempty"`
 	JobID        uuid.UUID             `json:"job_id"`
+	UploadID     uuid.UUID             `json:"upload_id,omitempty"`
 	AcademicYear int                   `json:"academic_year"`
 	SchoolCode   string                `json:"school_code"`
+	SchoolName   string                `json:"school_name,omitempty"`
 	SHA256Hex    string                `json:"sha256_hex"`
 	Processor    string                `json:"processor"`
 	Candidates   []ExtractionCandidate `json:"candidates"`
@@ -93,7 +99,21 @@ type CandidateListRow struct {
 }
 
 func (j BrochureExtractJob) Validate() error {
-	if j.JobID == uuid.Nil || j.AcademicYear < 100 || j.AcademicYear > 999 || !schoolCodePattern.MatchString(j.SchoolCode) {
+	isUploadOnly := j.UploadID != uuid.Nil
+	if j.JobID == uuid.Nil {
+		return errors.New("invalid brochure extract job identity")
+	}
+	if isUploadOnly {
+		if j.EffectiveSourceType() != SourceTypeBrochure || !j.InferIdentity {
+			return errors.New("invalid upload-only brochure extract job")
+		}
+		if j.AcademicYear != 0 && (j.AcademicYear < 100 || j.AcademicYear > 999) {
+			return errors.New("invalid optional brochure academic year")
+		}
+		if j.SchoolCode != "" && !schoolCodePattern.MatchString(j.SchoolCode) {
+			return errors.New("invalid optional brochure school code")
+		}
+	} else if j.AcademicYear < 100 || j.AcademicYear > 999 || !schoolCodePattern.MatchString(j.SchoolCode) {
 		return errors.New("invalid brochure extract job identity")
 	}
 	if strings.TrimSpace(j.StorageKey) == "" || len(j.StorageKey) > 1024 || strings.ContainsAny(j.StorageKey, "\x00\r\n") {
@@ -153,8 +173,23 @@ func (r BrochureExtractionResult) Validate() error {
 	if r.ResultType != "" && r.ResultType != SourceTypeBrochure {
 		return errors.New("invalid brochure result type")
 	}
-	if r.JobID == uuid.Nil || r.AcademicYear < 100 || r.AcademicYear > 999 || !schoolCodePattern.MatchString(r.SchoolCode) {
+	if r.JobID == uuid.Nil {
 		return errors.New("invalid brochure extraction result identity")
+	}
+	if r.UploadID == uuid.Nil {
+		if r.AcademicYear < 100 || r.AcademicYear > 999 || !schoolCodePattern.MatchString(r.SchoolCode) {
+			return errors.New("invalid brochure extraction result identity")
+		}
+	} else {
+		if r.AcademicYear != 0 && (r.AcademicYear < 100 || r.AcademicYear > 999) {
+			return errors.New("invalid optional brochure academic year")
+		}
+		if r.SchoolCode != "" && !schoolCodePattern.MatchString(r.SchoolCode) {
+			return errors.New("invalid optional brochure school code")
+		}
+		if len([]rune(r.SchoolName)) > 500 {
+			return errors.New("brochure school name is too long")
+		}
 	}
 	if !regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(r.SHA256Hex) {
 		return errors.New("invalid brochure extraction result SHA-256")

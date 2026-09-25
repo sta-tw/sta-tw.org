@@ -1,0 +1,54 @@
+{
+	# Cloudflare proxies (orange-cloud) still forward normal HTTP requests to
+	# the origin, so the ACME HTTP-01 challenge below works with the Cloudflare
+	# SSL/TLS mode set to "Full (strict)". Override STA_ACME_EMAIL for real
+	# Let's Encrypt renewal notices.
+	email {$STA_ACME_EMAIL}
+}
+
+{$STA_DOMAIN} {
+	encode gzip zstd
+
+	header {
+		X-Frame-Options "DENY"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+	}
+
+	@api path /api/* /healthz
+	handle @api {
+		reverse_proxy api:8080 {
+			flush_interval -1
+		}
+	}
+
+	handle {
+		root * /srv/frontend
+		try_files {path} {path}/ /404.html
+		file_server
+	}
+
+	handle_errors {
+		@404 expression {http.error.status_code} == 404
+		rewrite @404 /404.html
+		file_server {
+			root /srv/frontend
+		}
+	}
+}
+
+# No content of its own — this site block exists so Caddy obtains and renews
+# a Let's Encrypt cert for the mail hostname; the postfix service reads the
+# resulting cert/key straight out of the shared caddy-data volume.
+{$STA_MAIL_HOSTNAME} {
+	respond "mail relay for {$STA_DOMAIN}" 200
+}
+
+# Public entry point for object storage. MinIO itself is bound to
+# 127.0.0.1 only and never exposed directly; every request here still needs
+# a valid presigned-URL signature (set STA_OBJECT_STORAGE_PUBLIC_ENDPOINT to
+# this hostname so the backend signs download links against it instead of
+# the internal minio:9000 service name, which a browser can't resolve).
+{$STA_OBJECT_STORAGE_PUBLIC_HOSTNAME} {
+	reverse_proxy minio:9000
+}

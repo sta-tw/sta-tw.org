@@ -254,6 +254,9 @@ func (b *Bot) handleCallback(ctx context.Context, callback CallbackQuery) error 
 	if callback.ID == "" {
 		return nil
 	}
+	if strings.HasPrefix(callback.Data, "account_app:") {
+		return b.handleAccountApplicationCallback(ctx, callback)
+	}
 	if b.crossCheckToken == "" {
 		return b.answerCallback(ctx, callback.ID, "交叉查榜功能尚未設定。", true)
 	}

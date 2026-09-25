@@ -27,6 +27,7 @@ type AdminProgram struct {
 type ProgramAdminQuery struct {
 	AcademicYear int
 	SchoolCode   string
+	ProgramCode  string
 	ReviewStatus string
 	Search       string
 	Limit        int
@@ -66,6 +67,8 @@ type AdminRepository interface {
 	UpsertPrograms(context.Context, uuid.UUID, ProgramBatchInput) ([]AdminProgram, error)
 	ReviewProgram(context.Context, uuid.UUID, ProgramIdentifier, ProgramReviewInput) (AdminProgram, error)
 	ListProgramHistory(context.Context, uuid.UUID, ProgramIdentifier) ([]ProgramAuditEvent, error)
+	// DeleteProgram removes an empty placeholder program (admission_quota must be 0).
+	DeleteProgram(context.Context, uuid.UUID, ProgramIdentifier, string) error
 }
 
 func (input ProgramBatchInput) Validate() error {

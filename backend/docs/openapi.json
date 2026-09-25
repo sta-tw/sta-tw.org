@@ -1027,27 +1027,6 @@
           "brochure_is_tentative": {
             "type": "boolean"
           },
-          "brochure_announcement_date": {
-            "type": "string"
-          },
-          "brochure_scheduled_date": {
-            "type": "string"
-          },
-          "registration_start_date": {
-            "type": "string"
-          },
-          "registration_end_date": {
-            "type": "string"
-          },
-          "exam_start_date": {
-            "type": "string"
-          },
-          "exam_end_date": {
-            "type": "string"
-          },
-          "result_date": {
-            "type": "string"
-          },
           "consultation_phone": {
             "type": "string"
           },
@@ -2048,6 +2027,55 @@
     }
   },
   "paths": {
+    "/api/v1/account-applications": {
+      "post": {
+        "operationId": "post_api_v1_account_applications",
+        "summary": "Create account applications",
+        "tags": [
+          "account-applications"
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "csrf": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/admin/admission-sources": {
       "get": {
         "operationId": "get_api_v1_admin_admission_sources",
@@ -3217,6 +3245,322 @@
         }
       }
     },
+    "/api/v1/admin/admissions/brochure-uploads": {
+      "get": {
+        "operationId": "get_api_v1_admin_admissions_brochure_uploads",
+        "summary": "Get admin admissions brochure uploads",
+        "tags": [
+          "admin-admissions"
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "adminMFA": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/admissions/brochure-uploads/{uploadID}": {
+      "get": {
+        "operationId": "get_api_v1_admin_admissions_brochure_uploads_uploadID",
+        "summary": "Get admin admissions brochure uploads uploadID",
+        "tags": [
+          "admin-admissions"
+        ],
+        "parameters": [
+          {
+            "name": "uploadID",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "adminMFA": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/admissions/brochure-uploads/{uploadID}/confirm": {
+      "post": {
+        "operationId": "post_api_v1_admin_admissions_brochure_uploads_uploadID_confirm",
+        "summary": "Create admin admissions brochure uploads uploadID confirm",
+        "tags": [
+          "admin-admissions"
+        ],
+        "parameters": [
+          {
+            "name": "uploadID",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "adminMFA": [],
+            "csrf": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/admissions/brochure-uploads/{uploadID}/content": {
+      "get": {
+        "operationId": "get_api_v1_admin_admissions_brochure_uploads_uploadID_content",
+        "summary": "Get admin admissions brochure uploads uploadID content",
+        "tags": [
+          "admin-admissions"
+        ],
+        "parameters": [
+          {
+            "name": "uploadID",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "adminMFA": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/admissions/brochure-uploads/{uploadID}/download": {
+      "get": {
+        "operationId": "get_api_v1_admin_admissions_brochure_uploads_uploadID_download",
+        "summary": "Get admin admissions brochure uploads uploadID download",
+        "tags": [
+          "admin-admissions"
+        ],
+        "parameters": [
+          {
+            "name": "uploadID",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "adminMFA": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/admissions/brochure-uploads/{uploadID}/reject": {
+      "post": {
+        "operationId": "post_api_v1_admin_admissions_brochure_uploads_uploadID_reject",
+        "summary": "Create admin admissions brochure uploads uploadID reject",
+        "tags": [
+          "admin-admissions"
+        ],
+        "parameters": [
+          {
+            "name": "uploadID",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "adminMFA": [],
+            "csrf": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/admin/admissions/brochures": {
       "get": {
         "operationId": "get_api_v1_admin_admissions_brochures",
@@ -3325,6 +3669,116 @@
                       "$ref": "#/components/schemas/BrochureDocument"
                     }
                   }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/admissions/brochures/direct": {
+      "post": {
+        "operationId": "post_api_v1_admin_admissions_brochures_direct",
+        "summary": "Create admin admissions brochures direct",
+        "tags": [
+          "admin-admissions"
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "adminMFA": [],
+            "csrf": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/admissions/brochures/{academicYear}/{schoolCode}/content": {
+      "get": {
+        "operationId": "get_api_v1_admin_admissions_brochures_academicYear_schoolCode_content",
+        "summary": "Get admin admissions brochures academicYear schoolCode content",
+        "tags": [
+          "admin-admissions"
+        ],
+        "parameters": [
+          {
+            "name": "academicYear",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "schoolCode",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "adminMFA": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
                 }
               }
             }
@@ -5924,6 +6378,96 @@
         }
       }
     },
+    "/api/v1/admin/settings/require-admin-mfa": {
+      "get": {
+        "operationId": "get_api_v1_admin_settings_require_admin_mfa",
+        "summary": "Get admin settings require admin mfa",
+        "tags": [
+          "admin-settings"
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "adminMFA": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "post_api_v1_admin_settings_require_admin_mfa",
+        "summary": "Create admin settings require admin mfa",
+        "tags": [
+          "admin-settings"
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "adminMFA": [],
+            "csrf": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/admin/stats": {
       "get": {
         "operationId": "get_api_v1_admin_stats",
@@ -6633,6 +7177,55 @@
             }
           }
         }
+      },
+      "post": {
+        "operationId": "post_api_v1_admin_users",
+        "summary": "Create admin users",
+        "tags": [
+          "admin-users"
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "adminMFA": [],
+            "csrf": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/admin/users/{accountID}": {
@@ -6677,6 +7270,67 @@
                       "$ref": "#/components/schemas/AdminUser"
                     }
                   }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/users/{accountID}/admissions-moderator": {
+      "post": {
+        "operationId": "post_api_v1_admin_users_accountID_admissions_moderator",
+        "summary": "Create admin users accountID admissions moderator",
+        "tags": [
+          "admin-users"
+        ],
+        "parameters": [
+          {
+            "name": "accountID",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "adminMFA": [],
+            "csrf": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
                 }
               }
             }
@@ -7427,6 +8081,55 @@
                       "description": "seconds"
                     }
                   }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admissions/brochures/{schoolCode}": {
+      "get": {
+        "operationId": "get_api_v1_admissions_brochures_schoolCode",
+        "summary": "Get admissions brochures schoolCode",
+        "tags": [
+          "admissions"
+        ],
+        "parameters": [
+          {
+            "name": "schoolCode",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
                 }
               }
             }
@@ -9110,6 +9813,144 @@
         }
       }
     },
+    "/api/v1/calendar/google/events": {
+      "post": {
+        "operationId": "post_api_v1_calendar_google_events",
+        "summary": "Create calendar google events",
+        "tags": [
+          "calendar"
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "csrf": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/calendar/google/events/{externalID}": {
+      "delete": {
+        "operationId": "delete_api_v1_calendar_google_events_externalID",
+        "summary": "Delete calendar google events externalID",
+        "tags": [
+          "calendar"
+        ],
+        "parameters": [
+          {
+            "name": "externalID",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "csrf": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/calendar/google/status": {
+      "get": {
+        "operationId": "get_api_v1_calendar_google_status",
+        "summary": "Get calendar google status",
+        "tags": [
+          "calendar"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/chat/channels": {
       "get": {
         "operationId": "get_api_v1_chat_channels",
@@ -10092,6 +10933,45 @@
         }
       }
     },
+    "/api/v1/community/discord": {
+      "get": {
+        "operationId": "get_api_v1_community_discord",
+        "summary": "Get community discord",
+        "tags": [
+          "community"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/events": {
       "get": {
         "operationId": "get_api_v1_events",
@@ -10637,6 +11517,55 @@
         "responses": {
           "204": {
             "description": "No Content"
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/external/ai-system/brochures": {
+      "post": {
+        "operationId": "post_api_v1_external_ai_system_brochures",
+        "summary": "Create external ai system brochures",
+        "tags": [
+          "external"
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "csrf": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
           },
           "4XX": {
             "description": "Client error",
@@ -11210,6 +12139,151 @@
                       "$ref": "#/components/schemas/ForumPost"
                     }
                   }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/internal/account-applications/mail-intake": {
+      "post": {
+        "operationId": "post_api_v1_internal_account_applications_mail_intake",
+        "summary": "Create internal account applications mail intake",
+        "tags": [
+          "internal-account-applications"
+        ],
+        "security": [
+          {
+            "serviceToken": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/internal/account-applications/reply-by-telegram": {
+      "post": {
+        "operationId": "post_api_v1_internal_account_applications_reply_by_telegram",
+        "summary": "Create internal account applications reply by telegram",
+        "tags": [
+          "internal-account-applications"
+        ],
+        "security": [
+          {
+            "serviceToken": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/internal/account-applications/{id}/decision": {
+      "post": {
+        "operationId": "post_api_v1_internal_account_applications_id_decision",
+        "summary": "Create internal account applications id decision",
+        "tags": [
+          "internal-account-applications"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "serviceToken": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
                 }
               }
             }

@@ -23,25 +23,33 @@ const (
 // must be injected through a secret manager or environment variables, never
 // committed to the repository.
 type Config struct {
-	Environment                             string
-	HTTPAddr                                string
-	AllowedOrigins                          []string
-	DatabaseURL                             string
-	RabbitMQURL                             string
-	RabbitMQExchange                        string
-	RabbitMQExtractQueue                    string
-	RabbitMQResultQueue                     string
-	ObjectStorageEndpoint                   string
-	ObjectStorageAccessKey                  string
-	ObjectStorageSecretKey                  string
-	ObjectStorageBucket                     string
-	ObjectStorageUseSSL                     bool
+	Environment            string
+	HTTPAddr               string
+	AllowedOrigins         []string
+	DatabaseURL            string
+	RabbitMQURL            string
+	RabbitMQExchange       string
+	RabbitMQExtractQueue   string
+	RabbitMQResultQueue    string
+	ObjectStorageEndpoint  string
+	ObjectStorageAccessKey string
+	ObjectStorageSecretKey string
+	ObjectStorageBucket    string
+	ObjectStorageUseSSL    bool
+	// ObjectStoragePublicEndpoint, when set, is the host presigned download
+	// URLs are signed against instead of ObjectStorageEndpoint. The internal
+	// endpoint (a docker-network service name) is unreachable from a
+	// browser, so a publicly routable host — reverse-proxied to the same
+	// MinIO instance — is required for any link handed to a client.
+	ObjectStoragePublicEndpoint             string
+	ObjectStoragePublicUseSSL               bool
 	ClamAVAddress                           string
 	RequireFileScan                         bool
 	DiscordChatWebhookSecret                string
 	TelegramChatWebhookSecret               string
 	DiscordChatBotToken                     string
 	DiscordChatChannelID                    string
+	DiscordCommunityInviteCode              string
 	SupportEmail                            string
 	SupportEmailWebhookSecret               string
 	DiscordSupportWebhookSecret             string
@@ -54,23 +62,33 @@ type Config struct {
 	TelegramChatID                          string
 	TelegramCrossCheckToken                 string
 	TelegramCrossCheckAllowTestProvisioning bool
-	BrochureDiscoveryAgentToken             string
-	ExtractionServiceToken                  string
-	SMTPHost                                string
-	SMTPPort                                int
-	SMTPUsername                            string
-	SMTPPassword                            string
-	SMTPFrom                                string
-	SMTPUseTLS                              bool
-	SMTPAllowInsecure                       bool
-	PublicBaseURL                           string
-	MeilisearchURL                          string
-	MeilisearchKey                          string
-	RequireEduEmail                         bool
-	RequireAdminMFA                         bool
-	AdminMFAGrantTTL                        time.Duration
-	EmailEncryptionKey                      []byte
-	LookupHMACKey                           []byte
+	// Account-application review: people without a usable school email apply
+	// by emailing account@<mail hostname>; a pending request is posted to
+	// this Telegram group, and approve/reject buttons call back into the API
+	// using AccountApplicationReviewToken.
+	TelegramAccountApplicationChatID int64
+	AccountApplicationReviewToken    string
+	AccountApplicationMailToken      string
+	// MailDomain is the deterministic Message-ID domain for account
+	// applications (see accountapplications.Service.messageIDFor) — must
+	// match STA_MAIL_HOSTNAME used by the postfix compose service.
+	MailDomain                  string
+	BrochureDiscoveryAgentToken string
+	ExtractionServiceToken      string
+	SMTPHost                    string
+	SMTPPort                    int
+	SMTPUsername                string
+	SMTPPassword                string
+	SMTPFrom                    string
+	SMTPUseTLS                  bool
+	SMTPAllowInsecure           bool
+	PublicBaseURL               string
+	MeilisearchURL              string
+	MeilisearchKey              string
+	RequireAdminMFA             bool
+	AdminMFAGrantTTL            time.Duration
+	EmailEncryptionKey          []byte
+	LookupHMACKey               []byte
 	// LookupHMACSecondaryKeys are retired lookup-HMAC keys kept for reads while
 	// STA_LOOKUP_HMAC_KEY is being rotated. Format:
 	// STA_LOOKUP_HMAC_SECONDARY_KEYS="<base64>,<base64>".
@@ -118,12 +136,15 @@ func Load() (Config, error) {
 		ObjectStorageSecretKey:                  strings.TrimSpace(os.Getenv("STA_OBJECT_STORAGE_SECRET_KEY")),
 		ObjectStorageBucket:                     valueOrDefault("STA_OBJECT_STORAGE_BUCKET", "sta-private"),
 		ObjectStorageUseSSL:                     strings.EqualFold(strings.TrimSpace(os.Getenv("STA_OBJECT_STORAGE_USE_SSL")), "true"),
+		ObjectStoragePublicEndpoint:             strings.TrimSpace(os.Getenv("STA_OBJECT_STORAGE_PUBLIC_ENDPOINT")),
+		ObjectStoragePublicUseSSL:               !strings.EqualFold(strings.TrimSpace(os.Getenv("STA_OBJECT_STORAGE_PUBLIC_USE_SSL")), "false"),
 		ClamAVAddress:                           strings.TrimSpace(os.Getenv("STA_CLAMAV_ADDRESS")),
 		RequireFileScan:                         false,
 		DiscordChatWebhookSecret:                strings.TrimSpace(os.Getenv("STA_DISCORD_CHAT_WEBHOOK_SECRET")),
 		TelegramChatWebhookSecret:               strings.TrimSpace(os.Getenv("STA_TELEGRAM_CHAT_WEBHOOK_SECRET")),
 		DiscordChatBotToken:                     strings.TrimSpace(os.Getenv("STA_DISCORD_CHAT_BOT_TOKEN")),
 		DiscordChatChannelID:                    strings.TrimSpace(os.Getenv("STA_DISCORD_CHAT_CHANNEL_ID")),
+		DiscordCommunityInviteCode:              valueOrDefault("STA_DISCORD_COMMUNITY_INVITE_CODE", "3XAvXnG4rx"),
 		SupportEmail:                            strings.TrimSpace(os.Getenv("STA_SUPPORT_EMAIL")),
 		SupportEmailWebhookSecret:               strings.TrimSpace(os.Getenv("STA_SUPPORT_EMAIL_WEBHOOK_SECRET")),
 		DiscordSupportWebhookSecret:             strings.TrimSpace(os.Getenv("STA_DISCORD_SUPPORT_WEBHOOK_SECRET")),
@@ -136,6 +157,9 @@ func Load() (Config, error) {
 		TelegramChatID:                          strings.TrimSpace(os.Getenv("STA_TELEGRAM_CHAT_ID")),
 		TelegramCrossCheckToken:                 strings.TrimSpace(os.Getenv("STA_TELEGRAM_CROSS_CHECK_TOKEN")),
 		TelegramCrossCheckAllowTestProvisioning: strings.EqualFold(strings.TrimSpace(os.Getenv("STA_TELEGRAM_CROSS_CHECK_ALLOW_TEST_PROVISIONING")), "true"),
+		AccountApplicationReviewToken:           strings.TrimSpace(os.Getenv("STA_ACCOUNT_APPLICATION_REVIEW_TOKEN")),
+		AccountApplicationMailToken:             strings.TrimSpace(os.Getenv("STA_ACCOUNT_APPLICATION_MAIL_TOKEN")),
+		MailDomain:                              valueOrDefault("STA_MAIL_HOSTNAME", "mail.sta-tw.org"),
 		BrochureDiscoveryAgentToken:             strings.TrimSpace(os.Getenv("STA_BROCHURE_DISCOVERY_AGENT_TOKEN")),
 		ExtractionServiceToken:                  firstNonEmptyEnv("STA_EXTRACTION_SERVICE_TOKEN", "STA_EXTERNAL_INGESTION_TOKEN"),
 		SMTPHost:                                strings.TrimSpace(os.Getenv("STA_SMTP_HOST")),
@@ -146,7 +170,6 @@ func Load() (Config, error) {
 		PublicBaseURL:                           strings.TrimRight(strings.TrimSpace(os.Getenv("STA_PUBLIC_BASE_URL")), "/"),
 		MeilisearchURL:                          strings.TrimSpace(os.Getenv("STA_MEILISEARCH_URL")),
 		MeilisearchKey:                          strings.TrimSpace(os.Getenv("STA_MEILISEARCH_KEY")),
-		RequireEduEmail:                         strings.EqualFold(valueOrDefault("STA_REQUIRE_EDU_EMAIL", "false"), "true"),
 		RequireAdminMFA:                         false,
 		MaxJSONBodyBytes:                        defaultMaxJSONBodyBytes,
 		ShutdownTimeout:                         defaultShutdownTimeout,
@@ -208,6 +231,13 @@ func Load() (Config, error) {
 		}
 		config.SessionTTL = parsed
 	}
+	if raw := strings.TrimSpace(os.Getenv("STA_TELEGRAM_ACCOUNT_APPLICATION_CHAT_ID")); raw != "" {
+		parsed, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil {
+			return Config{}, fmt.Errorf("STA_TELEGRAM_ACCOUNT_APPLICATION_CHAT_ID must be a valid integer")
+		}
+		config.TelegramAccountApplicationChatID = parsed
+	}
 	if raw := strings.TrimSpace(os.Getenv("STA_SMTP_PORT")); raw != "" {
 		parsed, err := strconv.Atoi(raw)
 		if err != nil || parsed < 1 || parsed > 65535 {
@@ -253,9 +283,6 @@ func Load() (Config, error) {
 			return Config{}, fmt.Errorf("STA_TELEGRAM_CROSS_CHECK_ALLOW_TEST_PROVISIONING must be true or false")
 		}
 		config.TelegramCrossCheckAllowTestProvisioning = parsed
-	}
-	if strings.TrimSpace(os.Getenv("STA_REQUIRE_EDU_EMAIL")) == "" && config.Environment == productionEnvironment {
-		config.RequireEduEmail = true
 	}
 	if config.HTTPAddr == "" {
 		return Config{}, fmt.Errorf("STA_HTTP_ADDR must not be empty")

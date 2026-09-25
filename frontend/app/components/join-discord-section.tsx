@@ -1,9 +1,27 @@
+"use client";
+
 import Image from "next/image";
 import Link from "next/link";
+import { useEffect, useState } from "react";
+import { getDiscordCommunityStats } from "../lib/api/community";
 import { publicPath } from "../lib/public-path";
 import { DISCORD_INVITE_URL } from "../lib/site-links";
 
+const FALLBACK_MEMBER_COUNT = 1200;
+
 export default function JoinDiscordSection() {
+    const [memberCount, setMemberCount] = useState(FALLBACK_MEMBER_COUNT);
+
+    useEffect(() => {
+        const controller = new AbortController();
+        getDiscordCommunityStats(controller.signal)
+            .then((stats) => setMemberCount(stats.member_count))
+            .catch(() => {
+                // Keep the fallback count; the widget still renders fine.
+            });
+        return () => controller.abort();
+    }, []);
+
     return (
         <section
             className="bg-surface pt-2 pb-12 sm:pb-16 lg:pb-20"
@@ -35,7 +53,7 @@ export default function JoinDiscordSection() {
                                     加入 116 特選 Discord 群
                                 </h3>
                                 <p className="max-w-3xl font-sans text-base leading-relaxed font-medium text-copy-muted sm:text-lg">
-                                    和 1200+ 位志同道合的人一起聊天、討論
+                                    和 {memberCount}+ 位志同道合的人一起聊天、討論
                                 </p>
                             </div>
 

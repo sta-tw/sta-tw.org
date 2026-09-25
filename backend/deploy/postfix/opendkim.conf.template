@@ -1,0 +1,13 @@
+Syslog          yes
+UMask           002
+Domain          __MAIL_HOSTNAME__
+KeyFile         /etc/opendkim/keys/mail.private
+Selector        mail
+Socket          inet:8891@localhost
+PidFile         /run/opendkim/opendkim.pid
+Mode            sv
+Canonicalization        relaxed/simple
+SubDomains      no
+AutoRestart     yes
+AutoRestartRate 10/1h
+UserID          root

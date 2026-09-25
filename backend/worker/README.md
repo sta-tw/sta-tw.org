@@ -1,6 +1,6 @@
 # STA admission worker
 
-Python worker 只負責檔案資料擷取，不呼叫任何 AI endpoint。Go API 負責上傳驗證、ClamAV、private object storage、job lease 與結果保存；Python 以本地規則解析簡章與准考證／考生名單，結果仍須管理員審核後才會建立或發布資料。
+Python worker 只負責檔案資料擷取，不呼叫任何 AI endpoint。Go API 負責上傳驗證、ClamAV、private object storage、job lease 與結果保存；Python 以本地規則解析簡章與准考證／考生名單，簡章遇到文字層不足的頁面時會 fallback 到本地 Tesseract OCR，結果仍須管理員審核後才會建立或發布資料。
 
 ## RabbitMQ 模式
 
@@ -43,8 +43,29 @@ API 模式不需要 MinIO／S3 credentials。worker 從 `POST /api/v1/internal/e
 - `STA_WORKER_OBJECT_STORAGE_USE_SSL`：object storage 是否使用 TLS，預設 `false`。
 - `STA_WORKER_PROCESSOR_VERSION`：本地解析器版本，預設 `local-extraction-v1`；需與 Go API `internal/ingestion.DefaultProcessor` 一致。
 - `STA_WORKER_MAX_FILE_BYTES`：檔案大小上限，預設 50 MiB。
+- `STA_WORKER_OCR_ENABLED`：是否啟用簡章 PDF OCR fallback，預設 `true`。
+- `STA_WORKER_OCR_LANG`：Tesseract 語言，預設 `chi_tra+eng`。
+- `STA_WORKER_OCR_DPI`：PDF 渲染解析度，預設 `250`。
+- `STA_WORKER_OCR_MIN_TEXT_CHARS`：每頁文字少於此數量才啟用 OCR，預設 `40`。
+- `STA_WORKER_OCR_MAX_PAGES`：單份文件最多 OCR 頁數，預設 `300`；超過會保留失敗狀態供管理端處理。
+- `STA_WORKER_OCR_TIMEOUT`：單頁渲染／OCR timeout 秒數，預設 `120`。
 
-簡章本地擷取會從 PDF 文字抽取校系代碼、校系名稱、招生名額、報名／考試／放榜日期、考試項目與頁面證據；名單本地擷取會從 PDF、CSV、TSV、TXT 或 JSON 抽取准考證號、姓名遮罩、系所代碼、錄取狀態、名次、名額與頁碼。解析結果只進隔離的 pending review／pending result batch，不會直接公開。
+### Cloudflare Workers AI 簡章擷取（選配）
+
+設定 `STA_WORKER_AI_ENABLED=true` 並提供 Cloudflare 憑證後，簡章擷取改由 Workers AI 聊天模型分析在本地擷取／OCR 出來的 PDF 文字，回傳結構化的校系清單；本地規則解析器保留為 fallback（AI 關閉、API 連不上、或回傳無法使用時自動改用規則）。結果一樣是待審 candidate，管理員仍須逐欄確認。
+
+- `STA_WORKER_AI_ENABLED`：`true` 才啟用，預設關閉。
+- `STA_WORKER_AI_ACCOUNT_ID`：Cloudflare account id。
+- `STA_WORKER_AI_API_TOKEN`：具 Workers AI 權限的 API token（相容別名 `STA_WORKER_AI_TOKEN`）。
+- `STA_WORKER_AI_MODEL`：Workers AI 模型，預設 `@cf/mistralai/mistral-small-3.1-24b-instruct`（大 context、快、非 reasoning）。小 context 模型（如 `@cf/meta/llama-3.3-70b-instruct-fp8-fast` 只有 24k）請把 `STA_WORKER_AI_MAX_INPUT_CHARS` 調到 12000 以下。
+- `STA_WORKER_AI_BASE_URL`：預設 `https://api.cloudflare.com/client/v4`。
+- `STA_WORKER_AI_TIMEOUT`：單次請求 timeout 秒數，預設 `120`。
+- `STA_WORKER_AI_MAX_INPUT_CHARS`：每次送給模型的文字上限，預設 `40000`（超過會分段）。若 prompt 仍超過模型 context，API 回 4xx，worker 不重試、直接改用規則路徑。
+- `STA_WORKER_AI_MAX_OUTPUT_TOKENS`：回應 token 上限，預設 `2048`。
+- `STA_WORKER_AI_MAX_CHUNKS`：單份簡章最多分段呼叫次數，預設 `12`（控制成本）。
+- `STA_WORKER_AI_CONFIDENCE`：AI candidate 的信心度，預設 `0.3`。
+
+簡章本地擷取會從 PDF 文字或 OCR 文字抽取學年度、學校代碼／名稱、招生學系、組別、招生名額、報名／考試／放榜日期、考試項目與頁面證據；考試項目優先取每個初審／複審／階段的官方總比重，階段內的指定資料或評量細項合併到項目說明，不把階段內分數誤當成整體比重；沒有階段結構時，才解析帶有比重的平面列。簡章通常不提供系統內部校系代碼，造冊時會依各招生學系在文件中的出現順序產生 `001`、`002` 等三位數代碼。名單本地擷取會從 PDF、CSV、TSV、TXT 或 JSON 抽取准考證號、姓名遮罩、系所代碼、錄取狀態、名次、名額與頁碼。管理員直接上傳的簡章會在前端開啟原始 PDF 與建檔欄位，確認後才一次建立並公開簡章與校系資料；外部簡章 API 送入的來源則隔離在 `external_api` 的 `pending_review` 佇列，供人工複核後上架。OCR 只處理文字層不足的簡章頁面，以控制 CPU 與處理時間。
 
 失敗工作會透過 RabbitMQ dead-letter 或 API `/failure` 留下錯誤；暫時性錯誤最多重試五次，格式／內容錯誤則保留為 `failed` 供管理端處理。
 

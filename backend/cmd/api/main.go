@@ -12,15 +12,19 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"sta-backend/internal/accountapplications"
 	"sta-backend/internal/admin"
 	"sta-backend/internal/admissions"
 	"sta-backend/internal/applications"
 	"sta-backend/internal/auth"
 	"sta-backend/internal/brochurediscovery"
+	"sta-backend/internal/calendar"
 	"sta-backend/internal/chat"
+	"sta-backend/internal/community"
 	"sta-backend/internal/config"
 	"sta-backend/internal/content"
 	"sta-backend/internal/db"
+	"sta-backend/internal/email"
 	"sta-backend/internal/events"
 	"sta-backend/internal/httpapi"
 	"sta-backend/internal/ingestion"
@@ -29,6 +33,7 @@ import (
 	"sta-backend/internal/obs"
 	"sta-backend/internal/portfolio"
 	"sta-backend/internal/profile"
+	"sta-backend/internal/publicstats"
 	"sta-backend/internal/results"
 	"sta-backend/internal/schools"
 	"sta-backend/internal/search"
@@ -82,6 +87,9 @@ func run(logger *slog.Logger) error {
 	var readiness httpapi.ReadinessCheck
 	var readinessChecks []httpapi.NamedCheck
 
+	communityHandler := community.NewHandler(cfg.DiscordCommunityInviteCode)
+	registrars = append(registrars, communityHandler.RegisterRoutes)
+
 	hubCtx, hubCancel := context.WithCancel(context.Background())
 	defer hubCancel()
 
@@ -115,6 +123,11 @@ func run(logger *slog.Logger) error {
 		}
 		defer databasePool.Close()
 		eventHub = events.NewHub(hubCtx, databasePool, logger)
+		publicStatsHandler, err := publicstats.NewHandler(databasePool)
+		if err != nil {
+			return err
+		}
+		registrars = append(registrars, publicStatsHandler.RegisterRoutes)
 		if cfg.FieldEncryptionKeys != nil {
 			fieldCipher, err = auth.NewFieldCipherRing(cfg.FieldEncryptionPrimaryVersion, cfg.FieldEncryptionKeys, cfg.EmailEncryptionKey)
 		} else {
@@ -131,7 +144,6 @@ func run(logger *slog.Logger) error {
 		if err != nil {
 			return err
 		}
-		authService.ConfigureRegistrationPolicy(cfg.RequireEduEmail)
 		authService.ConfigureAdminMFA(cfg.RequireAdminMFA)
 		authService.ConfigureAdminMFAGrant(cfg.AdminMFAGrantTTL)
 		if err := authService.ConfigureLookupKeyRotation(cfg.LookupHMACSecondaryKeys); err != nil {
@@ -143,6 +155,7 @@ func run(logger *slog.Logger) error {
 		}
 		authService.ConfigureDistributedLimiter(distributedLimiter)
 		if providerConfigured(cfg.GoogleOAuth) {
+			// Calendar scope rides along with login — see auth.CalendarScope.
 			if err := authService.ConfigureOAuth("google", auth.OAuthProviderSettings{
 				ClientID:     cfg.GoogleOAuth.ClientID,
 				ClientSecret: cfg.GoogleOAuth.ClientSecret,
@@ -150,6 +163,7 @@ func run(logger *slog.Logger) error {
 				AuthURL:      "https://accounts.google.com/o/oauth2/v2/auth",
 				TokenURL:     "https://oauth2.googleapis.com/token",
 				UserInfoURL:  "https://openidconnect.googleapis.com/v1/userinfo",
+				Scopes:       []string{"openid", "email", "profile", auth.CalendarScope},
 			}); err != nil {
 				return err
 			}
@@ -167,10 +181,16 @@ func run(logger *slog.Logger) error {
 			}
 		}
 		if objectStorageConfigured(cfg) {
-			blobStore, err = storage.NewMinioStore(cfg.ObjectStorageEndpoint, cfg.ObjectStorageAccessKey, cfg.ObjectStorageSecretKey, cfg.ObjectStorageBucket, cfg.ObjectStorageUseSSL)
+			minioStore, err := storage.NewMinioStore(cfg.ObjectStorageEndpoint, cfg.ObjectStorageAccessKey, cfg.ObjectStorageSecretKey, cfg.ObjectStorageBucket, cfg.ObjectStorageUseSSL)
 			if err != nil {
 				return err
 			}
+			if cfg.ObjectStoragePublicEndpoint != "" {
+				if err := minioStore.UsePublicEndpointForPresign(cfg.ObjectStoragePublicEndpoint, cfg.ObjectStorageAccessKey, cfg.ObjectStorageSecretKey, cfg.ObjectStoragePublicUseSSL); err != nil {
+					return err
+				}
+			}
+			blobStore = minioStore
 		}
 		if cfg.ClamAVAddress != "" {
 			fileScanner, err = storage.NewClamAVScanner(cfg.ClamAVAddress)
@@ -186,6 +206,21 @@ func run(logger *slog.Logger) error {
 			return err
 		}
 		registrars = append(registrars, authHandler.RegisterRoutes)
+		if providerConfigured(cfg.GoogleOAuth) {
+			calendarEventLinks, err := calendar.NewPostgresEventLinkStore(databasePool)
+			if err != nil {
+				return err
+			}
+			calendarService, err := calendar.NewService(store, calendarEventLinks, fieldCipher, cfg.GoogleOAuth.ClientID, cfg.GoogleOAuth.ClientSecret)
+			if err != nil {
+				return err
+			}
+			calendarHandler, err := calendar.NewHandler(calendarService, authService)
+			if err != nil {
+				return err
+			}
+			registrars = append(registrars, calendarHandler.RegisterRoutes)
+		}
 		admissionRepository, err = admissions.NewPostgresRepository(databasePool)
 		if err != nil {
 			return err
@@ -317,6 +352,40 @@ func run(logger *slog.Logger) error {
 			return err
 		}
 		registrars = append(registrars, verificationHandler.RegisterRoutes)
+		if authService != nil && blobStore != nil {
+			var accountApplicationMailer email.Sender
+			if cfg.SMTPHost != "" && cfg.SMTPFrom != "" {
+				// account@, not noreply@: these emails invite a reply and only account@ receives one.
+				mailer, err := email.NewSMTPSender(email.SMTPConfig{
+					Host: cfg.SMTPHost, Port: cfg.SMTPPort, Username: cfg.SMTPUsername,
+					Password: cfg.SMTPPassword, From: "account@" + cfg.MailDomain, UseTLS: cfg.SMTPUseTLS,
+					AllowInsecure: cfg.SMTPAllowInsecure,
+				})
+				if err != nil {
+					return err
+				}
+				accountApplicationMailer = mailer
+			}
+			telegramNotifier := accountapplications.NewHTTPTelegramNotifier(cfg.TelegramBotToken, cfg.TelegramAccountApplicationChatID)
+			accountApplicationRepository, err := accountapplications.NewPostgresRepository(databasePool)
+			if err != nil {
+				return err
+			}
+			accountApplicationService, err := accountapplications.NewService(
+				accountApplicationRepository, blobStore, fileScanner, fieldCipher, cfg.LookupHMACKey,
+				authService, telegramNotifier, accountApplicationMailer, cfg.MailDomain, logger,
+			)
+			if err != nil {
+				return err
+			}
+			accountApplicationHandler, err := accountapplications.NewHandler(
+				accountApplicationService, cfg.AccountApplicationMailToken, cfg.AccountApplicationReviewToken,
+			)
+			if err != nil {
+				return err
+			}
+			registrars = append(registrars, accountApplicationHandler.RegisterRoutes)
+		}
 		readiness = func(ctx context.Context) error {
 			return databasePool.Ping(ctx)
 		}
@@ -415,7 +484,7 @@ func run(logger *slog.Logger) error {
 		if err != nil {
 			return err
 		}
-		ingestionHandler, err := ingestion.NewHandler(authService, ingestionRepository, ingestionService)
+		ingestionHandler, err := ingestion.NewHandlerWithBlobStore(authService, ingestionRepository, ingestionService, blobStore)
 		if err != nil {
 			return err
 		}
@@ -444,8 +513,7 @@ func run(logger *slog.Logger) error {
 		discoveryHandler.ConfigureAgent(cfg.BrochureDiscoveryAgentToken, blobStore, fileScanner, ingestionService)
 	}
 
-	// Dependency probes for /readyz beyond the database. Each is optional and
-	// added only when the corresponding integration is configured.
+	// Optional /readyz probes, added only when configured.
 	if messageBroker != nil {
 		readinessChecks = append(readinessChecks, httpapi.NamedCheck{Name: "broker", Check: messageBroker.Ping})
 	}
@@ -478,8 +546,6 @@ func run(logger *slog.Logger) error {
 		MaxHeaderBytes:    1 << 20,
 	}
 
-	// When Shutdown starts, stop the SSE hub so streaming handlers unblock
-	// instead of holding the connection open until the shutdown deadline.
 	server.RegisterOnShutdown(hubCancel)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -496,17 +562,12 @@ func run(logger *slog.Logger) error {
 
 	select {
 	case err := <-serverErr:
-		// Stop the SSE hub's LISTEN connection before the deferred
-		// databasePool.Close(), which otherwise blocks until that connection
-		// is released.
 		hubCancel()
 		return err
 	case <-ctx.Done():
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
 		defer cancel()
 		shutdownErr := server.Shutdown(shutdownCtx)
-		// Release the hub's held DB connection so databasePool.Close() (a
-		// later defer) does not wait out the container's stop grace period.
 		hubCancel()
 		return shutdownErr
 	}

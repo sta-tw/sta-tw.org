@@ -1,0 +1,210 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+test_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="$(cd -- "${test_root}/../.." && pwd)"
+env_file="${BROCHURE_TG_ENV_FILE:-${test_root}/.env}"
+compose_project="sta-brochure-tg-test"
+
+die() {
+  printf '錯誤：%s\n' "$*" >&2
+  exit 1
+}
+
+usage() {
+  cat <<'USAGE'
+用法：./run <指令>
+
+  env-check                 驗證隔離設定，不顯示秘密值
+  infra-up                  啟動 PostgreSQL、RabbitMQ、MinIO、ClamAV
+  infra-status              顯示測試容器狀態
+  infra-logs [service]      追蹤測試容器日誌
+  infra-down                停止容器，保留測試資料
+  reset --yes               刪除本測試環境的容器與 volumes
+  migrate                   對隔離資料庫套用 migrations
+  bootstrap-admin <帳號>    將隔離資料庫中的既有帳號設為管理員
+  api                       啟動隔離 STA API
+  go-worker                 啟動 Go ingestion result worker
+  python-install            建立此資料夾專用 Python venv 並安裝依賴
+  python-worker             啟動 Python 簡章 extraction worker
+  discovery                 啟動簡章探索 worker（需 SearXNG 設定）
+  console                   啟動臨時驗收控制台
+  bot                       啟動 Telegram 簡章 smoke bot
+  telegram-delete-webhook   移除測試 Bot 的既有 webhook
+  check                     檢查隔離 API 的 healthz 與 readyz
+  test                      執行 Go、Python 與 JavaScript 測試
+
+可用 BROCHURE_TG_ENV_FILE 指定另一份專用設定檔；腳本永遠不讀根目錄 .env。
+USAGE
+}
+
+require_command() {
+  command -v "$1" >/dev/null 2>&1 || die "找不到必要指令：$1"
+}
+
+load_isolated_env() {
+  [[ -f "${env_file}" ]] || die "找不到 ${env_file}；請先複製 .env.example 為 .env"
+
+  # 清除目前 shell 繼承的所有 STA_*，避免已載入的正式設定滲入測試程序。
+  while IFS= read -r variable_name; do
+    if [[ "${variable_name}" == STA_* ]]; then
+      unset "${variable_name}"
+    fi
+  done < <(compgen -e)
+
+  set -a
+  # shellcheck disable=SC1090
+  source "${env_file}"
+  set +a
+}
+
+validate_isolation() {
+  [[ "${STA_ENV:-}" == "test" ]] || die "STA_ENV 必須固定為 test"
+  [[ "${STA_HTTP_ADDR:-}" == 127.0.0.1:* ]] || die "STA_HTTP_ADDR 必須綁定 127.0.0.1"
+  [[ "${STA_PUBLIC_BASE_URL:-}" == http://127.0.0.1:* ]] || die "STA_PUBLIC_BASE_URL 必須使用本機位址"
+  [[ "${STA_TELEGRAM_BACKEND_BASE_URL:-}" == http://127.0.0.1:* ]] || die "Telegram backend 必須指向本機測試 API"
+  [[ "${STA_DATABASE_URL:-}" == *"@127.0.0.1:"*"/sta_brochure_tg_test"* ]] || die "資料庫必須是本機 sta_brochure_tg_test"
+  [[ "${STA_RABBITMQ_URL:-}" == *"@127.0.0.1:"* ]] || die "RabbitMQ 必須使用本機測試服務"
+  [[ "${STA_OBJECT_STORAGE_ENDPOINT:-}" == 127.0.0.1:* ]] || die "物件儲存必須使用本機測試服務"
+  [[ "${STA_OBJECT_STORAGE_BUCKET:-}" == "sta-brochure-tg-test" ]] || die "bucket 必須固定為 sta-brochure-tg-test"
+  [[ "${STA_RABBITMQ_EXCHANGE:-}" == sta.brochure-tg-test.* ]] || die "RabbitMQ exchange 必須使用測試命名空間"
+}
+
+require_value() {
+  local variable_name="$1"
+  [[ -n "${!variable_name:-}" ]] || die "請先在 ${env_file} 設定 ${variable_name}"
+}
+
+load_isolated_env
+validate_isolation
+
+compose=(
+  docker compose
+  --project-name "${compose_project}"
+  --env-file "${env_file}"
+  --file "${test_root}/compose.yaml"
+)
+
+command_name="${1:-help}"
+if [[ $# -gt 0 ]]; then
+  shift
+fi
+
+case "${command_name}" in
+  help|-h|--help)
+    usage
+    ;;
+  env-check)
+    printf '隔離設定有效。\n'
+    printf 'API：%s\n' "${STA_PUBLIC_BASE_URL}"
+    printf '資料庫：sta_brochure_tg_test（127.0.0.1）\n'
+    printf 'bucket：%s\n' "${STA_OBJECT_STORAGE_BUCKET}"
+    printf 'Telegram token：%s\n' "$([[ -n "${STA_TELEGRAM_BOT_TOKEN:-}" ]] && printf '已設定' || printf '尚未設定')"
+    ;;
+  infra-up)
+    require_command docker
+    "${compose[@]}" up --detach --wait --wait-timeout 600 postgres rabbitmq minio clamav
+    "${compose[@]}" run --rm minio-init
+    ;;
+  infra-status)
+    require_command docker
+    "${compose[@]}" ps
+    ;;
+  infra-logs)
+    require_command docker
+    exec "${compose[@]}" logs --follow "$@"
+    ;;
+  infra-down)
+    require_command docker
+    "${compose[@]}" down --remove-orphans
+    ;;
+  reset)
+    require_command docker
+    [[ "${1:-}" == "--yes" ]] || die "這會刪除隔離測試資料；確定時請執行 ./run reset --yes"
+    "${compose[@]}" down --volumes --remove-orphans
+    ;;
+  migrate)
+    require_command go
+    cd "${repo_root}"
+    exec go run ./cmd/migrate -dir migrations
+    ;;
+  bootstrap-admin)
+    require_command go
+    [[ $# -eq 1 ]] || die "用法：./run bootstrap-admin <既有帳號>"
+    cd "${repo_root}"
+    exec go run ./cmd/bootstrap-admin -username "$1"
+    ;;
+  api)
+    require_command go
+    cd "${repo_root}"
+    exec go run ./cmd/api
+    ;;
+  go-worker)
+    require_command go
+    cd "${repo_root}"
+    exec go run ./cmd/ingestion-worker
+    ;;
+  python-install)
+    require_command python3
+    python3 -m venv "${test_root}/.venv"
+    "${test_root}/.venv/bin/python" -m pip install --upgrade pip
+    "${test_root}/.venv/bin/python" -m pip install -r "${repo_root}/worker/requirements.txt"
+    ;;
+  python-worker)
+    [[ -x "${test_root}/.venv/bin/python" ]] || die "請先執行 ./run python-install"
+    cd "${repo_root}"
+    exec "${test_root}/.venv/bin/python" -m worker.sta_worker.main
+    ;;
+  discovery)
+    [[ -x "${test_root}/.venv/bin/python" ]] || die "請先執行 ./run python-install"
+    require_value STA_SEARXNG_URL
+    cd "${repo_root}"
+    exec "${test_root}/.venv/bin/python" -m worker.sta_worker.discovery
+    ;;
+  console)
+    require_command python3
+    console_port="${BROCHURE_TG_TEST_CONSOLE_PORT:-54173}"
+    printf '控制台：http://127.0.0.1:%s（請切換 Live API 並填入 %s）\n' "${console_port}" "${STA_PUBLIC_BASE_URL}"
+    cd "${repo_root}"
+    exec python3 -m http.server "${console_port}" --bind 127.0.0.1 --directory temporary-console
+    ;;
+  bot)
+    require_command go
+    require_value STA_TELEGRAM_BOT_TOKEN
+    cd "${repo_root}"
+    exec go run ./cmd/telegram-bot
+    ;;
+  telegram-delete-webhook)
+    require_command curl
+    require_value STA_TELEGRAM_BOT_TOKEN
+    curl --fail --silent --show-error --request POST \
+      "${STA_TELEGRAM_API_BASE_URL}/bot${STA_TELEGRAM_BOT_TOKEN}/deleteWebhook"
+    printf '\n'
+    ;;
+  check)
+    require_command curl
+    curl --fail --silent --show-error "${STA_PUBLIC_BASE_URL}/healthz"
+    printf '\n'
+    curl --fail --silent --show-error "${STA_PUBLIC_BASE_URL}/readyz"
+    printf '\n'
+    ;;
+  test)
+    require_command go
+    require_command python3
+    require_command node
+    cd "${repo_root}"
+    STA_CONTENT_INTEGRATION_DATABASE_URL="${STA_DATABASE_URL}" \
+      GOCACHE="${TMPDIR:-/tmp}/sta-brochure-tg-go-cache" go test -count=1 ./...
+    if [[ -x "${test_root}/.venv/bin/python" ]]; then
+      "${test_root}/.venv/bin/python" -m unittest discover -s worker/tests -v
+    else
+      python3 -m unittest discover -s worker/tests -v
+    fi
+    node --check temporary-console/app.js
+    node --check temporary-console/brochure-workflow.js
+    ;;
+  *)
+    usage >&2
+    die "未知指令：${command_name}"
+    ;;
+esac

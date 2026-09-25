@@ -26,17 +26,12 @@ Access the OpenAPI 3.0 specification at:
 - Local: `http://localhost:12004/openapi.json`
 - Compatible with Swagger UI, Postman, Insomnia, and other API clients
 
-## Local Development (Docker)
-1. Ensure Docker is running.
-2. Start services:
+## Deployment (Docker Compose)
 
-```bash
-docker compose up --build
-```
-
-Default ports:
-- Frontend: `http://localhost:12003`
-- Backend: `http://localhost:12004`
+The frontend (static Next.js export) and backend are deployed together on one
+host via Caddy, which serves the static site and reverse-proxies `/api/*` to
+the Go API. See [backend/deploy/README.md](backend/deploy/README.md) for the
+local-dev and production quick starts.
 
 ## Frontend
 See `frontend/README.md` for app-specific details.

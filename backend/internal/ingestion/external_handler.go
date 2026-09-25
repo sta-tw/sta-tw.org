@@ -67,6 +67,13 @@ func (h *ExternalHandler) RegisterRoutes(mux *http.ServeMux) {
 	// Python extraction process. All writes remain pending until review.
 	mux.HandleFunc("POST /api/v1/internal/extraction/brochures", h.externalBrochure)
 	mux.HandleFunc("POST /api/v1/internal/extraction/candidate-lists", h.externalCandidateList)
+
+	// The ai_system route is a separate trust model from the shared-token API
+	// above: the caller authenticates as a specific account (a personal token
+	// an admin issued via bootstrap-ai-system), and it never accepts a
+	// caller-declared academic_year/school_code/source_url — identity is
+	// always inferred from the PDF, exactly like an admin's own upload.
+	mux.HandleFunc("POST /api/v1/external/ai-system/brochures", h.aiSystemBrochure)
 	mux.HandleFunc("POST /api/v1/internal/extraction/jobs/claim", h.claim)
 	mux.HandleFunc("GET /api/v1/internal/extraction/jobs/{jobID}", h.jobStatus)
 	mux.HandleFunc("POST /api/v1/internal/extraction/jobs/{jobID}/result", h.result)
@@ -112,22 +119,114 @@ func (h *ExternalHandler) externalBrochure(w http.ResponseWriter, r *http.Reques
 		writeIngestionError(w, http.StatusBadGateway, "storage_unavailable", "extraction storage is unavailable")
 		return
 	}
-	document, oldStorageKey, err := h.brochureRepository.CreateBrochureSystem(r.Context(), admissions.BrochureDocumentInput{
+	jobID, dispatchErr := h.service.QueueExternalBrochureUpload(r.Context(), admissions.BrochureDocumentInput{
 		AcademicYear: year, SchoolCode: schoolCode, OriginalFileName: upload.OriginalName,
 		StorageKey: storageKey, MIMEType: upload.ContentType, FileSizeBytes: upload.Size,
 		SHA256: upload.SHA256Hex, SourceURL: sourceURL,
 	})
-	if err != nil {
-		// Keep an orphaned source recoverable for operators to clean up instead
-		// of risking deletion of a key still referenced by an older row.
-		h.writeExternalError(w, err)
+	if jobID == uuid.Nil {
+		_ = h.blobStore.Remove(r.Context(), storageKey)
+	}
+	h.writeBrochureSubmissionResponse(w, year, schoolCode, upload, jobID, dispatchErr)
+}
+
+// aiSystemBrochure accepts a brochure PDF from an account holding the
+// ai_system role, authenticated with its own personal API token. It never
+// accepts a caller-declared academic_year/school_code/source_url — the file
+// is staged, scanned, and queued through the exact same infer-then-confirm
+// pipeline as an administrator's own upload, so the submitting account is
+// attributed but its claims about the document's identity are not trusted.
+func (h *ExternalHandler) aiSystemBrochure(w http.ResponseWriter, r *http.Request) {
+	accountID, ok := h.requireAISystemToken(w, r)
+	if !ok {
 		return
 	}
-	if oldStorageKey != "" && oldStorageKey != storageKey {
-		_ = h.blobStore.Remove(r.Context(), oldStorageKey)
+	if h.blobStore == nil {
+		writeIngestionError(w, http.StatusServiceUnavailable, "storage_unavailable", "extraction storage is unavailable")
+		return
 	}
-	jobID, dispatchErr := h.service.QueueExternalBrochureExtraction(r.Context(), year, schoolCode, storageKey, upload.SHA256Hex, sourceURL)
-	h.writeQueuedResponse(w, document, jobs.SourceTypeBrochure, year, schoolCode, jobID, dispatchErr)
+	r.Body = http.MaxBytesReader(w, r.Body, storage.MaxPortfolioFileBytes+1<<20)
+	if err := r.ParseMultipartForm(8 << 20); err != nil {
+		writeIngestionError(w, http.StatusBadRequest, "invalid_multipart", "extraction upload is invalid")
+		return
+	}
+	defer r.MultipartForm.RemoveAll()
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		writeIngestionError(w, http.StatusBadRequest, "file_required", "brochure PDF is required")
+		return
+	}
+	defer file.Close()
+	staged, err := storage.StageUpload(header.Filename, header.Header.Get("Content-Type"), file)
+	if err != nil || staged.ContentType != "application/pdf" {
+		writeIngestionError(w, http.StatusBadRequest, "invalid_file", "brochure must be a valid PDF")
+		return
+	}
+	defer staged.Close()
+	if err := storage.ScanStagedUpload(r.Context(), h.scanner, staged); err != nil {
+		if errors.Is(err, storage.ErrMalwareDetected) {
+			writeIngestionError(w, http.StatusUnprocessableEntity, "malware_detected", "uploaded file was rejected")
+		} else {
+			writeIngestionError(w, http.StatusServiceUnavailable, "scan_unavailable", "file scanning is temporarily unavailable")
+		}
+		return
+	}
+	uploadID := uuid.New()
+	storageKey := "brochures/ai-system/" + uploadID.String() + ".pdf"
+	if err := h.putStaged(r, staged, storageKey); err != nil {
+		writeIngestionError(w, http.StatusBadGateway, "storage_unavailable", "extraction storage is unavailable")
+		return
+	}
+	jobID, dispatchErr := h.service.QueueAISystemBrochureUpload(r.Context(), accountID, admissions.BrochureDocumentInput{
+		OriginalFileName: staged.OriginalName,
+		StorageKey:       storageKey,
+		MIMEType:         staged.ContentType,
+		FileSizeBytes:    staged.Size,
+		SHA256:           staged.SHA256Hex,
+	})
+	if jobID == uuid.Nil {
+		_ = h.blobStore.Remove(r.Context(), storageKey)
+	}
+	status := http.StatusCreated
+	extractionStatus := "queued"
+	if errors.Is(dispatchErr, ErrDispatchUnavailable) {
+		status = http.StatusAccepted
+		extractionStatus = "retrying"
+	} else if dispatchErr != nil {
+		h.writeExternalError(w, dispatchErr)
+		return
+	}
+	writeIngestionJSON(w, status, map[string]any{"data": map[string]any{
+		"upload_id": jobID, "job_id": jobID, "intake_channel": UploadChannelAISystem,
+		"document_type": jobs.SourceTypeBrochure, "extraction_status": extractionStatus,
+		"original_file_name": staged.OriginalName, "mime_type": staged.ContentType,
+		"file_size_bytes": staged.Size, "sha256": staged.SHA256Hex,
+	}})
+}
+
+func (h *ExternalHandler) requireAISystemToken(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) {
+	provided := bearerToken(r.Header.Get("Authorization"))
+	if provided == "" {
+		writeIngestionError(w, http.StatusUnauthorized, "invalid_token", "an ai_system API token is required")
+		return uuid.Nil, false
+	}
+	now := time.Now()
+	rl := h.callbackLimiter.Take(clientIP(r), now)
+	security.WriteRateLimitHeaders(w, rl, now)
+	if !rl.Allowed {
+		writeIngestionError(w, http.StatusTooManyRequests, "rate_limited", "too many extraction submissions")
+		return uuid.Nil, false
+	}
+	accountID, err := h.repository.ResolveAISystemToken(r.Context(), provided)
+	if errors.Is(err, ErrNotFound) {
+		writeIngestionError(w, http.StatusUnauthorized, "invalid_token", "ai_system authentication failed")
+		return uuid.Nil, false
+	}
+	if err != nil {
+		writeIngestionError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return uuid.Nil, false
+	}
+	return accountID, true
 }
 
 func (h *ExternalHandler) uploadCandidateList(w http.ResponseWriter, r *http.Request, adminID *uuid.UUID) {
@@ -234,7 +333,7 @@ func (h *ExternalHandler) putStaged(r *http.Request, upload storage.StagedUpload
 	return h.blobStore.Put(r.Context(), storageKey, file, upload.Size, upload.ContentType)
 }
 
-func (h *ExternalHandler) writeQueuedResponse(w http.ResponseWriter, document admissions.BrochureDocument, sourceType string, year int, schoolCode string, jobID uuid.UUID, dispatchErr error) {
+func (h *ExternalHandler) writeBrochureSubmissionResponse(w http.ResponseWriter, year int, schoolCode string, upload storage.StagedUpload, jobID uuid.UUID, dispatchErr error) {
 	status := http.StatusCreated
 	extractionStatus := "queued"
 	if errors.Is(dispatchErr, ErrDispatchUnavailable) {
@@ -245,9 +344,12 @@ func (h *ExternalHandler) writeQueuedResponse(w http.ResponseWriter, document ad
 		return
 	}
 	data := map[string]any{
-		"document": document, "job_id": jobID, "document_type": sourceType,
+		"upload_id": jobID, "job_id": jobID, "intake_channel": UploadChannelExternal,
+		"document_type": jobs.SourceTypeBrochure,
 		"academic_year": year, "school_code": schoolCode,
-		"source_sha256": document.SHA256, "extraction_status": extractionStatus,
+		"source_sha256": upload.SHA256Hex, "extraction_status": extractionStatus,
+		"original_file_name": upload.OriginalName, "mime_type": upload.ContentType,
+		"file_size_bytes": upload.Size,
 	}
 	writeIngestionJSON(w, status, map[string]any{"data": data})
 }

@@ -62,6 +62,14 @@ GOCACHE=/tmp/sta-go-cache go build -buildvcs=false ./cmd/api ./cmd/chat-worker .
 GOCACHE=/tmp/sta-go-cache go run ./cmd/api
 ```
 
+若要不寄信直接預覽帳號密碼重設信件，可在 `backend/` 目錄執行：
+
+```sh
+go run ./cmd/email-preview
+```
+
+產生的 `temporary-console/email-password-reset-preview.html` 可直接用瀏覽器開啟；預覽會內嵌既有 Logo，不需要啟動 SMTP 或 API。
+
 有資料庫時先執行 `go run ./cmd/migrate -dir migrations`；需要簡章／名單解析時可啟動 `cmd/ingestion-worker` 搭配 RabbitMQ，或以 `STA_EXTRACTION_TRANSPORT=api python -m worker.sta_worker.main` 改走 Go API 租約，不需要 RabbitMQ。需要跨平台閒聊同步時另啟動 `cmd/chat-worker`，需要 Telegram 簡章／交叉查榜測試時啟動 `cmd/telegram-bot`，需要客服 Discord 頻道同步時另啟動 `cmd/support-worker`，需要 Email／查榜提醒時另啟動 `cmd/notification-worker`。若要接回 Telegram 交叉查榜，API 與 Bot 都設定 `STA_TELEGRAM_CROSS_CHECK_TOKEN`，並以 `go run ./cmd/migrate -dir migrations -include-telegram` 套用 adapter schema；未設定 token 時核心查榜仍只使用下方結果 API。年度清理使用明確的 `cmd/annual-maintenance -academic-year <三位數學年度>`，不由程式猜測年份。
 
 預設 API 位於 `http://localhost:8080`。開發環境預設允許的前端 origin 是 `http://localhost:3000`；正式環境必須設定明確的 HTTPS origin。

@@ -12,16 +12,19 @@ import (
 )
 
 const (
-	BrochureJobType      = "admissions.brochure.extract"
-	CandidateListJobType = "admissions.candidate-list.extract"
-	DefaultProcessor     = "local-extraction-v1"
-	DefaultRunStatus     = "processing"
-	RunStatusPending     = "pending_review"
-	RunStatusApproved    = "approved"
-	RunStatusRejected    = "rejected"
-	CandidatePending     = "pending"
-	CandidateApproved    = "approved"
-	CandidateRejected    = "rejected"
+	BrochureJobType       = "admissions.brochure.extract"
+	CandidateListJobType  = "admissions.candidate-list.extract"
+	DefaultProcessor      = "local-extraction-v1"
+	DefaultRunStatus      = "processing"
+	RunStatusPending      = "pending_review"
+	RunStatusApproved     = "approved"
+	RunStatusRejected     = "rejected"
+	CandidatePending      = "pending"
+	CandidateApproved     = "approved"
+	CandidateRejected     = "rejected"
+	UploadChannelAdmin    = "admin_upload"
+	UploadChannelExternal = "external_api"
+	UploadChannelAISystem = "ai_system"
 )
 
 var (
@@ -63,6 +66,49 @@ type Candidate struct {
 	ReviewedAt    *time.Time      `json:"reviewed_at,omitempty"`
 	CreatedAt     time.Time       `json:"created_at"`
 	UpdatedAt     time.Time       `json:"updated_at"`
+}
+
+// BrochureUpload is the upload-only intake record. Its identity is optional
+// until the PDF extractor finds it or an administrator corrects it.
+type BrochureUpload struct {
+	ID                   uuid.UUID         `json:"id"`
+	IngestionJobID       uuid.UUID         `json:"job_id"`
+	OriginalFileName     string            `json:"original_file_name"`
+	MIMEType             string            `json:"mime_type"`
+	FileSizeBytes        int64             `json:"file_size_bytes"`
+	SHA256               string            `json:"sha256"`
+	SourceURL            string            `json:"source_url"`
+	IntakeChannel        string            `json:"intake_channel"`
+	DetectedAcademicYear *int              `json:"detected_academic_year,omitempty"`
+	DetectedSchoolCode   string            `json:"detected_school_code,omitempty"`
+	DetectedSchoolName   string            `json:"detected_school_name,omitempty"`
+	Status               string            `json:"status"`
+	ErrorCode            string            `json:"error_code,omitempty"`
+	ErrorMessage         string            `json:"error_message,omitempty"`
+	CreatedAt            time.Time         `json:"created_at"`
+	UpdatedAt            time.Time         `json:"updated_at"`
+	ReviewedAt           *time.Time        `json:"reviewed_at,omitempty"`
+	Candidates           []UploadCandidate `json:"candidates,omitempty"`
+}
+
+type UploadCandidate struct {
+	ProgramCode string          `json:"program_code"`
+	Data        json.RawMessage `json:"data"`
+	SourcePage  int             `json:"source_page,omitempty"`
+	Confidence  *float64        `json:"confidence,omitempty"`
+}
+
+type BrochureUploadConfirmInput struct {
+	AcademicYear int                       `json:"academic_year"`
+	SchoolCode   string                    `json:"school_code"`
+	Programs     []admissions.ProgramInput `json:"programs"`
+	Reason       string                    `json:"reason"`
+}
+
+type BrochureUploadConfirmResult struct {
+	Upload   BrochureUpload              `json:"upload"`
+	Brochure admissions.BrochureDocument `json:"brochure"`
+	Programs []admissions.AdminProgram   `json:"programs"`
 }
 
 type RunQuery struct {
@@ -113,6 +159,10 @@ type Repository interface {
 	ReviewCandidate(context.Context, uuid.UUID, uuid.UUID, ReviewInput) (Candidate, error)
 	RequeueJob(context.Context, uuid.UUID, uuid.UUID) (jobs.BrochureExtractJob, error)
 	ApplyExtractionResult(context.Context, jobs.BrochureExtractionResult) error
+	ListBrochureUploads(context.Context, uuid.UUID, string, int, int) ([]BrochureUpload, error)
+	GetBrochureUpload(context.Context, uuid.UUID, uuid.UUID) (BrochureUpload, error)
+	ConfirmBrochureUpload(context.Context, uuid.UUID, uuid.UUID, BrochureUploadConfirmInput) (BrochureUploadConfirmResult, error)
+	RejectBrochureUpload(context.Context, uuid.UUID, uuid.UUID, string) (BrochureUpload, error)
 }
 
 type brochureJobRecord struct {

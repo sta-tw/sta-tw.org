@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/google/uuid"
@@ -60,16 +61,10 @@ func (h *Handler) register(w http.ResponseWriter, r *http.Request) {
 		h.writeServiceError(w, err)
 		return
 	}
-	response := map[string]any{"account": account}
-	if h.service.EmailVerificationConfigured() {
-		if _, err := h.service.IssueEmailVerification(r.Context(), account.ID); err != nil {
-			h.logger.WarnContext(r.Context(), "queue account email verification failed", "account_id", account.ID)
-			response["email_verification_queued"] = false
-		} else {
-			response["email_verification_queued"] = true
-		}
-	}
-	writeAuthJSON(w, http.StatusCreated, response)
+	// The account starts 'pending_verification': Register already emailed a
+	// password-set link to the school address, which is what activates it
+	// (see auth.Service.Register). There's nothing further to confirm here.
+	writeAuthJSON(w, http.StatusCreated, map[string]any{"account": account})
 }
 
 func (h *Handler) resendEmailVerification(w http.ResponseWriter, r *http.Request) {
@@ -380,7 +375,19 @@ func (h *Handler) me(w http.ResponseWriter, r *http.Request) {
 		writeAuthError(w, http.StatusUnauthorized, "unauthorized", "authentication is required")
 		return
 	}
-	writeAuthJSON(w, http.StatusOK, accountResponse{Account: session.Session.Account})
+	isAdmin, err := h.service.IsAdmin(r.Context(), session.Session.Account.ID)
+	if err != nil {
+		isAdmin = false
+	}
+	canManageAdmissions, err := h.service.CanManageAdmissions(r.Context(), session.Session.Account.ID)
+	if err != nil {
+		canManageAdmissions = false
+	}
+	writeAuthJSON(w, http.StatusOK, accountResponse{
+		Account:             session.Session.Account,
+		IsAdmin:             isAdmin,
+		CanManageAdmissions: canManageAdmissions,
+	})
 }
 
 func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
@@ -404,7 +411,7 @@ func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) oauthLoginStart(w http.ResponseWriter, r *http.Request) {
-	url, err := h.service.OAuthStart(r.Context(), r.PathValue("provider"), nil)
+	url, err := h.service.OAuthStart(r.Context(), r.PathValue("provider"), nil, r.URL.Query().Get("return_to"))
 	if err != nil {
 		h.writeOAuthError(w, err)
 		return
@@ -423,7 +430,7 @@ func (h *Handler) oauthBindStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	accountID := session.Session.Account.ID
-	url, err := h.service.OAuthStart(r.Context(), r.PathValue("provider"), &accountID)
+	url, err := h.service.OAuthStart(r.Context(), r.PathValue("provider"), &accountID, r.URL.Query().Get("return_to"))
 	if err != nil {
 		h.writeOAuthError(w, err)
 		return
@@ -431,6 +438,12 @@ func (h *Handler) oauthBindStart(w http.ResponseWriter, r *http.Request) {
 	writeAuthJSON(w, http.StatusOK, map[string]string{"authorization_url": url})
 }
 
+// oauthCallback is where Google/Discord land the browser after consent — a
+// real top-level navigation, not a fetch() call — so on success it redirects
+// back into the frontend (to ReturnTo when the start request supplied a
+// valid one, otherwise the site root) rather than handing the browser a raw
+// JSON body. A `?oauth=` flag on that redirect lets the landing page tell
+// whether to retry whatever it was waiting on (e.g. a pending calendar add).
 func (h *Handler) oauthCallback(w http.ResponseWriter, r *http.Request) {
 	var currentAccountID *uuid.UUID
 	if session, err := h.service.Authenticate(r.Context(), r); err == nil {
@@ -446,15 +459,29 @@ func (h *Handler) oauthCallback(w http.ResponseWriter, r *http.Request) {
 		r,
 	)
 	if err != nil {
+		h.logger.Error("oauth callback failed",
+			"provider", r.PathValue("provider"),
+			"error", err,
+			"has_session", currentAccountID != nil,
+		)
 		h.writeOAuthError(w, err)
 		return
 	}
 	if result.Session != nil {
 		h.service.SetSessionCookies(w, *result.Session)
-		writeAuthJSON(w, http.StatusOK, sessionResponse{Account: result.Account, ExpiresAt: result.Session.ExpiresAt})
-		return
 	}
-	writeAuthJSON(w, http.StatusOK, map[string]any{"account": result.Account, "bound": result.Bound})
+	target := result.ReturnTo
+	if target == "" {
+		target = "/"
+	}
+	redirectURL, parseErr := url.Parse(target)
+	if parseErr != nil {
+		redirectURL = &url.URL{Path: "/"}
+	}
+	query := redirectURL.Query()
+	query.Set("oauth", "success")
+	redirectURL.RawQuery = query.Encode()
+	http.Redirect(w, r, redirectURL.String(), http.StatusFound)
 }
 
 func (h *Handler) writeOAuthError(w http.ResponseWriter, err error) {
@@ -474,6 +501,17 @@ func (h *Handler) writeOAuthError(w http.ResponseWriter, err error) {
 
 type accountResponse struct {
 	Account Account `json:"account"`
+	// IsAdmin lets the frontend show an admin-only affordance (e.g. a
+	// "後台管理" link) without probing an actual /api/v1/admin/* endpoint,
+	// which would trigger the admin-MFA gate as a side effect. /auth/me
+	// itself is outside that gate (Authenticate only enforces MFA for the
+	// /api/v1/admin/ prefix), so this stays a cheap, side-effect-free check.
+	IsAdmin bool `json:"is_admin"`
+	// CanManageAdmissions is true for a full admin too, but also true for an
+	// account holding only the narrower admissions_moderator role — someone
+	// who should see a way into /admin/admissions without qualifying for
+	// is_admin or anything else under /admin.
+	CanManageAdmissions bool `json:"can_manage_admissions"`
 }
 
 type sessionResponse struct {

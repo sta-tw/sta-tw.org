@@ -37,12 +37,15 @@ type Config struct {
 	Token string
 	// CrossCheckToken authenticates requests to the optional Telegram
 	// cross-check adapter mounted by cmd/api.
-	CrossCheckToken    string
-	BackendBaseURL     string
-	TelegramAPIBaseURL string
-	AllowedChatIDs     map[int64]struct{}
-	PollTimeout        time.Duration
-	HTTPClient         *http.Client
+	CrossCheckToken string
+	// AccountApplicationReviewToken authenticates approve/reject decisions
+	// against cmd/api's account-application review endpoint.
+	AccountApplicationReviewToken string
+	BackendBaseURL                string
+	TelegramAPIBaseURL            string
+	AllowedChatIDs                map[int64]struct{}
+	PollTimeout                   time.Duration
+	HTTPClient                    *http.Client
 }
 
 // ConfigFromEnv loads the Telegram-only test bot configuration. The existing
@@ -50,11 +53,12 @@ type Config struct {
 // entry can be used by the later production worker.
 func ConfigFromEnv() (Config, error) {
 	config := Config{
-		Token:              strings.TrimSpace(os.Getenv("STA_TELEGRAM_BOT_TOKEN")),
-		CrossCheckToken:    strings.TrimSpace(os.Getenv("STA_TELEGRAM_CROSS_CHECK_TOKEN")),
-		BackendBaseURL:     valueOrDefault("STA_TELEGRAM_BACKEND_BASE_URL", defaultBackendBaseURL),
-		TelegramAPIBaseURL: valueOrDefault("STA_TELEGRAM_API_BASE_URL", defaultTelegramAPIURL),
-		PollTimeout:        defaultPollTimeout,
+		Token:                         strings.TrimSpace(os.Getenv("STA_TELEGRAM_BOT_TOKEN")),
+		CrossCheckToken:               strings.TrimSpace(os.Getenv("STA_TELEGRAM_CROSS_CHECK_TOKEN")),
+		AccountApplicationReviewToken: strings.TrimSpace(os.Getenv("STA_ACCOUNT_APPLICATION_REVIEW_TOKEN")),
+		BackendBaseURL:                valueOrDefault("STA_TELEGRAM_BACKEND_BASE_URL", defaultBackendBaseURL),
+		TelegramAPIBaseURL:            valueOrDefault("STA_TELEGRAM_API_BASE_URL", defaultTelegramAPIURL),
+		PollTimeout:                   defaultPollTimeout,
 	}
 	if raw := strings.TrimSpace(os.Getenv("STA_TELEGRAM_POLL_TIMEOUT")); raw != "" {
 		parsed, err := time.ParseDuration(raw)
@@ -98,13 +102,14 @@ func parseAllowedChatIDs(raw string) (map[int64]struct{}, error) {
 }
 
 type Bot struct {
-	token              string
-	crossCheckToken    string
-	backendBaseURL     string
-	telegramAPIBaseURL string
-	allowedChatIDs     map[int64]struct{}
-	pollTimeout        time.Duration
-	client             *http.Client
+	token                         string
+	crossCheckToken               string
+	accountApplicationReviewToken string
+	backendBaseURL                string
+	telegramAPIBaseURL            string
+	allowedChatIDs                map[int64]struct{}
+	pollTimeout                   time.Duration
+	client                        *http.Client
 }
 
 func New(config Config) (*Bot, error) {
@@ -138,13 +143,14 @@ func New(config Config) (*Bot, error) {
 		}
 	}
 	return &Bot{
-		token:              token,
-		crossCheckToken:    strings.TrimSpace(config.CrossCheckToken),
-		backendBaseURL:     backendBaseURL,
-		telegramAPIBaseURL: telegramAPIBaseURL,
-		allowedChatIDs:     allowed,
-		pollTimeout:        pollTimeout,
-		client:             client,
+		token:                         token,
+		crossCheckToken:               strings.TrimSpace(config.CrossCheckToken),
+		accountApplicationReviewToken: strings.TrimSpace(config.AccountApplicationReviewToken),
+		backendBaseURL:                backendBaseURL,
+		telegramAPIBaseURL:            telegramAPIBaseURL,
+		allowedChatIDs:                allowed,
+		pollTimeout:                   pollTimeout,
+		client:                        client,
 	}, nil
 }
 
@@ -168,10 +174,11 @@ type Update struct {
 }
 
 type Message struct {
-	MessageID int64  `json:"message_id"`
-	From      *User  `json:"from,omitempty"`
-	Chat      Chat   `json:"chat"`
-	Text      string `json:"text,omitempty"`
+	MessageID      int64    `json:"message_id"`
+	From           *User    `json:"from,omitempty"`
+	Chat           Chat     `json:"chat"`
+	Text           string   `json:"text,omitempty"`
+	ReplyToMessage *Message `json:"reply_to_message,omitempty"`
 }
 
 type User struct {
@@ -334,6 +341,13 @@ func (b *Bot) HandleUpdate(ctx context.Context, update Update) error {
 	}
 	command, args, ok := ParseCommand(message.Text)
 	if !ok {
+		// A non-command message that replies to one of our account-application
+		// notifications is a staff member answering it — forward the text as
+		// an email. Anything else (casual chat, replies to unrelated
+		// messages) is left alone, same as before.
+		if b.accountApplicationReviewToken != "" && message.ReplyToMessage != nil && strings.TrimSpace(message.Text) != "" {
+			return b.handleAccountApplicationReplyMessage(ctx, *message)
+		}
 		return nil
 	}
 	var response string

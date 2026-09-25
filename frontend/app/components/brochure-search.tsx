@@ -1,18 +1,93 @@
+"use client";
+
+import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { ArrowRight, ChevronDown, Search } from "lucide-react";
 import { brochureFilters } from "../data/brochure-filters";
-import type { Brochure, BrochureSearchFilters } from "../data/brochures";
+import type { Brochure, BrochureSearchFilters } from "../lib/brochure-types";
+import { listAllAdmissionPrograms } from "../lib/api/admissions";
+import { admissionProgramToBrochure } from "../lib/admissions-brochures";
+import { ApiError } from "../lib/api/types";
+import { publicPath } from "../lib/public-path";
 import InfoTooltip from "./info-tooltip";
 
-const LAST_UPDATED = "2026 / 9 / 01";
+const DATA_SOURCE_LABEL = "日曆小幫手";
 
-type BrochureSearchProps = {
-    filters: BrochureSearchFilters;
+type BrochureSearchState = {
+    key: string;
     results: Brochure[];
+    error: string | null;
 };
 
-export default function BrochureSearch({ filters, results }: BrochureSearchProps) {
+export default function BrochureSearch() {
+    const searchParams = useSearchParams();
+    const filters: BrochureSearchFilters = {};
+    const queryParam = searchParams.get("q")?.trim();
+    if (queryParam) filters.q = queryParam;
+    for (const filter of brochureFilters) {
+        const value = searchParams.get(filter.id);
+        if (value === "required" || value === "not-required") {
+            filters[filter.id] = value;
+        }
+    }
+
+    const query = filters.q?.trim() || undefined;
+    const skillsTestFilter = filters["skills-test"];
+    const interviewFilter = filters.interview;
+    const portfolioFilter = filters.portfolio;
+    const requestKey = [
+        query ?? "",
+        skillsTestFilter ?? "",
+        interviewFilter ?? "",
+        portfolioFilter ?? ""
+    ].join("\u001f");
+    const [state, setState] = useState<BrochureSearchState>({
+        key: "",
+        results: [],
+        error: null
+    });
+    const isLoading = state.key !== requestKey;
+    const results = state.key === requestKey ? state.results : [];
+    const error = state.key === requestKey ? state.error : null;
     const hasFilters = Boolean(filters.q || brochureFilters.some((filter) => filters[filter.id]));
+
+    useEffect(() => {
+        const controller = new AbortController();
+
+        listAllAdmissionPrograms({
+            q: query,
+            signal: controller.signal
+        })
+            .then((response) => {
+                if (controller.signal.aborted) return;
+                const mapped = response.data
+                    .map(admissionProgramToBrochure)
+                    .filter(
+                        (brochure) =>
+                            (!skillsTestFilter ||
+                                skillsTestFilter === brochure.requirements["skills-test"]) &&
+                            (!interviewFilter ||
+                                interviewFilter === brochure.requirements.interview) &&
+                            (!portfolioFilter ||
+                                portfolioFilter === brochure.requirements.portfolio)
+                    );
+                setState({ key: requestKey, results: mapped, error: null });
+            })
+            .catch((cause: unknown) => {
+                if (controller.signal.aborted) return;
+                setState({
+                    key: requestKey,
+                    results: [],
+                    error:
+                        cause instanceof ApiError
+                            ? cause.message
+                            : "目前無法取得後端簡章資料，請稍後再試。"
+                });
+            });
+
+        return () => controller.abort();
+    }, [requestKey, query, skillsTestFilter, interviewFilter, portfolioFilter]);
 
     return (
         <main className="article-dots flex flex-1 border-y border-ink/5">
@@ -21,15 +96,12 @@ export default function BrochureSearch({ filters, results }: BrochureSearchProps
                     <h1 className="font-serif text-4xl tracking-[-0.04em] text-ink sm:text-5xl lg:text-6xl">
                         簡章搜尋
                     </h1>
-                    <time
-                        dateTime="2026-09-01"
-                        className="font-sans text-sm text-ink/60 sm:text-base lg:absolute lg:right-0 lg:bottom-10"
-                    >
-                        資料更新：{LAST_UPDATED}
-                    </time>
+                    <p className="font-sans text-sm text-ink/60 sm:text-base lg:absolute lg:right-0 lg:bottom-10">
+                        資料來源：{DATA_SOURCE_LABEL}
+                    </p>
                 </div>
 
-                <form action="/bochures" className="mt-7 sm:mt-9">
+                <form action={publicPath("/bochures")} className="mt-7 sm:mt-9">
                     <label htmlFor="brochure-keyword" className="sr-only">
                         搜尋簡章
                     </label>
@@ -113,7 +185,11 @@ export default function BrochureSearch({ filters, results }: BrochureSearchProps
                                 aria-live="polite"
                                 className="mt-2 font-sans text-sm text-ink/60 sm:text-base"
                             >
-                                找到 {results.length} 筆符合條件的簡章
+                                {isLoading
+                                    ? "正在載入後端簡章資料…"
+                                    : error
+                                      ? "簡章資料載入失敗"
+                                      : `找到 ${results.length} 筆符合條件的簡章`}
                             </p>
                         </div>
                         {hasFilters && (
@@ -126,19 +202,36 @@ export default function BrochureSearch({ filters, results }: BrochureSearchProps
                         )}
                     </div>
 
-                    {results.length > 0 ? (
+                    {error ? (
+                        <div
+                            role="alert"
+                            className="mt-5 rounded-[var(--radius-panel)] border border-dashed border-ink/20 bg-surface/55 px-5 py-9 text-center sm:mt-6 sm:py-12"
+                        >
+                            <p className="font-sans text-lg font-medium text-ink">
+                                無法載入簡章資料
+                            </p>
+                            <p className="mt-2 font-sans text-sm leading-relaxed text-ink/60 sm:text-base">
+                                {error}
+                            </p>
+                        </div>
+                    ) : isLoading ? (
+                        <div className="mt-5 rounded-[var(--radius-panel)] border border-ink/10 bg-surface/55 px-5 py-9 text-center sm:mt-6 sm:py-12">
+                            <p className="font-sans text-lg text-ink/70">正在從後端取得資料…</p>
+                        </div>
+                    ) : results.length > 0 ? (
                         <ul className="mt-5 grid gap-4 sm:mt-6 sm:grid-cols-2">
                             {results.map((brochure) => (
                                 <li key={brochure.slug}>
                                     <Link
-                                        href={`/bochures/${brochure.slug}`}
+                                        href={`/bochures/program?identifier=${encodeURIComponent(brochure.slug)}`}
                                         className="group flex h-full flex-col rounded-[var(--radius-panel)] border border-ink/10 bg-surface/80 p-5 shadow-sm transition-[border-color,box-shadow,transform] hover:-translate-y-0.5 hover:border-ink/25 hover:shadow-[var(--shadow-card)] focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2 focus-visible:outline-none sm:p-6"
                                     >
                                         <p className="font-sans text-sm text-ink/60">
                                             {brochure.university}
                                         </p>
                                         <h3 className="mt-2 font-sans text-xl leading-snug font-medium text-ink sm:text-2xl">
-                                            {brochure.department}（{brochure.group}）
+                                            {brochure.department}
+                                            {brochure.group ? `（${brochure.group}）` : ""}
                                         </h3>
                                         <dl className="mt-5 flex flex-wrap gap-x-4 gap-y-2">
                                             {brochure.facts.map((fact) => (

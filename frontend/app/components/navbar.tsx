@@ -3,8 +3,10 @@
 import Image from "next/image";
 import Link from "next/link";
 import { ChevronDown } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Accordion, Collapsible, HoverCard } from "radix-ui";
+import { getCurrentAccount } from "../lib/api/auth";
+import { subscribeAuthChanged } from "../lib/auth-events";
 import { publicPath } from "../lib/public-path";
 import { relatedSites } from "../lib/related-sites";
 import Button from "./button";
@@ -21,6 +23,36 @@ const navLinks = [
 export default function Navbar() {
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
     const closeMobileMenu = () => setIsMobileMenuOpen(false);
+    const [isAdmin, setIsAdmin] = useState(false);
+    const [canManageAdmissions, setCanManageAdmissions] = useState(false);
+    const [username, setUsername] = useState<string | null>(null);
+
+    useEffect(() => {
+        let cancelled = false;
+        function refresh() {
+            getCurrentAccount()
+                .then((result) => {
+                    if (!cancelled) {
+                        setIsAdmin(result.is_admin);
+                        setCanManageAdmissions(result.can_manage_admissions);
+                        setUsername(result.account.username);
+                    }
+                })
+                .catch(() => {
+                    if (!cancelled) {
+                        setIsAdmin(false);
+                        setCanManageAdmissions(false);
+                        setUsername(null);
+                    }
+                });
+        }
+        refresh();
+        const unsubscribe = subscribeAuthChanged(refresh);
+        return () => {
+            cancelled = true;
+            unsubscribe();
+        };
+    }, []);
 
     return (
         <header className="sticky top-0 z-50 w-full border-b border-ink/10 bg-surface/95 backdrop-blur-sm">
@@ -49,7 +81,11 @@ export default function Navbar() {
                         </span>
                     </Link>
 
-                    <DesktopNavigation />
+                    <DesktopNavigation
+                        isAdmin={isAdmin}
+                        canManageAdmissions={canManageAdmissions}
+                        username={username}
+                    />
 
                     <Collapsible.Trigger
                         className={`${styles.menuTrigger} inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[var(--radius-control)] border border-ink/15 text-ink transition-colors hover:bg-ink/5 lg:hidden`}
@@ -70,13 +106,26 @@ export default function Navbar() {
                     </Collapsible.Trigger>
                 </div>
 
-                <MobileNavigation onNavigate={closeMobileMenu} />
+                <MobileNavigation
+                    onNavigate={closeMobileMenu}
+                    isAdmin={isAdmin}
+                    canManageAdmissions={canManageAdmissions}
+                    username={username}
+                />
             </Collapsible.Root>
         </header>
     );
 }
 
-function DesktopNavigation() {
+function DesktopNavigation({
+    isAdmin,
+    canManageAdmissions,
+    username
+}: {
+    isAdmin: boolean;
+    canManageAdmissions: boolean;
+    username: string | null;
+}) {
     return (
         <nav aria-label="Primary navigation" className="hidden items-center gap-8 lg:flex">
             <div className="flex items-center gap-8">
@@ -92,9 +141,21 @@ function DesktopNavigation() {
                 <RelatedSitesDesktopMenu />
             </div>
 
-            <Button asChild>
-                <Link href="/login">登入 | 註冊</Link>
-            </Button>
+            {isAdmin ? (
+                <Button asChild>
+                    <Link href="/admin">後台管理</Link>
+                </Button>
+            ) : canManageAdmissions ? (
+                <Button asChild>
+                    <Link href="/admin/admissions">簡章管理</Link>
+                </Button>
+            ) : username ? (
+                <span className="font-sans text-nav tracking-[-0.1px] text-ink">{username}</span>
+            ) : (
+                <Button asChild>
+                    <Link href="/login">登入 | 註冊</Link>
+                </Button>
+            )}
         </nav>
     );
 }
@@ -132,7 +193,17 @@ function RelatedSitesDesktopMenu() {
     );
 }
 
-function MobileNavigation({ onNavigate }: { onNavigate: () => void }) {
+function MobileNavigation({
+    onNavigate,
+    isAdmin,
+    canManageAdmissions,
+    username
+}: {
+    onNavigate: () => void;
+    isAdmin: boolean;
+    canManageAdmissions: boolean;
+    username: string | null;
+}) {
     return (
         <Collapsible.Content
             className={`${styles.menuContent} border-t border-ink/10 pb-4 lg:hidden`}
@@ -151,11 +222,27 @@ function MobileNavigation({ onNavigate }: { onNavigate: () => void }) {
                 <RelatedSitesMobileMenu onNavigate={onNavigate} />
             </nav>
 
-            <Button asChild className="mt-4 w-full">
-                <Link href="/login" onClick={onNavigate}>
-                    登入 | 註冊
-                </Link>
-            </Button>
+            {isAdmin ? (
+                <Button asChild className="mt-4 w-full">
+                    <Link href="/admin" onClick={onNavigate}>
+                        後台管理
+                    </Link>
+                </Button>
+            ) : canManageAdmissions ? (
+                <Button asChild className="mt-4 w-full">
+                    <Link href="/admin/admissions" onClick={onNavigate}>
+                        簡章管理
+                    </Link>
+                </Button>
+            ) : username ? (
+                <p className="mt-4 px-3 font-sans text-lg text-ink">{username}</p>
+            ) : (
+                <Button asChild className="mt-4 w-full">
+                    <Link href="/login" onClick={onNavigate}>
+                        登入 | 註冊
+                    </Link>
+                </Button>
+            )}
         </Collapsible.Content>
     );
 }

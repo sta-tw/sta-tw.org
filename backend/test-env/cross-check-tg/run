@@ -1,0 +1,203 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+test_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="$(cd -- "${test_root}/../.." && pwd)"
+env_file="${CROSS_CHECK_TG_ENV_FILE:-${test_root}/.env}"
+compose_project="sta-cross-check-tg-test"
+
+die() {
+  printf '錯誤：%s\n' "$*" >&2
+  exit 1
+}
+
+usage() {
+  cat <<'USAGE'
+用法：./run <指令>
+
+  env-check                         驗證隔離設定，不顯示秘密值
+  infra-up                          啟動獨立 PostgreSQL
+  infra-status                      顯示隔離容器狀態
+  infra-logs                        追蹤 PostgreSQL 日誌
+  infra-down                        停止容器並保留資料
+  reset --yes                       刪除本資料夾的容器與 volume
+  migrate                           以來源 migration runner 建立隔離資料庫
+  api                               啟動來源專案 API
+  check                             檢查來源 API healthz／readyz
+  register-admin                    透過來源 API 建立隔離帳號
+  bootstrap-admin                   只做首次 admin role bootstrap
+  flow [roster.json]                全程以來源 HTTP API 建檔、匯入、發布、驗證
+  verify [roster.json]              僅以來源 HTTP API 驗證既有狀態
+  status                            透過來源管理 API 顯示 outbox 彙總
+  simulate-starts --yes [roster]    模擬名單中的使用者已對 Bot 執行 /start
+  simulate-response --yes [roster]  以同一 callback 送兩次，驗證回覆冪等與歷程
+  probe-outbox --yes                 領取 pending outbox 後誠實標記測試失敗
+  bot                               啟動來源專案 Telegram Bot
+  telegram-delete-webhook           移除測試 Bot webhook
+  test                              執行相關 Go 測試與 Node 語法檢查
+
+腳本只讀本資料夾 .env，會先清除 shell 內既有 STA_*，絕不讀取根目錄 .env。
+flow／verify／status／simulate-starts 只會呼叫來源專案 HTTP API，不直接讀寫資料庫。
+USAGE
+}
+
+require_command() {
+  command -v "$1" >/dev/null 2>&1 || die "找不到必要指令：$1"
+}
+
+require_value() {
+  local variable_name="$1"
+  [[ -n "${!variable_name:-}" ]] || die "請先在 ${env_file} 設定 ${variable_name}"
+}
+
+load_isolated_env() {
+  [[ -f "${env_file}" ]] || die "找不到 ${env_file}；請先複製 .env.example 為 .env"
+  while IFS= read -r variable_name; do
+    if [[ "${variable_name}" == STA_* || "${variable_name}" == CROSS_CHECK_TEST_* ]]; then
+      unset "${variable_name}"
+    fi
+  done < <(compgen -e)
+  set -a
+  # shellcheck disable=SC1090
+  source "${env_file}"
+  set +a
+}
+
+validate_isolation() {
+  [[ "${STA_ENV:-}" == "test" ]] || die "STA_ENV 必須固定為 test"
+  [[ "${STA_HTTP_ADDR:-}" == 127.0.0.1:* ]] || die "STA_HTTP_ADDR 必須綁定 127.0.0.1"
+  [[ "${STA_PUBLIC_BASE_URL:-}" == http://127.0.0.1:* ]] || die "STA_PUBLIC_BASE_URL 必須使用本機位址"
+  [[ "${STA_TELEGRAM_BACKEND_BASE_URL:-}" == "${STA_PUBLIC_BASE_URL:-}" ]] || die "Telegram backend 必須指向同一個來源 API"
+  [[ "${STA_DATABASE_URL:-}" == *"@127.0.0.1:"*"/sta_cross_check_tg_test"* ]] || die "資料庫必須是本機 sta_cross_check_tg_test"
+  [[ "${STA_TELEGRAM_CROSS_CHECK_ALLOW_TEST_PROVISIONING:-}" == "true" ]] || die "隔離環境必須開啟 test provisioning"
+  require_value STA_TELEGRAM_CROSS_CHECK_TOKEN
+}
+
+load_isolated_env
+validate_isolation
+
+compose=(
+  docker compose
+  --project-name "${compose_project}"
+  --env-file "${env_file}"
+  --file "${test_root}/compose.yaml"
+)
+
+command_name="${1:-help}"
+if [[ $# -gt 0 ]]; then
+  shift
+fi
+default_roster="${test_root}/roster.example.json"
+
+case "${command_name}" in
+  help|-h|--help)
+    usage
+    ;;
+  env-check)
+    printf '隔離設定有效。\n'
+    printf '來源 API：%s\n' "${STA_PUBLIC_BASE_URL}"
+    printf '資料庫：sta_cross_check_tg_test（127.0.0.1）\n'
+    printf 'Telegram Bot token：%s\n' "$([[ -n "${STA_TELEGRAM_BOT_TOKEN:-}" ]] && printf '已設定' || printf '尚未設定')"
+    ;;
+  infra-up)
+    require_command docker
+    "${compose[@]}" up --detach --wait --wait-timeout 120 postgres
+    ;;
+  infra-status)
+    require_command docker
+    "${compose[@]}" ps
+    ;;
+  infra-logs)
+    require_command docker
+    exec "${compose[@]}" logs --follow postgres
+    ;;
+  infra-down)
+    require_command docker
+    "${compose[@]}" down --remove-orphans
+    ;;
+  reset)
+    require_command docker
+    [[ "${1:-}" == "--yes" ]] || die "這會刪除隔離測試資料；確定時請執行 ./run reset --yes"
+    "${compose[@]}" down --volumes --remove-orphans
+    ;;
+  migrate)
+    require_command go
+    cd "${repo_root}"
+    exec go run ./cmd/migrate -dir migrations -include-telegram
+    ;;
+  api)
+    require_command go
+    cd "${repo_root}"
+    exec go run ./cmd/api
+    ;;
+  check)
+    require_command curl
+    curl --fail --silent --show-error "${STA_PUBLIC_BASE_URL}/healthz"
+    printf '\n'
+    curl --fail --silent --show-error "${STA_PUBLIC_BASE_URL}/readyz"
+    printf '\n'
+    ;;
+  register-admin)
+    require_command node
+    node "${test_root}/api-flow.mjs" register-admin
+    ;;
+  bootstrap-admin)
+    require_command go
+    require_value CROSS_CHECK_TEST_ADMIN_USERNAME
+    cd "${repo_root}"
+    exec go run ./cmd/bootstrap-admin -username "${CROSS_CHECK_TEST_ADMIN_USERNAME}"
+    ;;
+  flow)
+    require_command node
+    node "${test_root}/api-flow.mjs" flow "${1:-${default_roster}}"
+    ;;
+  verify)
+    require_command node
+    node "${test_root}/api-flow.mjs" verify "${1:-${default_roster}}"
+    ;;
+  status)
+    require_command node
+    node "${test_root}/api-flow.mjs" status
+    ;;
+  simulate-starts)
+    require_command node
+    [[ "${1:-}" == "--yes" ]] || die "這會把 outbox 改為可傳送；確定時請執行 ./run simulate-starts --yes [roster.json]"
+    shift
+    node "${test_root}/api-flow.mjs" simulate-starts "${1:-${default_roster}}"
+    ;;
+  simulate-response)
+    require_command node
+    [[ "${1:-}" == "--yes" ]] || die "這會寫入一筆隔離意見；確定時請執行 ./run simulate-response --yes [roster.json]"
+    shift
+    node "${test_root}/api-flow.mjs" simulate-response "${1:-${default_roster}}"
+    ;;
+  probe-outbox)
+    require_command node
+    [[ "${1:-}" == "--yes" ]] || die "這會領取 outbox 並標記為 retryable failed；確定時請執行 ./run probe-outbox --yes"
+    node "${test_root}/api-flow.mjs" probe-outbox
+    ;;
+  bot)
+    require_command go
+    require_value STA_TELEGRAM_BOT_TOKEN
+    cd "${repo_root}"
+    exec go run ./cmd/telegram-bot
+    ;;
+  telegram-delete-webhook)
+    require_command curl
+    require_value STA_TELEGRAM_BOT_TOKEN
+    curl --fail --silent --show-error --request POST \
+      "${STA_TELEGRAM_API_BASE_URL}/bot${STA_TELEGRAM_BOT_TOKEN}/deleteWebhook"
+    printf '\n'
+    ;;
+  test)
+    require_command go
+    require_command node
+    cd "${repo_root}"
+    GOCACHE="${TMPDIR:-/tmp}/sta-cross-check-tg-go-cache" go test -count=1 ./internal/results ./internal/telegramcrosscheck ./internal/telegrambot ./internal/config ./cmd/api ./cmd/telegram-bot
+    node --check "${test_root}/api-flow.mjs"
+    ;;
+  *)
+    usage >&2
+    die "未知指令：${command_name}"
+    ;;
+esac

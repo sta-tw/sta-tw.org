@@ -83,6 +83,10 @@ func parseProgramQuery(r *http.Request) (ProgramQuery, error) {
 	if schoolCode != "" && !codePattern.MatchString(schoolCode) {
 		return ProgramQuery{}, ErrInvalidProgram
 	}
+	programCode := strings.TrimSpace(r.URL.Query().Get("program_code"))
+	if programCode != "" && !codePattern.MatchString(programCode) {
+		return ProgramQuery{}, ErrInvalidProgram
+	}
 	search := strings.TrimSpace(r.URL.Query().Get("q"))
 	if len(search) > 100 {
 		return ProgramQuery{}, ErrInvalidProgram
@@ -101,7 +105,7 @@ func parseProgramQuery(r *http.Request) (ProgramQuery, error) {
 			return ProgramQuery{}, ErrInvalidProgram
 		}
 	}
-	return ProgramQuery{AcademicYear: year, SchoolCode: schoolCode, Search: search, Limit: limit, Offset: offset}, nil
+	return ProgramQuery{AcademicYear: year, SchoolCode: schoolCode, ProgramCode: programCode, Search: search, Limit: limit, Offset: offset}, nil
 }
 
 func parseYear(raw string) (int, error) {

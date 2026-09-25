@@ -21,7 +21,9 @@ const footerSections = [
         title: "關於本站",
         links: [
             { label: "GitHub", href: GITHUB_REPOSITORY_URL },
-            { label: "Dev. Credit", href: "/credits" }
+            { label: "Dev. Credit", href: "/credits" },
+            { label: "隱私權政策", href: "/privacy" },
+            { label: "服務條款", href: "/terms" }
         ]
     }
 ];

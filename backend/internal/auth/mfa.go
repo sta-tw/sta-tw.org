@@ -311,21 +311,49 @@ func (s *Service) DisableAdminMFA(ctx context.Context, accountID uuid.UUID, code
 	return store.DisableAdminMFA(ctx, accountID)
 }
 
+// effectiveRequireAdminMFA prefers the admin-toggleable app_settings row
+// over the static STA_REQUIRE_ADMIN_MFA env default — lets an operator turn
+// the gate on once the enrollment flow (still frontend-only, no UI to bind
+// an authenticator yet as of 2026-09) is actually usable, without a
+// redeploy. Falls back to the env default when no row exists or the store
+// doesn't support it.
+func (s *Service) effectiveRequireAdminMFA(ctx context.Context) bool {
+	settingStore, ok := s.store.(AdminMFASettingStore)
+	if !ok {
+		return s.requireAdminMFA
+	}
+	value, isSet, err := settingStore.GetRequireAdminMFA(ctx)
+	if err != nil || !isSet {
+		return s.requireAdminMFA
+	}
+	return value
+}
+
 // RequireAdminMFA is called after the endpoint has established the admin role.
 // A code is deliberately required on every admin request instead of creating a
 // long-lived second session token, so a stolen session alone cannot access the
 // admin surface while MFA is enabled.
 func (s *Service) RequireAdminMFA(ctx context.Context, accountID uuid.UUID, code string) error {
+	// A 'service'-role (bot) account authenticates with its own API token —
+	// see authenticateBotAPIKey — which already proves possession of a
+	// credential an admin issued it. MFA is a second *human* factor on top
+	// of a password; it has nothing to check for a machine credential.
+	if roleStore, ok := s.store.(AdminRoleStore); ok {
+		if isService, err := roleStore.IsServiceAccount(ctx, accountID); err == nil && isService {
+			return nil
+		}
+	}
+	requireMFA := s.effectiveRequireAdminMFA(ctx)
 	store, ok := s.store.(AdminMFAStore)
 	if !ok || s.emailCipher == nil {
-		if s.requireAdminMFA {
+		if requireMFA {
 			return ErrNotConfigured
 		}
 		return nil
 	}
 	record, err := store.GetAdminMFA(ctx, accountID)
 	if errors.Is(err, ErrNotFound) {
-		if s.requireAdminMFA {
+		if requireMFA {
 			return ErrAdminMFARequired
 		}
 		return nil
@@ -334,7 +362,7 @@ func (s *Service) RequireAdminMFA(ctx context.Context, accountID uuid.UUID, code
 		return err
 	}
 	if record.EnabledAt == nil {
-		if s.requireAdminMFA {
+		if requireMFA {
 			return ErrAdminMFARequired
 		}
 		return nil
@@ -366,15 +394,18 @@ func (s *Service) RequireAdminMFA(ctx context.Context, accountID uuid.UUID, code
 }
 
 func (s *Service) requireAdminAccount(ctx context.Context, accountID uuid.UUID) error {
-	store, ok := s.store.(AdminRoleStore)
-	if !ok {
+	if _, ok := s.store.(AdminRoleStore); !ok {
 		return ErrNotConfigured
 	}
-	admin, err := store.IsAdmin(ctx, accountID)
+	// Widened to admissions_moderator too, so that role's MFA setup/verify
+	// flow works the same way as a full admin's if admin MFA is ever
+	// required — RequireAdminMFA itself (the per-request check) already
+	// doesn't care which role granted access.
+	allowed, err := s.CanManageAdmissions(ctx, accountID)
 	if err != nil {
 		return err
 	}
-	if !admin {
+	if !allowed {
 		return ErrAdminRequired
 	}
 	return nil

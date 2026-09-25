@@ -1,12 +1,18 @@
 # 文件擷取 API
 
-STA 的文件擷取流程不依賴任何內建 AI 服務。Go API 負責驗證來源、掃描檔案、寫入 private object storage、建立 durable job 與保存結果；外部 Python worker 只負責下載檔案、用本地規則解析，再回傳結果。外部 AI／搜尋服務若找到檔案，也只需把原始檔送到下列 API。
+STA 的文件擷取流程不依賴任何內建 AI 服務。Go API 負責驗證來源、掃描檔案、寫入 private object storage、建立 durable job 與保存結果；外部 Python worker 只負責下載檔案、用本地規則解析，簡章文字層不足時使用本地 Tesseract OCR，再回傳結果。外部 AI／搜尋服務若找到檔案，也只需把原始檔送到下列 API。
 
 ## 使用方式
 
-人工上傳：
+管理員直接上傳：
 
-- 簡章：`POST /api/v1/admin/admissions/brochures`（既有管理端簡章流程）。
+- 簡章：`POST /api/v1/admin/admissions/brochures`，只需送出 multipart 的 `file` PDF；系統會先擷取學年度、學校與校系資料，前端接著直接開啟 PDF 與建檔欄位。
+- 建檔明細：`GET /api/v1/admin/admissions/brochure-uploads/{upload_id}`。
+- 內嵌 PDF 內容：`GET /api/v1/admin/admissions/brochure-uploads/{upload_id}/content`。
+- 確認建檔並發布：`POST /api/v1/admin/admissions/brochure-uploads/{upload_id}/confirm`。
+- 退回這次上傳：`POST /api/v1/admin/admissions/brochure-uploads/{upload_id}/reject`。
+- 外部 API 人工複核清單：`GET /api/v1/admin/admissions/brochure-uploads`。
+- 外部 API 原始檔下載網址：`GET /api/v1/admin/admissions/brochure-uploads/{upload_id}/download`。
 - 名單：`POST /api/v1/admin/extraction/candidate-lists`。
 - 工作狀態：`GET /api/v1/admin/ingestion/jobs/{job_id}`。
 
@@ -15,7 +21,7 @@ STA 的文件擷取流程不依賴任何內建 AI 服務。Go API 負責驗證�
 - 簡章：`POST /api/v1/internal/extraction/brochures`。
 - 名單：`POST /api/v1/internal/extraction/candidate-lists`。
 
-外部路由使用 `Authorization: Bearer $STA_EXTRACTION_SERVICE_TOKEN`。它只能建立待擷取來源與回報結果，不能審核、上架或直接寫入公開招生資料。所有檔案都必須使用 multipart 欄位：
+外部路由使用 `Authorization: Bearer $STA_EXTRACTION_SERVICE_TOKEN`。它只能建立外部 API 的待擷取來源與回報結果，不能審核、上架或直接寫入公開招生資料；解析完成後會出現在上面的外部 API 人工複核清單。所有檔案都必須使用 multipart 欄位：
 
 ```text
 academic_year  三位數學年度，例如 115
@@ -46,7 +52,17 @@ curl -X POST http://localhost:8080/api/v1/internal/extraction/candidate-lists \
   -F file=@candidate-list.pdf
 ```
 
-人工流程則使用同樣的欄位，將路徑換成 `/api/v1/admin/admissions/brochures` 或 `/api/v1/admin/extraction/candidate-lists`，以管理員 session／CSRF 認證送出。
+管理員直接上傳簡章的第一步只送 PDF：
+
+```sh
+curl -X POST http://localhost:8080/api/v1/admin/admissions/brochures \
+  -H "Cookie: <admin-session>" \
+  -H "X-CSRF-Token: <csrf-token>" \
+  -H "X-MFA-Code: <mfa-code>" \
+  -F file=@brochure.pdf
+```
+
+解析完成後，前端會在同一個視窗顯示 PDF，並讓管理員填寫／修正所有建檔欄位；確認 API 送出後，這個交易才會同時把簡章與校系資料設為 `published`。管理員直接上傳的項目不會進外部 API 人工複核清單。未確認前不會建立公開的 `brochure_documents` 或公開招生資料。名單人工流程仍使用原本的欄位，路徑為 `/api/v1/admin/extraction/candidate-lists`。
 
 ## HTTP Python worker
 
@@ -63,7 +79,7 @@ worker 會輪詢兩種文件類型：
 
 1. `POST /api/v1/internal/extraction/jobs/claim`，body 為 `{"document_type":"brochure"}` 或 `{"document_type":"candidate_list"}`。
 2. API 回傳 job 與五分鐘有效的 `download_url`；沒有工作時回傳 `204 No Content`。
-3. worker 以 checksum 驗證下載檔案，使用本地 PDF／表格／JSON 規則抽取。
+3. worker 以 checksum 驗證下載檔案；簡章先讀取 PDF 文字層，文字不足的頁面再用 `chi_tra+eng` Tesseract OCR，名單則使用本地 PDF／表格／JSON 規則抽取。
 4. `POST /api/v1/internal/extraction/jobs/{job_id}/result` 回傳結果。
 5. 解析失敗時回傳 `POST /api/v1/internal/extraction/jobs/{job_id}/failure`；暫時性錯誤會在 30 秒後重試，格式或內容錯誤會標記為 `failed`。
 
@@ -73,7 +89,7 @@ worker 會輪詢兩種文件類型：
 
 ## 結果保存邊界
 
-簡章結果會寫入 `brochure_extraction_runs`／`brochure_extraction_candidates`，維持 `pending_review`，管理員確認後才能建立待審校系資料，再經招生資料審核才能公開。Python 結果中的欄位可包含：
+外部 API 匯入的簡章與管理員直接上傳都會先寫入 `brochure_uploads.raw_extraction`。外部 API 項目的 `intake_channel` 是 `external_api`，解析完成後維持 `pending_review` 並進入人工複核清單；管理員直接上傳的 `intake_channel` 是 `admin_upload`，解析完成後只回到原本的上傳確認視窗。管理員確認後，系統在同一個 transaction 建立／更新校系、發布校系與發布 PDF 簡章。Python 結果中的欄位可包含：
 
 ```json
 {
@@ -91,8 +107,9 @@ worker 會輪詢兩種文件類型：
       "data": {
         "admission_program_name": "機械工程系",
         "admission_quota": 2,
-        "registration_start_date": "2026-05-01",
-        "registration_end_date": "2026-05-08",
+        "timeline_events": [
+          {"name": "網路報名", "start_date": "2026-05-01", "start_time": "-", "end_date": "2026-05-08", "end_time": "-", "sort_order": 1, "notes": "-"}
+        ],
         "exam_items": []
       }
     }

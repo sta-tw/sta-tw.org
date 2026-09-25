@@ -20,16 +20,17 @@ import (
 
 // userSummary is one row of the operator account list.
 type userSummary struct {
-	ID               string     `json:"id"`
-	Username         string     `json:"username"`
-	IdentityStatus   string     `json:"identity_status"`
-	AccountStatus    string     `json:"account_status"`
-	EmailVerified    bool       `json:"email_verified"`
-	IsAdmin          bool       `json:"is_admin"`
-	LastLoginAt      *time.Time `json:"last_login_at"`
-	SuspendedAt      *time.Time `json:"suspended_at,omitempty"`
-	SuspensionReason string     `json:"suspension_reason,omitempty"`
-	CreatedAt        time.Time  `json:"created_at"`
+	ID                    string     `json:"id"`
+	Username              string     `json:"username"`
+	IdentityStatus        string     `json:"identity_status"`
+	AccountStatus         string     `json:"account_status"`
+	EmailVerified         bool       `json:"email_verified"`
+	IsAdmin               bool       `json:"is_admin"`
+	IsAdmissionsModerator bool       `json:"is_admissions_moderator"`
+	LastLoginAt           *time.Time `json:"last_login_at"`
+	SuspendedAt           *time.Time `json:"suspended_at,omitempty"`
+	SuspensionReason      string     `json:"suspension_reason,omitempty"`
+	CreatedAt             time.Time  `json:"created_at"`
 }
 
 type userDetail struct {
@@ -126,6 +127,7 @@ func (h *Handler) listUsers(w http.ResponseWriter, r *http.Request) {
 	sql := `SELECT a.id::text, a.username, a.identity_status, a.account_status,
 	               a.email_verified_at IS NOT NULL,
 	               EXISTS (SELECT 1 FROM account_roles ar WHERE ar.account_id = a.id AND ar.role = 'admin'),
+	               EXISTS (SELECT 1 FROM account_roles ar WHERE ar.account_id = a.id AND ar.role = 'admissions_moderator'),
 	               a.last_login_at, a.suspended_at, COALESCE(a.suspension_reason, ''), a.created_at
 	        FROM accounts a
 	        ` + whereSQL + `
@@ -142,7 +144,7 @@ func (h *Handler) listUsers(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var u userSummary
 		if err := rows.Scan(&u.ID, &u.Username, &u.IdentityStatus, &u.AccountStatus,
-			&u.EmailVerified, &u.IsAdmin, &u.LastLoginAt, &u.SuspendedAt, &u.SuspensionReason, &u.CreatedAt); err != nil {
+			&u.EmailVerified, &u.IsAdmin, &u.IsAdmissionsModerator, &u.LastLoginAt, &u.SuspendedAt, &u.SuspensionReason, &u.CreatedAt); err != nil {
 			writeError(w, http.StatusInternalServerError, "internal_error", "internal server error")
 			return
 		}
@@ -175,6 +177,7 @@ func (h *Handler) getUser(w http.ResponseWriter, r *http.Request) {
 		SELECT a.id::text, a.username, a.identity_status, a.account_status,
 		       a.email_verified_at IS NOT NULL,
 		       EXISTS (SELECT 1 FROM account_roles ar WHERE ar.account_id = a.id AND ar.role = 'admin'),
+		       EXISTS (SELECT 1 FROM account_roles ar WHERE ar.account_id = a.id AND ar.role = 'admissions_moderator'),
 		       a.last_login_at, a.suspended_at, COALESCE(a.suspension_reason, ''), a.created_at,
 		       sb.username,
 		       (SELECT count(*) FROM account_sessions s WHERE s.account_id = a.id AND s.revoked_at IS NULL AND s.expires_at > CURRENT_TIMESTAMP),
@@ -183,7 +186,7 @@ func (h *Handler) getUser(w http.ResponseWriter, r *http.Request) {
 		FROM accounts a
 		LEFT JOIN accounts sb ON sb.id = a.suspended_by
 		WHERE a.id = $1`, accountID).Scan(
-		&d.ID, &d.Username, &d.IdentityStatus, &d.AccountStatus, &d.EmailVerified, &d.IsAdmin,
+		&d.ID, &d.Username, &d.IdentityStatus, &d.AccountStatus, &d.EmailVerified, &d.IsAdmin, &d.IsAdmissionsModerator,
 		&d.LastLoginAt, &d.SuspendedAt, &d.SuspensionReason, &d.CreatedAt,
 		&d.SuspendedBy, &d.ActiveSessions, &d.Applications, &d.Experiences)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -335,6 +338,50 @@ func (h *Handler) forceLogoutUser(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"sessions_revoked": revoked})
 }
 
+// setAdmissionsModerator grants or revokes the admissions_moderator role —
+// content-only access to /admin/admissions for a brochure board moderator,
+// with no visibility into anything else under /admin. Deliberately narrower
+// than the generic role-grant path used for 'admin'/'service'/'ai_system'
+// (see createServiceUser): this endpoint can only ever touch this one role.
+func (h *Handler) setAdmissionsModerator(w http.ResponseWriter, r *http.Request) {
+	session, ok := h.requireAdminMutation(w, r)
+	if !ok {
+		return
+	}
+	accountID, err := uuid.Parse(r.PathValue("accountID"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_account_id", "account id is invalid")
+		return
+	}
+	var body struct {
+		Grant  bool   `json:"grant"`
+		Reason string `json:"reason"`
+	}
+	if err := decodeAdminJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_body", "request body is invalid")
+		return
+	}
+	reason := strings.TrimSpace(body.Reason)
+	if len(reason) > 500 {
+		writeError(w, http.StatusBadRequest, "invalid_body", "reason is too long")
+		return
+	}
+	if reason == "" {
+		reason = "-"
+	}
+
+	err = setAdmissionsModeratorRole(r.Context(), h.pool, accountID, session.Session.Account.ID, body.Grant, reason)
+	switch {
+	case errors.Is(err, errAccountNotFound):
+		writeError(w, http.StatusNotFound, "not_found", "account not found")
+		return
+	case err != nil:
+		writeError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"admissions_moderator": body.Grant})
+}
+
 // --- data-layer helpers ---
 
 var (
@@ -456,4 +503,42 @@ func forceLogoutAccount(ctx context.Context, pool *pgxpool.Pool, accountID, acto
 		return 0, err
 	}
 	return tag.RowsAffected(), nil
+}
+
+func setAdmissionsModeratorRole(ctx context.Context, pool *pgxpool.Pool, accountID, actorID uuid.UUID, grant bool, reason string) error {
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	var exists bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM accounts WHERE id = $1)`, accountID).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		return errAccountNotFound
+	}
+
+	action := "account.admissions_moderator_revoked"
+	if grant {
+		action = "account.admissions_moderator_granted"
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO account_roles (account_id, role)
+			VALUES ($1, 'admissions_moderator')
+			ON CONFLICT (account_id, role) DO NOTHING`, accountID); err != nil {
+			return err
+		}
+	} else {
+		if _, err := tx.Exec(ctx, `
+			DELETE FROM account_roles WHERE account_id = $1 AND role = 'admissions_moderator'`, accountID); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO audit_log (actor_account_id, action, entity_type, entity_key, reason)
+		VALUES ($1, $2, 'account', $3, $4)`, actorID, action, accountID.String(), reason); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }

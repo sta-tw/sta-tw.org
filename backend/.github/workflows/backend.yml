@@ -1,17 +1,3 @@
-# Reference CI for the Go backend. GitHub only runs workflows from
-# .github/workflows at the REPOSITORY ROOT, so to activate this, move it there
-# and scope it to backend/, e.g.:
-#
-#   on:
-#     pull_request:
-#       paths: ["backend/**"]
-#   defaults:
-#     run:
-#       working-directory: backend
-#
-# Test jobs are omitted because *_test.go and worker/tests are not vendored into
-# this directory; run the full suite (unit + `-tags integration` against a
-# PostgreSQL service, STA_TEST_DATABASE_URL set) from the source repository.
 name: backend
 
 on:
@@ -24,10 +10,11 @@ permissions:
 
 env:
   GO_VERSION: "1.26.0"
+  GOCACHE: /tmp/sta-go-cache
 
 jobs:
   build:
-    name: build / vet / fmt / openapi
+    name: build / vet / fmt
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -39,11 +26,12 @@ jobs:
         run: |
           unformatted=$(gofmt -l ./cmd ./internal)
           if [ -n "$unformatted" ]; then
-            echo "::error::gofmt needed on:"; echo "$unformatted"; exit 1
+            echo "::error::gofmt needed on:"; echo "$unformatted"
+            exit 1
           fi
       - run: go build -buildvcs=false ./...
       - run: go vet ./...
-      - name: openapi.json in sync with routes
+      - name: openapi.json is in sync with the routes
         run: |
           python3 docs/openapi/generate.py
           git diff --exit-code -- docs/openapi.json internal/httpapi/openapi.json \
@@ -75,12 +63,57 @@ jobs:
       - run: go install golang.org/x/vuln/cmd/govulncheck@latest
       - run: govulncheck ./...
 
-  ruff:
-    name: python lint
+  unit-test:
+    name: go test (unit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - run: go test -race ./...
+
+  integration-test:
+    name: go test (integration + migrations)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: sta
+          POSTGRES_PASSWORD: sta
+          POSTGRES_DB: sta_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U sta"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      STA_DATABASE_URL: postgres://sta:sta@localhost:5432/sta_test?sslmode=disable
+      STA_TEST_DATABASE_URL: postgres://sta:sta@localhost:5432/sta_test?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: apply migrations
+        run: go run ./cmd/migrate -dir migrations -include-telegram
+      - name: migration checksum is stable (second run is a no-op)
+        run: go run ./cmd/migrate -dir migrations -include-telegram
+      - name: integration tests
+        run: go test -tags integration ./...
+
+  python:
+    name: python worker
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
-      - run: pipx run ruff==0.8.4 check worker
+      - run: pip install -r worker/requirements.txt -r worker/requirements-dev.txt
+      - run: ruff check worker
+      - run: python -m unittest discover -s worker/tests -v
