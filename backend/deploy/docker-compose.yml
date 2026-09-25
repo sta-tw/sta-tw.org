@@ -114,6 +114,7 @@ services:
 
   mailhog:
     image: mailhog/mailhog:latest
+    profiles: ["dev"]
     ports:
       - "127.0.0.1:${STA_COMPOSE_MAILHOG_UI_PORT:-8025}:8025"
 

@@ -164,10 +164,12 @@ func (r *PostgresRepository) GetProgram(ctx context.Context, identifier ProgramI
 func (r *PostgresRepository) ListSchools(ctx context.Context, academicYear int) ([]School, error) {
 	args := []any{}
 	condition := "s.is_active = TRUE"
+	yearCondition := ""
 	if academicYear > 0 {
 		args = append(args, academicYear)
-		condition += " AND EXISTS (SELECT 1 FROM academic_programs p WHERE p.school_code = s.school_code AND p.academic_year = $1 AND p.review_status = 'published' AND p.admission_quota > 0)"
+		yearCondition = "p.academic_year = $1 AND "
 	}
+	condition += fmt.Sprintf(" AND EXISTS (SELECT 1 FROM academic_programs p WHERE p.school_code = s.school_code AND %sp.review_status = 'published' AND p.admission_quota > 0)", yearCondition)
 	rows, err := r.pool.Query(ctx, `SELECT s.school_code, s.school_name FROM schools s WHERE `+condition+` ORDER BY s.school_code`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list schools: %w", err)
