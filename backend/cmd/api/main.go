@@ -13,6 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"sta-backend/internal/accountapplications"
+	"sta-backend/internal/accountmail"
 	"sta-backend/internal/admin"
 	"sta-backend/internal/admissions"
 	"sta-backend/internal/applications"
@@ -25,6 +26,7 @@ import (
 	"sta-backend/internal/content"
 	"sta-backend/internal/db"
 	"sta-backend/internal/email"
+	"sta-backend/internal/emailinquiries"
 	"sta-backend/internal/events"
 	"sta-backend/internal/httpapi"
 	"sta-backend/internal/ingestion"
@@ -379,12 +381,36 @@ func run(logger *slog.Logger) error {
 				return err
 			}
 			accountApplicationHandler, err := accountapplications.NewHandler(
-				accountApplicationService, cfg.AccountApplicationMailToken, cfg.AccountApplicationReviewToken,
+				accountApplicationService, cfg.AccountApplicationReviewToken,
 			)
 			if err != nil {
 				return err
 			}
 			registrars = append(registrars, accountApplicationHandler.RegisterRoutes)
+
+			inquiryNotifier := emailinquiries.NewHTTPTelegramNotifier(cfg.TelegramBotToken, cfg.TelegramAccountApplicationChatID)
+			inquiryRepository, err := emailinquiries.NewPostgresRepository(databasePool)
+			if err != nil {
+				return err
+			}
+			inquiryService, err := emailinquiries.NewService(
+				inquiryRepository, blobStore, fileScanner, fieldCipher, cfg.LookupHMACKey,
+				inquiryNotifier, accountApplicationMailer, cfg.MailDomain, logger,
+			)
+			if err != nil {
+				return err
+			}
+			inquiryHandler, err := emailinquiries.NewHandler(inquiryService, cfg.AccountApplicationReviewToken)
+			if err != nil {
+				return err
+			}
+			registrars = append(registrars, inquiryHandler.RegisterRoutes)
+
+			mailIntakeHandler, err := accountmail.NewHandler(cfg.AccountApplicationMailToken, accountApplicationService, inquiryService)
+			if err != nil {
+				return err
+			}
+			registrars = append(registrars, mailIntakeHandler.RegisterRoutes)
 		}
 		readiness = func(ctx context.Context) error {
 			return databasePool.Ping(ctx)

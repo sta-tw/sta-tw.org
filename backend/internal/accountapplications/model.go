@@ -1,14 +1,19 @@
 // Package accountapplications handles account requests from people without a
-// usable school email: they apply by emailing account@mail.sta-tw.org with
-// proof attachments, an admin reviews the request from a Telegram
-// notification, and approval creates the account.
+// usable school email: they apply through the /apply web form with proof
+// attachments, an admin reviews the request from a Telegram notification,
+// and approval creates the account. A cold email to account@mail.sta-tw.org
+// is NOT an application — see internal/emailinquiries.
 package accountapplications
 
 import (
 	"time"
 
 	"github.com/google/uuid"
+	"sta-backend/internal/mailintake"
 )
+
+// Attachment is one file pulled out of an application's proof attachments.
+type Attachment = mailintake.Attachment
 
 type Status string
 
@@ -21,7 +26,6 @@ const (
 type Application struct {
 	ID                uuid.UUID  `json:"id"`
 	RequestedUsername string     `json:"requested_username"`
-	Source            string     `json:"source"`
 	Note              string     `json:"note"`
 	Status            Status     `json:"status"`
 	CreatedAccountID  *uuid.UUID `json:"created_account_id,omitempty"`

@@ -58,15 +58,6 @@ func (n *HTTPTelegramNotifier) NotifyPendingApplication(ctx context.Context, app
 	if !n.Enabled() {
 		return 0, 0, "", errors.New("telegram account-application notifier is not configured")
 	}
-	// Emailing account@ is not an application — /apply (the web form) is the
-	// only path that creates one. A cold email is treated as a plain
-	// inquiry: no approve/reject buttons, no "this becomes an account" copy.
-	// It's still stored via the same Application row so a later reply on
-	// the same thread (HandleInboundReply) has something to attach to.
-	if app.Source == "email" {
-		return n.notifyInquiryEmail(ctx, app, email, documents)
-	}
-
 	var text strings.Builder
 	fmt.Fprintf(&text, "新的帳號申請（無學校信箱）\n帳號：%s\n聯絡信箱：%s\n", app.RequestedUsername, email)
 	text.WriteString("核准後會直接建立帳號（已驗證學生），並寄設定密碼的連結到這個信箱。\n")
@@ -82,27 +73,6 @@ func (n *HTTPTelegramNotifier) NotifyPendingApplication(ctx context.Context, app
 	headerText := text.String()
 
 	messageID, err := n.send(ctx, n.chatID, headerText, approveRejectKeyboard(app.ID))
-	if err != nil {
-		return 0, 0, "", err
-	}
-	return n.chatID, messageID, headerText, nil
-}
-
-func (n *HTTPTelegramNotifier) notifyInquiryEmail(ctx context.Context, app Application, fromEmail string, documents []DocumentLink) (int64, int64, string, error) {
-	var text strings.Builder
-	fmt.Fprintf(&text, "收到一封信到帳號申請信箱\n寄件人：%s\n", fromEmail)
-	if len(documents) == 0 {
-		text.WriteString("（沒有附件）\n")
-	} else {
-		text.WriteString("附件：\n")
-		for _, doc := range documents {
-			fmt.Fprintf(&text, "- %s\n%s\n", doc.Filename, doc.URL)
-		}
-	}
-	text.WriteString("\n這是一般詢問，不是帳號申請；申請帳號請引導對方改用 /apply 表單。")
-	headerText := text.String()
-
-	messageID, err := n.send(ctx, n.chatID, headerText, nil)
 	if err != nil {
 		return 0, 0, "", err
 	}

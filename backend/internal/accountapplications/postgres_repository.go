@@ -25,15 +25,15 @@ func NewPostgresRepository(pool *pgxpool.Pool) (*PostgresRepository, error) {
 	return &PostgresRepository{pool: pool}, nil
 }
 
-func (r *PostgresRepository) Create(ctx context.Context, username, source, note string, emailCiphertext, emailLookupHash []byte) (Application, error) {
+func (r *PostgresRepository) Create(ctx context.Context, username, note string, emailCiphertext, emailLookupHash []byte) (Application, error) {
 	var app Application
 	var idText string
 	err := r.pool.QueryRow(ctx, `
-		INSERT INTO account_applications (requested_username, email_ciphertext, email_lookup_hash, source, note)
-		VALUES ($1, $2, $3, $4, $5)
-		RETURNING id::text, requested_username, source, note, status, created_at
-	`, username, emailCiphertext, emailLookupHash, source, note).Scan(
-		&idText, &app.RequestedUsername, &app.Source, &app.Note, &app.Status, &app.CreatedAt,
+		INSERT INTO account_applications (requested_username, email_ciphertext, email_lookup_hash, note)
+		VALUES ($1, $2, $3, $4)
+		RETURNING id::text, requested_username, note, status, created_at
+	`, username, emailCiphertext, emailLookupHash, note).Scan(
+		&idText, &app.RequestedUsername, &app.Note, &app.Status, &app.CreatedAt,
 	)
 	if err != nil {
 		return Application{}, fmt.Errorf("create account application: %w", err)
@@ -84,10 +84,10 @@ func (r *PostgresRepository) Get(ctx context.Context, applicationID uuid.UUID) (
 	var idText string
 	var createdAccountIDText *string
 	err := r.pool.QueryRow(ctx, `
-		SELECT id::text, requested_username, source, note, status, created_account_id::text,
+		SELECT id::text, requested_username, note, status, created_account_id::text,
 		       telegram_chat_id, telegram_message_id, telegram_header_text, created_at
 		FROM account_applications WHERE id = $1
-	`, applicationID).Scan(&idText, &app.RequestedUsername, &app.Source, &app.Note, &app.Status, &createdAccountIDText,
+	`, applicationID).Scan(&idText, &app.RequestedUsername, &app.Note, &app.Status, &createdAccountIDText,
 		&app.TelegramChatID, &app.TelegramMessageID, &app.TelegramHeaderText, &app.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Application{}, ErrNotFound
@@ -117,11 +117,11 @@ func (r *PostgresRepository) FindByTelegramMessage(ctx context.Context, chatID, 
 	var idText string
 	var createdAccountIDText *string
 	err := r.pool.QueryRow(ctx, `
-		SELECT id::text, requested_username, source, note, status, created_account_id::text,
+		SELECT id::text, requested_username, note, status, created_account_id::text,
 		       telegram_chat_id, telegram_message_id, telegram_header_text, created_at
 		FROM account_applications
 		WHERE telegram_chat_id = $1 AND telegram_message_id = $2
-	`, chatID, messageID).Scan(&idText, &app.RequestedUsername, &app.Source, &app.Note, &app.Status, &createdAccountIDText,
+	`, chatID, messageID).Scan(&idText, &app.RequestedUsername, &app.Note, &app.Status, &createdAccountIDText,
 		&app.TelegramChatID, &app.TelegramMessageID, &app.TelegramHeaderText, &app.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Application{}, ErrNotFound

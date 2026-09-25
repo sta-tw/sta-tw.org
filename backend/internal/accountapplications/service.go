@@ -20,7 +20,7 @@ import (
 var ErrInvalidInput = errors.New("invalid input")
 
 type Repository interface {
-	Create(ctx context.Context, username, source, note string, emailCiphertext, emailLookupHash []byte) (Application, error)
+	Create(ctx context.Context, username, note string, emailCiphertext, emailLookupHash []byte) (Application, error)
 	AddDocument(ctx context.Context, applicationID uuid.UUID, storageKey, filename, contentType string, sizeBytes int64, sha256Hex string) (Document, error)
 	// SetTelegramMessage records the one message this application's whole
 	// Telegram thread lives in (root, kept continuously edited — see
@@ -39,8 +39,7 @@ type Repository interface {
 	// in the recipient's mail client. actor is who said it (see Message).
 	AddMessage(ctx context.Context, applicationID uuid.UUID, direction, body, sourceMessageID, actor string) error
 	// LatestInboundMessageID returns the most recent inbound message's
-	// Message-ID for this application, or "" if none is on record (e.g. a
-	// web-form application with no email in the thread yet).
+	// Message-ID for this application, or "" if none is on record.
 	LatestInboundMessageID(ctx context.Context, applicationID uuid.UUID) (string, error)
 	MarkAccountIdentityVerified(ctx context.Context, accountID uuid.UUID) error
 	// FindByTelegramMessage resolves a staff reply typed directly in
@@ -80,13 +79,6 @@ type TelegramNotifier interface {
 	// Best-effort: the bot may lack delete rights in the group, and a
 	// failure here must never block the reply itself from going out.
 	DeleteMessage(ctx context.Context, chatID, messageID int64) error
-}
-
-// Attachment is one file pulled out of an inbound application email.
-type Attachment struct {
-	Filename    string
-	ContentType string
-	Data        []byte
 }
 
 type Service struct {
@@ -130,8 +122,7 @@ var replyMessageIDPattern = regexp.MustCompile(`account-application-([0-9a-fA-F-
 
 // ExtractApplicationIDFromHeaders looks for a prior messageIDFor(...) value
 // inside an inbound email's In-Reply-To/References headers. ok is false when
-// neither header references a known application (a brand new application,
-// not a reply).
+// neither header references a known application.
 func ExtractApplicationIDFromHeaders(inReplyTo, references string) (uuid.UUID, bool) {
 	for _, header := range []string{inReplyTo, references} {
 		if match := replyMessageIDPattern.FindStringSubmatch(header); match != nil {
@@ -143,41 +134,11 @@ func ExtractApplicationIDFromHeaders(inReplyTo, references string) (uuid.UUID, b
 	return uuid.UUID{}, false
 }
 
-var usernameLinePattern = regexp.MustCompile(`(?im)^\s*(?:帳號名稱|帳號|username)\s*[:：]\s*(.+?)\s*$`)
 var usernameSanitizePattern = regexp.MustCompile(`[^a-zA-Z0-9._-]+`)
 
-// IntakeFromEmail creates a pending application from a parsed inbound email
-// that isn't a reply to an existing one (see ExtractApplicationIDFromHeaders
-// — the handler routes actual replies to HandleInboundReply instead): the
-// applicant's own address (used as their contact email and to derive a
-// fallback username), the message body (scanned for an explicit "帳號名稱:
-// ..." line), and any attachments as proof documents. Kept as a fallback for
-// anyone who emails in without using the web form. sourceMessageID is the
-// email's own Message-ID header, recorded so a later reply from staff can
-// thread under it (see ReplyByTelegram).
-func (s *Service) IntakeFromEmail(ctx context.Context, fromAddress, subject, bodyText, sourceMessageID string, attachments []Attachment) (Application, error) {
-	applicantEmail := auth.NormalizeEmail(fromAddress)
-	if applicantEmail == "" {
-		return Application{}, fmt.Errorf("%w: sender address is empty", ErrInvalidInput)
-	}
-	username := extractUsername(bodyText, applicantEmail)
-	// Unlike SubmitFromWeb's note (the applicant's own typed explanation),
-	// this is the raw email body — reviewers need to actually read what was
-	// sent, not just the subject line.
-	body := strings.TrimSpace(bodyText)
-	if len(body) > 3500 {
-		body = body[:3500] + "…（內容過長，已截斷）"
-	}
-	note := body
-	if subject := strings.TrimSpace(subject); subject != "" {
-		note = "主旨：" + subject + "\n\n" + body
-	}
-	return s.createPending(ctx, "email", username, applicantEmail, note, sourceMessageID, attachments)
-}
-
 // SubmitFromWeb creates a pending application from the public application
-// form: the applicant chose their own username and typed their own note, so
-// neither needs the email-parsing heuristics IntakeFromEmail uses.
+// form: the only way to create an application (a cold email is an inquiry
+// instead — see internal/emailinquiries).
 func (s *Service) SubmitFromWeb(ctx context.Context, rawUsername, rawEmail, note string, attachments []Attachment) (Application, error) {
 	username := usernameSanitizePattern.ReplaceAllString(strings.ToLower(strings.TrimSpace(rawUsername)), "")
 	if len(username) < 3 {
@@ -191,16 +152,15 @@ func (s *Service) SubmitFromWeb(ctx context.Context, rawUsername, rawEmail, note
 	if len(note) > 2000 {
 		note = note[:2000]
 	}
-	return s.createPending(ctx, "web", username, applicantEmail, note, "", attachments)
+	return s.createPending(ctx, username, applicantEmail, note, attachments)
 }
 
 // createPending creates the application row, posts the Telegram card (a
 // minimal header — see renderCard), and then stores/renders note as the
 // thread's first turn. Content lives in exactly one place (the transcript),
 // never baked into the header text itself, so a later edit never shows it
-// twice. sourceMessageID is the originating email's Message-ID, empty for a
-// web-form submission (SubmitFromWeb).
-func (s *Service) createPending(ctx context.Context, source, username, applicantEmail, note, sourceMessageID string, attachments []Attachment) (Application, error) {
+// twice.
+func (s *Service) createPending(ctx context.Context, username, applicantEmail, note string, attachments []Attachment) (Application, error) {
 	emailCiphertext, err := s.emailCipher.Seal(applicantEmail)
 	if err != nil {
 		return Application{}, fmt.Errorf("protect applicant email: %w", err)
@@ -209,7 +169,7 @@ func (s *Service) createPending(ctx context.Context, source, username, applicant
 	if err != nil {
 		return Application{}, fmt.Errorf("hash applicant email: %w", err)
 	}
-	app, err := s.repository.Create(ctx, username, source, note, emailCiphertext, lookupHash)
+	app, err := s.repository.Create(ctx, username, note, emailCiphertext, lookupHash)
 	if err != nil {
 		return Application{}, err
 	}
@@ -229,7 +189,7 @@ func (s *Service) createPending(ctx context.Context, source, username, applicant
 			s.logger.Error("failed to record telegram message for account application", "application_id", app.ID, "error", err)
 		}
 		if note != "" {
-			if err := s.repository.AddMessage(ctx, app.ID, "inbound", note, sourceMessageID, "使用者"); err != nil {
+			if err := s.repository.AddMessage(ctx, app.ID, "inbound", note, "", "使用者"); err != nil {
 				s.logger.Error("failed to record initial account application message", "application_id", app.ID, "error", err)
 			} else {
 				s.refreshTelegramCard(ctx, app)
@@ -317,9 +277,7 @@ func (s *Service) refreshTelegramCard(ctx context.Context, app Application) {
 		s.logger.Error("failed to render telegram card", "application_id", app.ID, "error", err)
 		return
 	}
-	// An inquiry email never had decision buttons; an application still
-	// awaiting a decision should keep them through this edit.
-	showButtons := app.Source != "email" && app.Status == StatusPending
+	showButtons := app.Status == StatusPending
 	if err := s.telegram.UpdateMessage(ctx, *app.TelegramChatID, *app.TelegramMessageID, text, app.ID, showButtons); err != nil {
 		s.logger.Error("failed to update telegram card", "application_id", app.ID, "error", err)
 	}
@@ -351,46 +309,6 @@ func (s *Service) renderCard(ctx context.Context, app Application) (string, erro
 		text += transcript.String()
 	}
 	return truncateForTelegram(text), nil
-}
-
-// originalSubject pulls the "主旨：..." line IntakeFromEmail prefixes onto
-// an inquiry's Note (see there), for building a natural "Re: <subject>" on
-// a reply. Falls back to a generic subject when there wasn't one (a bare
-// email with no Subject header, or a web-form application's Note, which
-// isn't prefixed this way).
-func originalSubject(note string) string {
-	const prefix = "主旨："
-	if !strings.HasPrefix(note, prefix) {
-		return "你的來信"
-	}
-	rest := note[len(prefix):]
-	if newline := strings.IndexByte(rest, '\n'); newline >= 0 {
-		rest = rest[:newline]
-	}
-	subject := strings.TrimSpace(rest)
-	if subject == "" {
-		return "你的來信"
-	}
-	return subject
-}
-
-func extractUsername(bodyText, fallbackEmail string) string {
-	if match := usernameLinePattern.FindStringSubmatch(bodyText); match != nil {
-		cleaned := usernameSanitizePattern.ReplaceAllString(strings.TrimSpace(match[1]), "")
-		if len(cleaned) >= 3 {
-			return strings.ToLower(cleaned)
-		}
-	}
-	at := strings.IndexByte(fallbackEmail, '@')
-	local := fallbackEmail
-	if at > 0 {
-		local = fallbackEmail[:at]
-	}
-	cleaned := usernameSanitizePattern.ReplaceAllString(local, "")
-	if len(cleaned) < 3 {
-		cleaned = cleaned + "applicant"
-	}
-	return strings.ToLower(cleaned)
 }
 
 // Approve creates an active, verified-student account for a pending
@@ -492,9 +410,8 @@ func (s *Service) Reject(ctx context.Context, applicationID uuid.UUID, reviewerA
 
 // ReplyByTelegram sends free text — typed by a staff member directly as a
 // Telegram reply to one of our notification messages — back to the
-// applicant as an email on the same thread. This is the only way to answer
-// an inquiry (no approve/reject buttons apply there) and also works for a
-// pending application without needing a decision first.
+// applicant as an email on the same thread. Works for a pending application
+// without needing a decision first.
 //
 // staffMessageID/staffName identify the staff member's own typed message
 // (the one Telegram is already showing in the chat): after the email goes
@@ -526,26 +443,13 @@ func (s *Service) ReplyByTelegram(ctx context.Context, chatID, messageID, staffM
 	if err != nil {
 		s.logger.Warn("failed to look up latest inbound message id for telegram reply", "application_id", app.ID, "error", err)
 	}
-	// An emailed-in thread is an inquiry, not an application — the reply
-	// should read like an ordinary person answering an email, not a
-	// branded system notification. No InfoEmail box, plain "Re: <subject>".
-	// Application threads (source != "email") keep the templated look,
-	// since that's still a formal review response.
-	if app.Source == "email" {
-		err = s.mailer.Send(ctx, email.Message{
-			To: applicantEmail, Subject: "Re: " + originalSubject(app.Note), Text: body,
-			MessageID: s.messageIDFor(app.ID),
-			InReplyTo: inReplyTo,
-		})
-	} else {
-		const subject = "STA 帳號申請信箱回覆"
-		err = s.mailer.Send(ctx, email.Message{
-			To: applicantEmail, Subject: subject, Text: body,
-			HTML:      email.InfoEmail(subject, []string{body}),
-			MessageID: s.messageIDFor(app.ID),
-			InReplyTo: inReplyTo,
-		})
-	}
+	const subject = "STA 帳號申請信箱回覆"
+	err = s.mailer.Send(ctx, email.Message{
+		To: applicantEmail, Subject: subject, Text: body,
+		HTML:      email.InfoEmail(subject, []string{body}),
+		MessageID: s.messageIDFor(app.ID),
+		InReplyTo: inReplyTo,
+	})
 	if err != nil {
 		return Application{}, err
 	}

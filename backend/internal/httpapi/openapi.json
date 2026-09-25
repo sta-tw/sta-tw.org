@@ -12645,6 +12645,51 @@
         }
       }
     },
+    "/api/v1/internal/email-inquiries/reply-by-telegram": {
+      "post": {
+        "operationId": "post_api_v1_internal_email_inquiries_reply_by_telegram",
+        "summary": "Create internal email inquiries reply by telegram",
+        "tags": [
+          "internal-email-inquiries"
+        ],
+        "security": [
+          {
+            "serviceToken": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/internal/extraction/brochures": {
       "post": {
         "operationId": "post_api_v1_internal_extraction_brochures",

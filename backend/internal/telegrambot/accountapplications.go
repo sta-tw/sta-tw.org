@@ -69,12 +69,17 @@ func (b *Bot) handleAccountApplicationCallback(ctx context.Context, callback Cal
 }
 
 // handleAccountApplicationReplyMessage forwards a staff member's plain-text
-// reply (typed as a Telegram reply to the application's card message) to
-// cmd/api, which emails it to the applicant and folds the reply into the
+// reply (typed as a Telegram reply to a notification card) to cmd/api,
+// which emails it to the applicant/sender and folds the reply into the
 // card's transcript (deleting this raw message in the process — see
-// Service.ReplyByTelegram). A 404 means the replied-to message isn't the
-// card (this chat may be used for other conversation too), so that's
-// silently ignored rather than surfaced as an error.
+// accountapplications/emailinquiries Service.ReplyByTelegram). The replied-
+// to card may belong to either an account application or an email inquiry
+// (internal/accountmail is the only place that knows how to tell them
+// apart from the reply's own In-Reply-To header, which this message
+// doesn't have) — so this tries the application endpoint first, then the
+// inquiry endpoint on a 404. A 404 from both means the replied-to message
+// isn't one of ours (this chat may be used for other conversation too), so
+// that's silently ignored rather than surfaced as an error.
 func (b *Bot) handleAccountApplicationReplyMessage(ctx context.Context, message Message) error {
 	if b.accountApplicationReviewToken == "" || message.ReplyToMessage == nil {
 		return nil
@@ -91,14 +96,21 @@ func (b *Bot) handleAccountApplicationReplyMessage(ctx context.Context, message 
 			staffName = message.From.FirstName
 		}
 	}
-	status, err := b.accountApplicationRequest(ctx, http.MethodPost, "/api/v1/internal/account-applications/reply-by-telegram",
-		map[string]any{
-			"chat_id":          message.Chat.ID,
-			"message_id":       message.ReplyToMessage.MessageID,
-			"staff_message_id": message.MessageID,
-			"staff_name":       staffName,
-			"body":             body,
-		}, nil)
+	payload := map[string]any{
+		"chat_id":          message.Chat.ID,
+		"message_id":       message.ReplyToMessage.MessageID,
+		"staff_message_id": message.MessageID,
+		"staff_name":       staffName,
+		"body":             body,
+	}
+	status, err := b.accountApplicationRequest(ctx, http.MethodPost, "/api/v1/internal/account-applications/reply-by-telegram", payload, nil)
+	if err == nil {
+		return nil
+	}
+	if status != http.StatusNotFound {
+		return b.sendText(ctx, message.Chat.ID, "回覆寄送失敗，請稍後再試。")
+	}
+	status, err = b.accountApplicationRequest(ctx, http.MethodPost, "/api/v1/internal/email-inquiries/reply-by-telegram", payload, nil)
 	if err != nil && status != http.StatusNotFound {
 		return b.sendText(ctx, message.Chat.ID, "回覆寄送失敗，請稍後再試。")
 	}

@@ -1,4 +1,4 @@
-package accountapplications
+package mailintake
 
 import (
 	"encoding/base64"
@@ -28,7 +28,7 @@ const nestedMultipartEmail = "" +
 	"--outer--\r\n"
 
 func TestParseBodyNestedMultipartWithAttachment(t *testing.T) {
-	body, attachments := parseBody("multipart/mixed; boundary=outer", "", strings.NewReader(nestedMultipartEmail))
+	body, attachments := ParseBody("multipart/mixed; boundary=outer", "", strings.NewReader(nestedMultipartEmail))
 
 	if !strings.Contains(body, "帳號名稱: my-cool-user") {
 		t.Fatalf("expected plain-text body to be extracted from nested multipart/alternative, got %q", body)
@@ -53,7 +53,7 @@ func TestStripQuotedReplyRemovesGmailQuoteBlock(t *testing.T) {
 		"<account@mail.sta-tw.org> 於 2026年9月18日週五 上午1:00寫道：\r\n" +
 		">\r\n" +
 		"> 原本的信件內容在這裡\r\n"
-	got := stripQuotedReply(body)
+	got := StripQuotedReply(body)
 	if got != "測試回覆 這一段式不重要得資訊" {
 		t.Fatalf("expected quoted block stripped, got %q", got)
 	}
@@ -61,7 +61,7 @@ func TestStripQuotedReplyRemovesGmailQuoteBlock(t *testing.T) {
 
 func TestStripQuotedReplyRemovesEnglishWroteHeader(t *testing.T) {
 	body := "thanks, got it\n\nOn Fri, Sep 18, 2026 at 1:00 AM <account@mail.sta-tw.org> wrote:\n> original message\n"
-	got := stripQuotedReply(body)
+	got := StripQuotedReply(body)
 	if got != "thanks, got it" {
 		t.Fatalf("expected quoted block stripped, got %q", got)
 	}
@@ -69,7 +69,7 @@ func TestStripQuotedReplyRemovesEnglishWroteHeader(t *testing.T) {
 
 func TestStripQuotedReplyLeavesPlainBodyAlone(t *testing.T) {
 	body := "沒有引用內容的普通回覆"
-	if got := stripQuotedReply(body); got != body {
+	if got := StripQuotedReply(body); got != body {
 		t.Fatalf("expected body unchanged, got %q", got)
 	}
 }
@@ -80,33 +80,11 @@ func TestStripQuotedReplyLeavesPlainBodyAlone(t *testing.T) {
 // being used as the body verbatim.
 func TestParseBodySinglePartBase64(t *testing.T) {
 	raw := base64.StdEncoding.EncodeToString([]byte("沒有收到驗證信"))
-	body, attachments := parseBody("text/plain; charset=UTF-8", "base64", strings.NewReader(raw))
+	body, attachments := ParseBody("text/plain; charset=UTF-8", "base64", strings.NewReader(raw))
 	if body != "沒有收到驗證信" {
 		t.Fatalf("expected decoded base64 body, got %q", body)
 	}
 	if len(attachments) != 0 {
 		t.Fatalf("expected no attachments, got %d", len(attachments))
-	}
-}
-
-func TestExtractUsername(t *testing.T) {
-	cases := []struct {
-		name     string
-		body     string
-		email    string
-		expected string
-	}{
-		{"explicit chinese label", "帳號名稱: HelloWorld123\n其他內容", "someone@gmail.com", "helloworld123"},
-		{"explicit english label", "username: another-name\n", "someone@gmail.com", "another-name"},
-		{"falls back to email local part", "沒有指定帳號", "jane.doe@gmail.com", "jane.doe"},
-		{"sanitizes disallowed characters", "帳號: 王小明!!!", "someone@gmail.com", "someone"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got := extractUsername(tc.body, tc.email)
-			if got != tc.expected {
-				t.Fatalf("extractUsername(%q, %q) = %q, want %q", tc.body, tc.email, got, tc.expected)
-			}
-		})
 	}
 }
