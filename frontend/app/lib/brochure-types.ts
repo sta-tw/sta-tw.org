@@ -1,23 +1,26 @@
+import type { ReactNode } from "react";
 import type { BrochureFilterId } from "../data/brochure-filters";
 import type { ExternalLink } from "./open-graph";
 
 export type BrochureFact = {
     label: string;
-    value: string;
+    value: ReactNode;
 };
 
 export type BrochureHistory = {
     year: string;
+    quota: string;
+    applicants: string;
     admitted: string;
     waitlisted: string;
-    candidates: string;
-    applicants: string;
+    promoted: string;
 };
 
 export type BrochureTimelineItem = {
     id: string;
     title: string;
     date: string;
+    notes?: string;
     /** "YYYY-MM-DD", when the underlying data has a real date — powers
      * "新增至日曆". Missing when the item is only a human-readable fallback
      * (e.g. "以官方簡章公告為準"). Also used to color each item relative to

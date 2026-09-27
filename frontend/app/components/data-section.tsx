@@ -10,7 +10,7 @@ type Stat = {
 };
 
 const FALLBACK_STATS: Stat[] = [
-    { number: "-", label: "特選簡章數" },
+    { number: "-", label: "參加科系數" },
     { number: "-", label: "網站已註冊人數" },
     { number: "-", label: "DC 群人數" }
 ];
@@ -31,7 +31,7 @@ export default function DataSection() {
                 if (publicStatsResult.status === "fulfilled") {
                     next[0] = {
                         ...next[0],
-                        number: publicStatsResult.value.data.brochure_count.toLocaleString("zh-TW")
+                        number: publicStatsResult.value.data.program_count.toLocaleString("zh-TW")
                     };
                     next[1] = {
                         ...next[1],

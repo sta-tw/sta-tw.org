@@ -1,6 +1,7 @@
 import { apiFetch } from "./client";
 
 export interface PublicStats {
+    program_count: number;
     brochure_count: number;
     registered_accounts: number;
 }

@@ -1,6 +1,7 @@
 package admissions
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strconv"
@@ -12,13 +13,24 @@ import (
 type AdminHandler struct {
 	authService *auth.Service
 	repository  AdminRepository
+	invalidator Invalidator
 }
 
-func NewAdminHandler(authService *auth.Service, repository AdminRepository) (*AdminHandler, error) {
+func NewAdminHandler(authService *auth.Service, repository AdminRepository, invalidators ...Invalidator) (*AdminHandler, error) {
 	if authService == nil || repository == nil {
 		return nil, errors.New("admission admin handler dependencies are missing")
 	}
-	return &AdminHandler{authService: authService, repository: repository}, nil
+	var inv Invalidator
+	if len(invalidators) > 0 {
+		inv = invalidators[0]
+	}
+	return &AdminHandler{authService: authService, repository: repository, invalidator: inv}, nil
+}
+
+func (h *AdminHandler) invalidate(ctx context.Context) {
+	if h.invalidator != nil {
+		h.invalidator.Invalidate(ctx)
+	}
 }
 
 func (h *AdminHandler) RegisterRoutes(mux *http.ServeMux) {
@@ -28,6 +40,7 @@ func (h *AdminHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/admin/admissions/programs/sync", h.sync)
 	mux.HandleFunc("PUT /api/v1/admin/admissions/programs/{identifier}", h.update)
 	mux.HandleFunc("DELETE /api/v1/admin/admissions/programs/{identifier}", h.delete)
+	mux.HandleFunc("POST /api/v1/admin/admissions/programs/{identifier}/archive", h.archive)
 	mux.HandleFunc("POST /api/v1/admin/admissions/programs/{identifier}/review", h.review)
 }
 
@@ -106,6 +119,7 @@ func (h *AdminHandler) sync(w http.ResponseWriter, r *http.Request) {
 		h.writeAdminError(w, err)
 		return
 	}
+	h.invalidate(r.Context())
 	writeAdmissionJSON(w, http.StatusOK, map[string]any{
 		"data": items,
 		"meta": map[string]any{"count": len(items)},
@@ -138,6 +152,7 @@ func (h *AdminHandler) update(w http.ResponseWriter, r *http.Request) {
 		h.writeAdminError(w, err)
 		return
 	}
+	h.invalidate(r.Context())
 	writeAdmissionJSON(w, http.StatusOK, map[string]any{"data": items[0]})
 }
 
@@ -161,6 +176,7 @@ func (h *AdminHandler) review(w http.ResponseWriter, r *http.Request) {
 		h.writeAdminError(w, err)
 		return
 	}
+	h.invalidate(r.Context())
 	writeAdmissionJSON(w, http.StatusOK, map[string]any{"data": item})
 }
 
@@ -185,7 +201,37 @@ func (h *AdminHandler) delete(w http.ResponseWriter, r *http.Request) {
 		h.writeAdminError(w, err)
 		return
 	}
+	h.invalidate(r.Context())
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// archive toggles a program between published and archived — for hiding a
+// program from the public site while still editing its data, without the
+// full delete/decision workflow.
+func (h *AdminHandler) archive(w http.ResponseWriter, r *http.Request) {
+	session, ok := h.requireAdminMutation(w, r)
+	if !ok {
+		return
+	}
+	identifier, err := parseAdminProgramIdentifier(r)
+	if err != nil {
+		writeAdmissionError(w, http.StatusBadRequest, "invalid_program_identifier", "program identifier is invalid")
+		return
+	}
+	var input struct {
+		Archived bool   `json:"archived"`
+		Reason   string `json:"reason"`
+	}
+	if err := decodeBrochureJSON(r, &input); err != nil {
+		writeAdmissionError(w, http.StatusBadRequest, "invalid_archive", "request body is invalid")
+		return
+	}
+	item, err := h.repository.SetProgramArchived(r.Context(), session.Session.Account.ID, identifier, input.Archived, input.Reason)
+	if err != nil {
+		h.writeAdminError(w, err)
+		return
+	}
+	writeAdmissionJSON(w, http.StatusOK, map[string]any{"data": item})
 }
 
 func (h *AdminHandler) requireAdmin(w http.ResponseWriter, r *http.Request) (auth.RequestSession, bool) {

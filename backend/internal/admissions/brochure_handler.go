@@ -17,12 +17,20 @@ import (
 )
 
 type BrochureHandler struct {
-	authService   *auth.Service
-	repository    BrochureRepository
-	blobStore     storage.BlobStore
-	scanner       storage.Scanner
-	dispatcher    BrochureExtractionDispatcher
-	uploadLimiter *security.FixedWindowLimiter
+	authService        *auth.Service
+	repository         BrochureRepository
+	blobStore          storage.BlobStore
+	scanner            storage.Scanner
+	dispatcher         BrochureExtractionDispatcher
+	uploadLimiter      *security.FixedWindowLimiter
+	distributedLimiter security.DistributedLimiter
+}
+
+// ConfigureDistributedLimiter wires a cross-replica rate-limit backend on top
+// of the local fast-path limiter, mirroring the pattern already used by
+// auth/chat/support/verification.
+func (h *BrochureHandler) ConfigureDistributedLimiter(limiter security.DistributedLimiter) {
+	h.distributedLimiter = limiter
 }
 
 func NewBrochureHandler(authService *auth.Service, repository BrochureRepository, blobStore storage.BlobStore) (*BrochureHandler, error) {
@@ -225,7 +233,7 @@ func (h *BrochureHandler) listEvents(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *BrochureHandler) upload(w http.ResponseWriter, r *http.Request) {
-	session, ok := h.requireAdmin(w, r)
+	session, ok := h.requireAdminMutation(w, r)
 	if !ok {
 		return
 	}
@@ -236,7 +244,12 @@ func (h *BrochureHandler) upload(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	rl := h.uploadLimiter.Take(session.Session.Account.ID.String(), now)
 	security.WriteRateLimitHeaders(w, rl, now)
-	if !rl.Allowed {
+	allowed, err := security.CheckDistributed(r.Context(), h.distributedLimiter, rl.Allowed, "admissions-upload", session.Session.Account.ID.String(), 30, time.Minute, now)
+	if err != nil {
+		writeAdmissionError(w, http.StatusServiceUnavailable, "rate_limit_unavailable", "rate limiting is temporarily unavailable")
+		return
+	}
+	if !allowed {
 		writeAdmissionError(w, http.StatusTooManyRequests, "rate_limited", "too many uploads")
 		return
 	}
@@ -337,7 +350,7 @@ func (h *BrochureHandler) upload(w http.ResponseWriter, r *http.Request) {
 // uploadDirect stages/scans/stores like upload(), but skips extraction and takes
 // an admin-declared academic_year/school_code directly; still lands as pending.
 func (h *BrochureHandler) uploadDirect(w http.ResponseWriter, r *http.Request) {
-	session, ok := h.requireAdmin(w, r)
+	session, ok := h.requireAdminMutation(w, r)
 	if !ok {
 		return
 	}
@@ -348,7 +361,12 @@ func (h *BrochureHandler) uploadDirect(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	rl := h.uploadLimiter.Take(session.Session.Account.ID.String(), now)
 	security.WriteRateLimitHeaders(w, rl, now)
-	if !rl.Allowed {
+	allowed, err := security.CheckDistributed(r.Context(), h.distributedLimiter, rl.Allowed, "admissions-upload", session.Session.Account.ID.String(), 30, time.Minute, now)
+	if err != nil {
+		writeAdmissionError(w, http.StatusServiceUnavailable, "rate_limit_unavailable", "rate limiting is temporarily unavailable")
+		return
+	}
+	if !allowed {
 		writeAdmissionError(w, http.StatusTooManyRequests, "rate_limited", "too many uploads")
 		return
 	}

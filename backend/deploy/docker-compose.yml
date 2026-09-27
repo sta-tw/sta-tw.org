@@ -24,6 +24,7 @@ x-app-image: &app-image
 services:
   postgres:
     image: postgres:16-alpine
+    command: postgres -c max_connections=120
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-sta}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sta}
@@ -112,6 +113,99 @@ services:
       timeout: 5s
       retries: 20
 
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--requirepass", "${STA_REDIS_PASSWORD:?STA_REDIS_PASSWORD is required}", "--appendonly", "yes"]
+    environment:
+      STA_REDIS_PASSWORD: ${STA_REDIS_PASSWORD:?STA_REDIS_PASSWORD is required}
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$STA_REDIS_PASSWORD\" ping | grep -q PONG"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  # --- Monitoring stack (Grafana + Prometheus) ---
+  # None of these publish a host port; Grafana is the only one reachable from
+  # outside, and only via the caddy reverse proxy below (see
+  # STA_GRAFANA_HOSTNAME), never directly.
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    privileged: true
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    restart: unless-stopped
+
+  postgres-exporter:
+    image: quay.io/prometheuscommunity/postgres-exporter:latest
+    environment:
+      DATA_SOURCE_NAME: "postgresql://${POSTGRES_USER:-sta}:${POSTGRES_PASSWORD:-sta}@postgres:5432/${POSTGRES_DB:-sta}?sslmode=disable"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  redis-exporter:
+    image: oliver006/redis_exporter:latest
+    environment:
+      REDIS_ADDR: "redis:6379"
+      REDIS_PASSWORD: ${STA_REDIS_PASSWORD:?STA_REDIS_PASSWORD is required}
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    depends_on:
+      - cadvisor
+      - postgres-exporter
+      - redis-exporter
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana-oss:latest
+    environment:
+      GF_SERVER_ROOT_URL: "https://${STA_GRAFANA_HOSTNAME}/"
+      # No password login of its own: Caddy's forward_auth (see Caddyfile)
+      # only lets a request through once the API confirms the caller is
+      # already a logged-in STA admin, and hands Grafana that account's
+      # username via X-WEBAUTH-USER. Grafana auto-provisions a matching local
+      # user on first sight and grants it Grafana's Admin role — reasonable
+      # here since forward_auth already means every arrival is an STA admin.
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_AUTH_BASIC_ENABLED: "false"
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_AUTH_PROXY_ENABLED: "true"
+      GF_AUTH_PROXY_HEADER_NAME: "X-WEBAUTH-USER"
+      GF_AUTH_PROXY_HEADER_PROPERTY: "username"
+      GF_AUTH_PROXY_AUTO_SIGN_UP: "true"
+      GF_AUTH_PROXY_SYNC_TTL: "5"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: "/etc/grafana/dashboards/home-dashboard.json"
+      # No GF_AUTH_PROXY_WHITELIST: that pins trusted source IPs, but
+      # Grafana's container has no published host port at all, so the only
+      # thing that can ever reach it is Caddy over the internal compose
+      # network — trusting whichever IP that happens to be doesn't add any
+      # real restriction, and a wrong static IP here would just as easily
+      # break it outright when the network assigns a different one.
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+      - ./monitoring/home-dashboard.json:/etc/grafana/dashboards/home-dashboard.json:ro
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
   mailhog:
     image: mailhog/mailhog:latest
     profiles: ["dev"]
@@ -192,6 +286,8 @@ services:
         condition: service_completed_successfully
       meilisearch:
         condition: service_started
+      redis:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "/app/healthcheck", "/readyz"]
       interval: 10s
@@ -230,6 +326,9 @@ services:
   notification-worker:
     <<: *app-image
     command: ["notification-worker"]
+    # Multiple workers claim disjoint outbox rows with FOR UPDATE SKIP LOCKED.
+    deploy:
+      replicas: 3
     environment:
       STA_HEALTHCHECK_URL: http://127.0.0.1:9090/healthz
     healthcheck:
@@ -321,18 +420,37 @@ services:
       postgres:
         condition: service_healthy
 
+  # One-shot: builds the Next.js static export and publishes it into the
+  # frontend-static volume via an atomic symlink swap (see
+  # ../frontend/Dockerfile). Re-run this alone for a frontend-only deploy —
+  # it never touches the caddy container, so there's no port gap.
+  #
+  #   docker compose build frontend-build && docker compose run --rm frontend-build
+  frontend-build:
+    image: sta-frontend-build:local
+    build:
+      context: ../..
+      dockerfile: backend/deploy/frontend/Dockerfile
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ${STA_FRONTEND_API_BASE_URL:-}
+    volumes:
+      - frontend-static:/out
+    environment:
+      STA_CLOUDFLARE_API_TOKEN: ${STA_CLOUDFLARE_API_TOKEN:-}
+      STA_CLOUDFLARE_ZONE_ID: ${STA_CLOUDFLARE_ZONE_ID:-}
+    restart: "no"
+
   caddy:
     image: sta-caddy:local
     build:
       context: ../..
       dockerfile: backend/deploy/caddy/Dockerfile
-      args:
-        NEXT_PUBLIC_API_BASE_URL: ${STA_FRONTEND_API_BASE_URL:-}
     environment:
       STA_DOMAIN: ${STA_DOMAIN:-:80}
       STA_ACME_EMAIL: ${STA_ACME_EMAIL:-admin@sta-tw.org}
       STA_MAIL_HOSTNAME: ${STA_MAIL_HOSTNAME:-:8081}
       STA_OBJECT_STORAGE_PUBLIC_HOSTNAME: ${STA_OBJECT_STORAGE_PUBLIC_HOSTNAME:-:8082}
+      STA_GRAFANA_HOSTNAME: ${STA_GRAFANA_HOSTNAME:-:8083}
     ports:
       - "80:80"
       - "443:443"
@@ -340,9 +458,17 @@ services:
     volumes:
       - caddy-data:/data
       - caddy-config:/config
+      - frontend-static:/srv/frontend:ro
+      # Bind-mounted (not baked into the image) so a Caddyfile-only change
+      # can be applied with `caddy reload` — zero-downtime, no container
+      # recreate. scp the file here, then:
+      #   docker exec sta-backend-caddy-1 caddy reload --config /etc/caddy/Caddyfile
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
     depends_on:
       api:
         condition: service_healthy
+      frontend-build:
+        condition: service_completed_successfully
     restart: unless-stopped
 
 volumes:
@@ -351,6 +477,10 @@ volumes:
   rabbitmq-data:
   clamav-signatures:
   meili-data:
+  redis-data:
+  prometheus-data:
+  grafana-data:
+  frontend-static:
   caddy-data:
   caddy-config:
   postfix-tls:

@@ -69,6 +69,7 @@ export interface AdmissionProgram {
     interview_count: string;
     admitted_count: string;
     waitlisted_count: string;
+    promoted_count: string;
     admission_rate: string;
     first_stage_pass_rate: string;
     competition_ratio: string;
@@ -157,6 +158,7 @@ export interface AdmissionProgramInput {
     interview_count: string;
     admitted_count: string;
     waitlisted_count: string;
+    promoted_count: string;
     admission_rate: string;
     first_stage_pass_rate: string;
     competition_ratio: string;
@@ -236,6 +238,17 @@ export interface AdminBrochureUploadResponse {
 export function listAdmissionSchools(options?: { academicYear?: number; signal?: AbortSignal }) {
     return apiFetch<AdmissionListResponse<AdmissionSchool>>("/api/v1/admissions/schools", {
         query: { academic_year: options?.academicYear },
+        signal: options?.signal
+    });
+}
+
+/** The general school directory (GET /api/v1/schools) — every active
+ * school, regardless of whether it currently has a published admission
+ * program. Use this for a pure school_code -> name lookup; listAdmissionSchools
+ * only returns schools with a currently published, quota>0 116-year program. */
+export function listAllSchools(options?: { signal?: AbortSignal }) {
+    return apiFetch<{ data: AdmissionSchool[] }>("/api/v1/schools", {
+        query: { limit: 200 },
         signal: options?.signal
     });
 }
@@ -437,6 +450,24 @@ export function reviewAdminAdmissionProgram(
         {
             method: "POST",
             body: { approved, reason },
+            headers: adminHeaders(mfaCode)
+        }
+    );
+}
+
+/** Toggles a published program between published/archived without touching
+ * its data — for hiding it from the public site while still editing it. */
+export function setAdminAdmissionProgramArchived(
+    identifier: string,
+    archived: boolean,
+    reason: string,
+    mfaCode?: string
+) {
+    return apiFetch<{ data: AdminAdmissionProgram }>(
+        `/api/v1/admin/admissions/programs/${encodeURIComponent(identifier)}/archive`,
+        {
+            method: "POST",
+            body: { archived, reason },
             headers: adminHeaders(mfaCode)
         }
     );

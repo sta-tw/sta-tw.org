@@ -46,6 +46,40 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/admin/users/{accountID}/reinstate", h.reinstateUser)
 	mux.HandleFunc("POST /api/v1/admin/users/{accountID}/force-logout", h.forceLogoutUser)
 	mux.HandleFunc("POST /api/v1/admin/users/{accountID}/admissions-moderator", h.setAdmissionsModerator)
+	mux.HandleFunc("POST /api/v1/admin/users/{accountID}/reset-password", h.resetPassword)
+	mux.HandleFunc("GET /api/v1/admin/grafana-auth", h.grafanaAuth)
+}
+
+// grafanaAuth backs Caddy's forward_auth gate in front of the Grafana
+// subdomain (see Caddyfile): Grafana itself has no public port and no
+// password login of its own — anyone who reaches it got there because this
+// endpoint's 200 response (and the identity header it sets) proved they're
+// already an authenticated STA admin. There's no separate Grafana account to
+// provision or keep in sync.
+//
+// Deliberately doesn't reuse requireAdmin: that also enforces admin MFA via
+// an X-MFA-Code header, which only the SPA's own fetch calls can attach.
+// Caddy's forward_auth is a plain top-level page load with no way to prompt
+// for or forward an MFA code, so this checks session + admin role only.
+func (h *Handler) grafanaAuth(w http.ResponseWriter, r *http.Request) {
+	session, err := h.auth.Authenticate(r.Context(), r)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized", "authentication is required")
+		return
+	}
+	var isAdmin bool
+	if err := h.pool.QueryRow(r.Context(),
+		`SELECT EXISTS (SELECT 1 FROM account_roles WHERE account_id = $1 AND role = 'admin')`,
+		session.Session.Account.ID).Scan(&isAdmin); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	if !isAdmin {
+		writeError(w, http.StatusForbidden, "admin_required", "administrator permission is required")
+		return
+	}
+	w.Header().Set("X-WEBAUTH-USER", session.Session.Account.Username)
+	w.WriteHeader(http.StatusOK)
 }
 
 // requireAdmin authenticates the caller, confirms the admin role and enforces

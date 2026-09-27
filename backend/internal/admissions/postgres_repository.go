@@ -21,6 +21,47 @@ func normalizeTaiVariant(value string) string {
 	return strings.ReplaceAll(value, "臺", "台")
 }
 
+// schoolAbbreviations covers common short forms of a school's name that
+// AREN'T a contiguous substring of the official name (so ILIKE '%term%'
+// alone can't find them) — e.g. "交大" doesn't literally appear in "國立陽
+// 明交通大學" (the sequence there is 交-通-大, not 交-大). A name like "中興
+// 大學", where the short form IS already a contiguous substring (中興 or
+// 興大), needs no entry here. Kept in sync with the equivalent Meilisearch
+// synonym list in internal/search/meili.go, which serves the separate
+// /api/v1/search endpoint.
+var schoolAbbreviations = map[string][]string{
+	"政大": {"政治大學"}, "清大": {"清華大學"}, "台大": {"台灣大學"},
+	"師大": {"台灣師範大學"}, "成大": {"成功大學"},
+	"交大": {"陽明交通大學"}, "陽明交大": {"陽明交通大學"},
+	"中大": {"中央大學", "中山大學", "中原大學"},
+	"海大": {"台灣海洋大學"}, "高師大": {"高雄師範大學"}, "彰師大": {"彰化師範大學"},
+	"嘉大": {"嘉義大學"}, "高大": {"高雄大學"}, "暨大": {"暨南國際大學"},
+	"北藝大": {"台北藝術大學"}, "台藝大": {"台灣藝術大學"},
+	"宜大": {"宜蘭大學"}, "南大": {"台南大學"},
+	"北教大": {"台北教育大學"}, "中教大": {"台中教育大學"}, "屏大": {"屏東大學"},
+	"台科大": {"台灣科技大學"}, "雲科大": {"雲林科技大學"}, "屏科大": {"屏東科技大學"},
+	"北科大": {"台北科技大學"}, "虎科大": {"虎尾科技大學"},
+	"高餐大": {"高雄餐旅大學"}, "高餐": {"高雄餐旅大學"},
+	"台中科大": {"台中科技大學"}, "中科大": {"台中科技大學"},
+	"北商大": {"台北商業大學"}, "高科大": {"高雄科技大學"},
+	"輔大": {"輔仁大學"}, "淡大": {"淡江大學"},
+	"高醫": {"高雄醫學大學"}, "高醫大": {"高雄醫學大學"},
+	"北醫": {"台北醫學大學"}, "北醫大": {"台北醫學大學"},
+	"亞大": {"亞洲大學"},
+}
+
+// searchTermCandidates expands one whitespace-split search term into every
+// string it should be ILIKE-matched against: itself, plus any school full
+// names it's a known abbreviation for.
+func searchTermCandidates(term string) []string {
+	normalized := normalizeTaiVariant(term)
+	candidates := []string{normalized}
+	if expansions, ok := schoolAbbreviations[normalized]; ok {
+		candidates = append(candidates, expansions...)
+	}
+	return candidates
+}
+
 type PostgresRepository struct {
 	pool *pgxpool.Pool
 }
@@ -56,38 +97,79 @@ func (r *PostgresRepository) ListPrograms(ctx context.Context, query ProgramQuer
 		conditions = append(conditions, fmt.Sprintf("p.program_code = $%d", len(args)))
 	}
 	if query.Search != "" {
-		// Normalize 台/臺 on both sides so either variant matches.
-		args = append(args, "%"+normalizeTaiVariant(query.Search)+"%")
-		conditions = append(conditions, fmt.Sprintf("(REPLACE(s.school_name, '臺', '台') ILIKE $%d OR REPLACE(p.admission_program_name, '臺', '台') ILIKE $%d)", len(args), len(args)))
+		// Each whitespace-separated term must match somewhere (school name or
+		// program name) — this lets a query like "淡江 經濟" require the
+		// school AND the department to both be satisfied, even though they
+		// live in different columns. Within a term, an abbreviation (e.g.
+		// "交大") also matches the school's full name.
+		for _, term := range strings.Fields(query.Search) {
+			var orParts []string
+			for _, candidate := range searchTermCandidates(term) {
+				args = append(args, "%"+candidate+"%")
+				orParts = append(orParts, fmt.Sprintf("REPLACE(s.school_name, '臺', '台') ILIKE $%d", len(args)))
+				args = append(args, "%"+candidate+"%")
+				orParts = append(orParts, fmt.Sprintf("REPLACE(p.admission_program_name, '臺', '台') ILIKE $%d", len(args)))
+			}
+			conditions = append(conditions, "("+strings.Join(orParts, " OR ")+")")
+		}
 	}
-	args = append(args, query.Limit, query.Offset)
-	limitPosition, offsetPosition := len(args)-1, len(args)
+	// Catalogue-wide reads (no explicit academic_year, no single-program
+	// lookup) collapse every school+program pair down to its newest
+	// published academic_year — that's the only row anyone browsing/
+	// searching the site should see. A specific academic_year, or a
+	// school_code+program_code pair (getAdmissionProgramHistory, the 歷年
+	// tab), still gets every matching row.
+	dedupeToLatestYear := query.AcademicYear <= 0 && query.ProgramCode == ""
+	args = append(args, dedupeToLatestYear, query.Limit, query.Offset)
+	dedupePosition, limitPosition, offsetPosition := len(args)-2, len(args)-1, len(args)
 	statement := fmt.Sprintf(`
+		WITH ranked AS (
+			SELECT
+				p.academic_year, p.program_identifier, p.school_code, s.school_name,
+				p.program_code, p.admission_program_name, p.admission_quota,
+				p.willingness_values,
+				p.brochure_is_tentative,
+				p.consultation_phone, p.brochure_url, p.special_talent_target,
+				p.different_education_backgrounds, p.different_education_other,
+				p.notes, COALESCE(p.source_locator, '-') AS source_locator, p.consultation_email, p.consultation_contact,
+				p.registration_fee, p.exam_location,
+				COALESCE(to_char(p.recommendation_letter_deadline, 'YYYY-MM-DD'), '-') AS recommendation_letter_deadline,
+				COALESCE(to_char(p.portfolio_deadline, 'YYYY-MM-DD'), '-') AS portfolio_deadline,
+				p.checkin_waitlist_process, p.fee_reduction_eligibility,
+				p.admission_group, p.cross_group, p.admission_category, p.priority_admission,
+				p.portfolio_required, p.recommendation_letter_type, p.max_applicable_programs,
+				p.applicant_count, p.interview_count, p.admitted_count, p.waitlisted_count, p.promoted_count,
+				p.admission_rate, p.first_stage_pass_rate, p.competition_ratio,
+				p.school_official_url, p.department_official_url,
+				ROW_NUMBER() OVER (PARTITION BY p.school_code, p.program_code ORDER BY p.academic_year DESC) AS rn
+			FROM academic_programs p
+			JOIN schools s ON s.school_code = p.school_code
+			WHERE %s
+			  AND p.review_status = 'published'
+			  AND p.admission_quota > 0
+		)
 		SELECT
-			p.academic_year, p.program_identifier, p.school_code, s.school_name,
-			p.program_code, p.admission_program_name, p.admission_quota,
-			p.willingness_values,
-			p.brochure_is_tentative,
-			p.consultation_phone, p.brochure_url, p.special_talent_target,
-			p.different_education_backgrounds, p.different_education_other,
-			p.notes, COALESCE(p.source_locator, '-'), p.consultation_email, p.consultation_contact,
-			p.registration_fee, p.exam_location,
-			COALESCE(to_char(p.recommendation_letter_deadline, 'YYYY-MM-DD'), '-'),
-			COALESCE(to_char(p.portfolio_deadline, 'YYYY-MM-DD'), '-'),
-			p.checkin_waitlist_process, p.fee_reduction_eligibility,
-			p.admission_group, p.cross_group, p.admission_category, p.priority_admission,
-			p.portfolio_required, p.recommendation_letter_type, p.max_applicable_programs,
-			p.applicant_count, p.interview_count, p.admitted_count, p.waitlisted_count,
-			p.admission_rate, p.first_stage_pass_rate, p.competition_ratio,
-			p.school_official_url, p.department_official_url
-		FROM academic_programs p
-		JOIN schools s ON s.school_code = p.school_code
-		WHERE %s
-		  AND p.review_status = 'published'
-		  AND p.admission_quota > 0
-		ORDER BY p.academic_year DESC, p.school_code, p.program_code
+			academic_year, program_identifier, school_code, school_name,
+			program_code, admission_program_name, admission_quota,
+			willingness_values,
+			brochure_is_tentative,
+			consultation_phone, brochure_url, special_talent_target,
+			different_education_backgrounds, different_education_other,
+			notes, source_locator, consultation_email, consultation_contact,
+			registration_fee, exam_location,
+			recommendation_letter_deadline,
+			portfolio_deadline,
+			checkin_waitlist_process, fee_reduction_eligibility,
+			admission_group, cross_group, admission_category, priority_admission,
+			portfolio_required, recommendation_letter_type, max_applicable_programs,
+			applicant_count, interview_count, admitted_count, waitlisted_count, promoted_count,
+			admission_rate, first_stage_pass_rate, competition_ratio,
+			school_official_url, department_official_url
+		FROM ranked
+		WHERE rn = 1 OR NOT $%d
+		ORDER BY academic_year DESC, school_code, program_code
 		LIMIT $%d OFFSET $%d
-	`, strings.Join(conditions, " AND "), limitPosition, offsetPosition)
+	`, strings.Join(conditions, " AND "), dedupePosition, limitPosition, offsetPosition)
 	rows, err := r.pool.Query(ctx, statement, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list admission programs: %w", err)
@@ -105,15 +187,11 @@ func (r *PostgresRepository) ListPrograms(ctx context.Context, query ProgramQuer
 		return nil, fmt.Errorf("iterate admission programs: %w", err)
 	}
 	rows.Close()
-	for index := range programs {
-		programs[index].ExamItems, err = r.loadExamItems(ctx, programs[index].AcademicYear, programs[index].SchoolCode, programs[index].ProgramCode)
-		if err != nil {
-			return nil, err
-		}
-		programs[index].TimelineEvents, err = r.loadTimelineEvents(ctx, programs[index].AcademicYear, programs[index].SchoolCode, programs[index].ProgramCode)
-		if err != nil {
-			return nil, err
-		}
+	if err := loadBatchExamItems(ctx, r.pool, programs); err != nil {
+		return nil, err
+	}
+	if err := loadBatchTimelineEvents(ctx, r.pool, programs); err != nil {
+		return nil, err
 	}
 	return programs, nil
 }
@@ -134,7 +212,7 @@ func (r *PostgresRepository) GetProgram(ctx context.Context, identifier ProgramI
 			p.checkin_waitlist_process, p.fee_reduction_eligibility,
 			p.admission_group, p.cross_group, p.admission_category, p.priority_admission,
 			p.portfolio_required, p.recommendation_letter_type, p.max_applicable_programs,
-			p.applicant_count, p.interview_count, p.admitted_count, p.waitlisted_count,
+			p.applicant_count, p.interview_count, p.admitted_count, p.waitlisted_count, p.promoted_count,
 			p.admission_rate, p.first_stage_pass_rate, p.competition_ratio,
 			p.school_official_url, p.department_official_url
 		FROM academic_programs p
@@ -553,7 +631,7 @@ func scanProgram(row rowScanner) (Program, error) {
 		&program.CheckinWaitlistProcess, &program.FeeReductionEligibility,
 		&program.AdmissionGroup, &program.CrossGroup, &program.AdmissionCategory, &program.PriorityAdmission,
 		&program.PortfolioRequired, &program.RecommendationLetterType, &program.MaxApplicablePrograms,
-		&program.ApplicantCount, &program.InterviewCount, &program.AdmittedCount, &program.WaitlistedCount,
+		&program.ApplicantCount, &program.InterviewCount, &program.AdmittedCount, &program.WaitlistedCount, &program.PromotedCount,
 		&program.AdmissionRate, &program.FirstStagePassRate, &program.CompetitionRatio,
 		&program.SchoolOfficialURL, &program.DepartmentOfficialURL,
 	)
@@ -570,6 +648,103 @@ func (r *PostgresRepository) loadTimelineEvents(ctx context.Context, academicYea
 
 type admissionQueryer interface {
 	Query(context.Context, string, ...any) (pgx.Rows, error)
+}
+
+func batchKey(academicYear int, schoolCode, programCode string) string {
+	return fmt.Sprintf("%d|%s|%s", academicYear, schoolCode, programCode)
+}
+
+// loadBatchExamItems and loadBatchTimelineEvents populate every program's
+// ExamItems/TimelineEvents in a single query each, instead of the N+1 pattern
+// of calling loadExamItems/loadTimelineEvents once per row — ListPrograms can
+// return dozens of programs per page, so this avoids dozens of extra
+// round-trips.
+func loadBatchExamItems(ctx context.Context, queryer admissionQueryer, programs []Program) error {
+	if len(programs) == 0 {
+		return nil
+	}
+	years := make([]int32, len(programs))
+	schoolCodes := make([]string, len(programs))
+	programCodes := make([]string, len(programs))
+	index := make(map[string]int, len(programs))
+	for i, p := range programs {
+		years[i] = int32(p.AcademicYear)
+		schoolCodes[i] = p.SchoolCode
+		programCodes[i] = p.ProgramCode
+		index[batchKey(p.AcademicYear, p.SchoolCode, p.ProgramCode)] = i
+		programs[i].ExamItems = make([]ExamItem, 0)
+	}
+	rows, err := queryer.Query(ctx, `
+		SELECT academic_year, school_code, program_code, item_name, exam_stage, sort_order,
+		       weight_percent::float8, multiplier::float8, description, COALESCE(source_page::text, '-')
+		FROM program_exam_items
+		WHERE (academic_year, school_code, program_code) IN (
+			SELECT * FROM unnest($1::int[], $2::text[], $3::text[])
+		)
+		ORDER BY academic_year, school_code, program_code, sort_order
+	`, years, schoolCodes, programCodes)
+	if err != nil {
+		return fmt.Errorf("load exam items: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var year int
+		var schoolCode, programCode string
+		var item ExamItem
+		var weight, multiplier *float64
+		if err := rows.Scan(&year, &schoolCode, &programCode, &item.Name, &item.Stage, &item.SortOrder, &weight, &multiplier, &item.Description, &item.SourcePage); err != nil {
+			return fmt.Errorf("scan exam item: %w", err)
+		}
+		item.WeightPercent = weight
+		item.Multiplier = multiplier
+		if i, ok := index[batchKey(year, schoolCode, programCode)]; ok {
+			programs[i].ExamItems = append(programs[i].ExamItems, item)
+		}
+	}
+	return rows.Err()
+}
+
+func loadBatchTimelineEvents(ctx context.Context, queryer admissionQueryer, programs []Program) error {
+	if len(programs) == 0 {
+		return nil
+	}
+	years := make([]int32, len(programs))
+	schoolCodes := make([]string, len(programs))
+	programCodes := make([]string, len(programs))
+	index := make(map[string]int, len(programs))
+	for i, p := range programs {
+		years[i] = int32(p.AcademicYear)
+		schoolCodes[i] = p.SchoolCode
+		programCodes[i] = p.ProgramCode
+		index[batchKey(p.AcademicYear, p.SchoolCode, p.ProgramCode)] = i
+		programs[i].TimelineEvents = make([]TimelineEvent, 0)
+	}
+	rows, err := queryer.Query(ctx, `
+		SELECT academic_year, school_code, program_code, event_name,
+		       COALESCE(to_char(start_date, 'YYYY-MM-DD'), '-'), start_time,
+		       COALESCE(to_char(end_date, 'YYYY-MM-DD'), '-'), end_time, sort_order, notes
+		FROM program_timeline_events
+		WHERE (academic_year, school_code, program_code) IN (
+			SELECT * FROM unnest($1::int[], $2::text[], $3::text[])
+		)
+		ORDER BY academic_year, school_code, program_code, sort_order
+	`, years, schoolCodes, programCodes)
+	if err != nil {
+		return fmt.Errorf("load timeline events: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var year int
+		var schoolCode, programCode string
+		var event TimelineEvent
+		if err := rows.Scan(&year, &schoolCode, &programCode, &event.Name, &event.StartDate, &event.StartTime, &event.EndDate, &event.EndTime, &event.SortOrder, &event.Notes); err != nil {
+			return fmt.Errorf("scan timeline event: %w", err)
+		}
+		if i, ok := index[batchKey(year, schoolCode, programCode)]; ok {
+			programs[i].TimelineEvents = append(programs[i].TimelineEvents, event)
+		}
+	}
+	return rows.Err()
 }
 
 func loadExamItems(ctx context.Context, queryer admissionQueryer, academicYear int, schoolCode, programCode string) ([]ExamItem, error) {

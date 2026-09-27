@@ -11,14 +11,16 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"sta-backend/internal/security"
+
+	"github.com/google/uuid"
 )
 
 type Handler struct {
-	service          *Service
-	telegramBotToken string
-	formLimiter      *security.FixedWindowLimiter
+	service            *Service
+	telegramBotToken   string
+	formLimiter        *security.FixedWindowLimiter
+	distributedLimiter security.DistributedLimiter
 }
 
 func NewHandler(service *Service, telegramBotToken string) (*Handler, error) {
@@ -29,6 +31,13 @@ func NewHandler(service *Service, telegramBotToken string) (*Handler, error) {
 		service: service, telegramBotToken: strings.TrimSpace(telegramBotToken),
 		formLimiter: security.NewFixedWindowLimiter(5, time.Hour, 10000),
 	}, nil
+}
+
+// ConfigureDistributedLimiter wires a cross-replica rate-limit backend on top
+// of the local fast-path limiter, mirroring the pattern already used by
+// auth/chat/support/verification.
+func (h *Handler) ConfigureDistributedLimiter(limiter security.DistributedLimiter) {
+	h.distributedLimiter = limiter
 }
 
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
@@ -43,7 +52,12 @@ func (h *Handler) submitForm(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	rl := h.formLimiter.Take(clientIP(r), now)
 	security.WriteRateLimitHeaders(w, rl, now)
-	if !rl.Allowed {
+	allowed, err := security.CheckDistributed(r.Context(), h.distributedLimiter, rl.Allowed, "accountapplications-form", clientIP(r), 5, time.Hour, now)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "rate_limit_unavailable", "rate limiting is temporarily unavailable")
+		return
+	}
+	if !allowed {
 		writeError(w, http.StatusTooManyRequests, "rate_limited", "too many applications from this address")
 		return
 	}
@@ -145,10 +159,8 @@ func (h *Handler) decision(w http.ResponseWriter, r *http.Request) {
 }
 
 type replyByTelegramInput struct {
-	ChatID    int64 `json:"chat_id"`
-	MessageID int64 `json:"message_id"`
-	// StaffMessageID/StaffName identify the staff member's own typed
-	// reply — see Service.ReplyByTelegram for why they're needed.
+	ChatID         int64  `json:"chat_id"`
+	MessageID      int64  `json:"message_id"`
 	StaffMessageID int64  `json:"staff_message_id"`
 	StaffName      string `json:"staff_name"`
 	Body           string `json:"body"`

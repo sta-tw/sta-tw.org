@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
     Award,
     CalendarPlus,
@@ -9,8 +9,7 @@ import {
     CircleX,
     ClipboardPenLine,
     Download,
-    ExternalLink,
-    Heart
+    ExternalLink
 } from "lucide-react";
 import { Tabs } from "radix-ui";
 import type { Brochure, BrochureFact, BrochureTimelineItem } from "../lib/brochure-types";
@@ -94,40 +93,28 @@ export default function BrochureDetailTabs({
                 </Tabs.List>
             </div>
 
-            <div className="mt-4 flex flex-col gap-3 sm:mt-5 sm:flex-row sm:flex-wrap sm:items-center">
-                <p className="w-fit rounded-[var(--radius-small)] bg-accent-yellow px-4 py-2 font-sans text-sm leading-snug text-ink sm:text-base">
-                    資料以後端已審核的招生資料為準
-                </p>
-                <div className="flex flex-wrap gap-2">
-                    {downloadUrl ? (
-                        <a
-                            href={downloadUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex h-10 shrink-0 cursor-pointer items-center gap-2 rounded-full bg-accent-yellow/75 px-3 font-sans text-sm font-medium whitespace-nowrap text-ink transition-colors hover:bg-accent-yellow focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2 focus-visible:outline-none"
-                        >
-                            <Download aria-hidden className="h-4 w-4 shrink-0" />
-                            簡章下載
-                        </a>
-                    ) : (
-                        <button
-                            type="button"
-                            disabled
-                            title="目前沒有已上架的簡章檔案"
-                            className="inline-flex h-10 shrink-0 items-center gap-2 rounded-full bg-ink/10 px-3 font-sans text-sm font-medium whitespace-nowrap text-ink/50"
-                        >
-                            <Download aria-hidden className="h-4 w-4 shrink-0" />
-                            尚未提供下載
-                        </button>
-                    )}
-                    <button
-                        type="button"
+            <div className="mt-4 flex flex-wrap gap-2 sm:mt-5">
+                {downloadUrl ? (
+                    <a
+                        href={downloadUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
                         className="inline-flex h-10 shrink-0 cursor-pointer items-center gap-2 rounded-full bg-accent-yellow/75 px-3 font-sans text-sm font-medium whitespace-nowrap text-ink transition-colors hover:bg-accent-yellow focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2 focus-visible:outline-none"
                     >
-                        <Heart aria-hidden className="h-4 w-4 shrink-0" />
-                        我對此學系有興趣
+                        <Download aria-hidden className="h-4 w-4 shrink-0" />
+                        簡章下載
+                    </a>
+                ) : (
+                    <button
+                        type="button"
+                        disabled
+                        title="目前沒有已上架的簡章檔案"
+                        className="inline-flex h-10 shrink-0 items-center gap-2 rounded-full bg-ink/10 px-3 font-sans text-sm font-medium whitespace-nowrap text-ink/50"
+                    >
+                        <Download aria-hidden className="h-4 w-4 shrink-0" />
+                        尚未提供下載
                     </button>
-                </div>
+                )}
             </div>
 
             <Tabs.Content value="overview" className="outline-none">
@@ -155,10 +142,16 @@ function OverviewTab({ brochure }: Pick<BrochureDetailTabsProps, "brochure">) {
                 ))}
             </dl>
             <dl className="space-y-5 sm:space-y-6">
-                <Fact label="報名資格" value={brochure.eligibility} />
-                <Fact label="考試方式" value={brochure.examFormat} />
+                <Fact label="考試項目" value={brochure.examFormat} />
                 <Fact label="報名費用" value={brochure.fee} />
-                <Fact label="報名時程" value={brochure.timeline} />
+                <Fact
+                    label="報名時程"
+                    value={
+                        <>
+                            詳見「報名資訊」頁面<span className="sm:hidden">，手機版介面請右滑</span>
+                        </>
+                    }
+                />
             </dl>
         </div>
     );
@@ -249,13 +242,34 @@ function RegistrationTab({ brochure }: Pick<BrochureDetailTabsProps, "brochure">
     const items = brochure.registrationTimeline;
     const [checked, setChecked] = useState<Record<string, boolean>>({});
     const [busy, setBusy] = useState(false);
+    const [calendarAdded, setCalendarAdded] = useState(false);
     const [feedback, setFeedback] = useState<{ tone: "success" | "error" | "info"; text: string } | null>(null);
+    const calendarAddedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     // Which of this programme's timeline items already have a Google
     // Calendar event on file for this account — drives "已加入 / 移除"
     // instead of the add checkbox for items already there.
     const [linkedItemIds, setLinkedItemIds] = useState<Set<string>>(new Set());
     const [removingId, setRemovingId] = useState<string | null>(null);
     const temporalStates = useMemo(() => computeTimelineTemporalStates(items), [items]);
+
+    useEffect(() => {
+        return () => {
+            if (calendarAddedTimerRef.current) {
+                clearTimeout(calendarAddedTimerRef.current);
+            }
+        };
+    }, []);
+
+    function showCalendarAddedState() {
+        setCalendarAdded(true);
+        if (calendarAddedTimerRef.current) {
+            clearTimeout(calendarAddedTimerRef.current);
+        }
+        calendarAddedTimerRef.current = setTimeout(() => {
+            setCalendarAdded(false);
+            calendarAddedTimerRef.current = null;
+        }, 3000);
+    }
 
     function externalId(item: BrochureTimelineItem) {
         return `${brochure.slug}:${item.id}`;
@@ -313,6 +327,11 @@ function RegistrationTab({ brochure }: Pick<BrochureDetailTabsProps, "brochure">
         try {
             const result = await createCalendarEvents(events);
             setFeedback({ tone: "success", text: `已新增 ${result.created} 筆到你的 Google 日曆。` });
+            if (result.created > 0) {
+                showCalendarAddedState();
+            } else {
+                setCalendarAdded(false);
+            }
             if (result.created === events.length) {
                 const prefix = `${brochure.slug}:`;
                 setLinkedItemIds((prev) => {
@@ -392,6 +411,9 @@ function RegistrationTab({ brochure }: Pick<BrochureDetailTabsProps, "brochure">
         // Deferred a tick so the setState calls inside submitEvents don't
         // run synchronously within this effect's own commit.
         void Promise.resolve().then(() => submitEvents(pending));
+        // submitEvents intentionally captures the current brochure and page
+        // state for this one OAuth return navigation.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     function handleAddToCalendar() {
@@ -411,9 +433,9 @@ function RegistrationTab({ brochure }: Pick<BrochureDetailTabsProps, "brochure">
                         招生時程
                     </h2>
                     <p className="mt-1 font-sans text-sm text-ink/60">
-                        勾選重要日期後點「新增至日曆」，會直接寫入你的 Google
-                        日曆（未勾選則加入全部）；已加入的項目可以點「移除」從日曆刪掉。第一次使用需要用
-                        Google 帳號授權一次，之後就不用再問。
+                        勾選重要日期後點「新增至日曆」，即可將時程新增至 Google
+                        日曆（未勾選則加入全部）；已加入的項目可點「移除」即可自日曆刪除。第一次使用需經
+                        Google 帳號授權程序。
                     </p>
                 </div>
                 <button
@@ -423,7 +445,7 @@ function RegistrationTab({ brochure }: Pick<BrochureDetailTabsProps, "brochure">
                     className="inline-flex h-10 w-fit shrink-0 cursor-pointer items-center gap-2 rounded-full bg-accent-yellow px-3.5 font-sans text-sm font-medium whitespace-nowrap text-ink transition-colors hover:bg-[#f6bd42] focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60"
                 >
                     <CalendarPlus aria-hidden className="h-4 w-4 shrink-0" />
-                    {busy ? "處理中…" : "新增至日曆"}
+                    {busy ? "處理中…" : calendarAdded ? "已新增至日曆" : "新增至日曆"}
                 </button>
             </div>
 
@@ -431,7 +453,7 @@ function RegistrationTab({ brochure }: Pick<BrochureDetailTabsProps, "brochure">
                 <p
                     className={`mt-3 font-sans text-sm ${
                         feedback.tone === "success"
-                            ? "text-accent-green-strong"
+                            ? "text-[#D9D9D9]"
                             : feedback.tone === "error"
                               ? "text-red-600"
                               : "text-ink/70"
@@ -517,7 +539,10 @@ function computeTimelineTemporalStates(
 ): Map<string, TimelineTemporalState> {
     const todayISO = new Date().toISOString().slice(0, 10);
     const states = new Map<string, TimelineTemporalState>();
-    let currentId: string | null = null;
+    // Ties (same start) all become "current" together — e.g. 網路報名 and
+    // 繳費時間 sharing the same opening date/time should both read as
+    // happening-now, not arbitrarily pick whichever came first in the list.
+    let currentIds: string[] = [];
     let currentStart: string | null = null;
     for (const item of items) {
         const end = item.isoEnd ?? item.isoStart;
@@ -534,10 +559,12 @@ function computeTimelineTemporalStates(
         const start = item.isoStart ?? end;
         if (currentStart === null || start < currentStart) {
             currentStart = start;
-            currentId = item.id;
+            currentIds = [item.id];
+        } else if (start === currentStart) {
+            currentIds.push(item.id);
         }
     }
-    if (currentId) states.set(currentId, "current");
+    for (const id of currentIds) states.set(id, "current");
     return states;
 }
 
@@ -602,11 +629,16 @@ function TimelineItem({
                 <h3 className="font-sans text-base leading-snug font-medium text-ink sm:text-lg">
                     {item.title}
                 </h3>
+                {item.notes && (
+                    <p className="mt-1 font-sans text-sm leading-relaxed text-ink/55 sm:text-base">
+                        {item.notes}
+                    </p>
+                )}
                 <p className="mt-1 font-sans text-sm leading-relaxed text-ink/70 sm:text-base">
                     {item.date}
                 </p>
                 {linked && (
-                    <p className="mt-1 font-sans text-xs text-accent-green-strong">
+                    <p className="mt-1 font-sans text-xs text-[#D9D9D9]">
                         {removing ? "移除中…" : "已加入 Google 日曆"}
                     </p>
                 )}
@@ -635,16 +667,19 @@ function HistoryTab({
                                     年份
                                 </th>
                                 <th scope="col" className="px-4 py-3 font-medium">
-                                    正取人數
+                                    招生人數
                                 </th>
                                 <th scope="col" className="px-4 py-3 font-medium">
-                                    遞補人數
+                                    報名人數
+                                </th>
+                                <th scope="col" className="px-4 py-3 font-medium">
+                                    正取人數
                                 </th>
                                 <th scope="col" className="px-4 py-3 font-medium">
                                     備取人數
                                 </th>
                                 <th scope="col" className="px-4 py-3 font-medium">
-                                    報名人數
+                                    最終遞補人數
                                 </th>
                             </tr>
                         </thead>
@@ -652,10 +687,11 @@ function HistoryTab({
                             {brochure.history.map((row) => (
                                 <tr key={row.year} className="divide-x divide-ink/15">
                                     <td className="px-4 py-3">{row.year}</td>
+                                    <td className="px-4 py-3">{row.quota}</td>
+                                    <td className="px-4 py-3">{row.applicants}</td>
                                     <td className="px-4 py-3">{row.admitted}</td>
                                     <td className="px-4 py-3">{row.waitlisted}</td>
-                                    <td className="px-4 py-3">{row.candidates}</td>
-                                    <td className="px-4 py-3">{row.applicants}</td>
+                                    <td className="px-4 py-3">{row.promoted}</td>
                                 </tr>
                             ))}
                         </tbody>
@@ -738,7 +774,7 @@ function Fact({ label, value, compact = false }: BrochureFact & { compact?: bool
             <dt className="w-fit shrink-0 rounded-[var(--radius-small)] bg-accent-green/55 px-2 py-1 font-sans text-base font-medium text-ink">
                 {label}
             </dt>
-            <dd className="font-sans text-base leading-7 text-ink/85">{value}</dd>
+            <dd className="min-w-0 font-sans text-base leading-7 text-ink/85">{value}</dd>
         </div>
     );
 }

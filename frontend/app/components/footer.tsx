@@ -7,7 +7,7 @@ const footerSections = [
         id: "social",
         title: "社群媒體",
         links: [
-            { label: "Instagram", href: "#" },
+            { label: "Instagram", href: "https://www.instagram.com/spec_talent.tw/" },
             { label: "Discord", href: DISCORD_INVITE_URL }
         ]
     },

@@ -45,28 +45,32 @@ const sessionCookieName = "sta_session"
 const csrfCookieName = "sta_csrf"
 
 type Service struct {
-	store              Store
-	emailCipher        *FieldCipher
-	lookupHMACKey      []byte
-	lookupHasher       *LookupHasher
-	sessionTTL         time.Duration
-	cookieSecure       bool
-	loginLimiter       *security.FixedWindowLimiter
-	registerLimiter    *security.FixedWindowLimiter
-	emailLimiter       *security.FixedWindowLimiter
-	mfaLimiter         *security.FixedWindowLimiter
-	distributedLimiter security.DistributedLimiter
-	now                func() time.Time
-	oauthProviders     map[string]oauthProvider
-	oauthHTTPClient    *http.Client
-	emailNotifier      EmailVerificationNotifier
-	publicBaseURL      string
-	requireAdminMFA    bool
-	adminMFAGrantTTL   time.Duration
+	store                Store
+	emailCipher          *FieldCipher
+	lookupHMACKey        []byte
+	lookupHasher         *LookupHasher
+	sessionTTL           time.Duration
+	cookieSecure         bool
+	cookieDomain         string
+	loginLimiter         *security.FixedWindowLimiter
+	loginAccountLimiter  *security.FixedWindowLimiter
+	registerLimiter      *security.FixedWindowLimiter
+	registerEmailLimiter *security.FixedWindowLimiter
+	emailLimiter         *security.FixedWindowLimiter
+	mfaLimiter           *security.FixedWindowLimiter
+	distributedLimiter   security.DistributedLimiter
+	now                  func() time.Time
+	oauthProviders       map[string]oauthProvider
+	oauthHTTPClient      *http.Client
+	emailNotifier        EmailVerificationNotifier
+	publicBaseURL        string
+	requireAdminMFA      bool
+	adminMFAGrantTTL     time.Duration
 }
 
 type RegisterInput struct {
-	Username string `json:"username"`
+	Username       string `json:"username"`
+	TurnstileToken string `json:"turnstile_token"`
 	// Email is the account's own contact address — any domain.
 	Email string `json:"email"`
 	// SchoolEmail must be a *.edu.tw address; the account stays inactive
@@ -75,8 +79,9 @@ type RegisterInput struct {
 }
 
 type LoginInput struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
+	Username       string `json:"username"`
+	Password       string `json:"password"`
+	TurnstileToken string `json:"turnstile_token"`
 }
 
 type SessionResult struct {
@@ -149,19 +154,21 @@ func NewService(store Store, emailCipher *FieldCipher, lookupHMACKey []byte, ses
 		return nil, err
 	}
 	return &Service{
-		store:           store,
-		emailCipher:     emailCipher,
-		lookupHMACKey:   append([]byte(nil), lookupHMACKey...),
-		lookupHasher:    lookupHasher,
-		sessionTTL:      sessionTTL,
-		cookieSecure:    cookieSecure,
-		loginLimiter:    security.NewFixedWindowLimiter(10, time.Minute, 10000),
-		registerLimiter: security.NewFixedWindowLimiter(5, time.Minute, 10000),
-		emailLimiter:    security.NewFixedWindowLimiter(3, 10*time.Minute, 10000),
-		mfaLimiter:      security.NewFixedWindowLimiter(mfaFailureLimit, mfaFailureWindow, 10000),
-		now:             time.Now,
-		oauthProviders:  make(map[string]oauthProvider),
-		oauthHTTPClient: &http.Client{Timeout: 10 * time.Second},
+		store:                store,
+		emailCipher:          emailCipher,
+		lookupHMACKey:        append([]byte(nil), lookupHMACKey...),
+		lookupHasher:         lookupHasher,
+		sessionTTL:           sessionTTL,
+		cookieSecure:         cookieSecure,
+		loginLimiter:         security.NewFixedWindowLimiter(120, time.Minute, 10000),
+		loginAccountLimiter:  security.NewFixedWindowLimiter(10, time.Minute, 10000),
+		registerLimiter:      security.NewFixedWindowLimiter(120, time.Minute, 10000),
+		registerEmailLimiter: security.NewFixedWindowLimiter(3, time.Hour, 10000),
+		emailLimiter:         security.NewFixedWindowLimiter(3, 10*time.Minute, 10000),
+		mfaLimiter:           security.NewFixedWindowLimiter(mfaFailureLimit, mfaFailureWindow, 10000),
+		now:                  time.Now,
+		oauthProviders:       make(map[string]oauthProvider),
+		oauthHTTPClient:      &http.Client{Timeout: 10 * time.Second},
 	}, nil
 }
 
@@ -333,6 +340,26 @@ func (s *Service) RequestPasswordReset(ctx context.Context, rawEmail string, req
 	if err != nil {
 		return err
 	}
+	return s.sendPasswordResetEmail(ctx, store, accountID)
+}
+
+// RequestPasswordResetForAccount is RequestPasswordReset for an admin who
+// already has the accountID (from the users list) and never sees the
+// account's plaintext email — the address stays inside EnqueueEmailForAccount's
+// ciphertext-only path the same way it does for the self-service flow.
+// Unlike RequestPasswordReset this does reveal ErrNotFound/ErrNotConfigured to
+// the caller: an admin picking a specific account is entitled to know it
+// failed, since there's no enumeration risk in confirming an account they
+// already administer exists.
+func (s *Service) RequestPasswordResetForAccount(ctx context.Context, accountID uuid.UUID) error {
+	store, ok := s.store.(PasswordResetStore)
+	if !ok || s.emailNotifier == nil {
+		return ErrNotConfigured
+	}
+	return s.sendPasswordResetEmail(ctx, store, accountID)
+}
+
+func (s *Service) sendPasswordResetEmail(ctx context.Context, store PasswordResetStore, accountID uuid.UUID) error {
 	token, err := NewOpaqueToken(32)
 	if err != nil {
 		return err
@@ -745,6 +772,13 @@ func (s *Service) Register(ctx context.Context, input RegisterInput, request *ht
 	if err != nil || !isSchoolEmail(schoolEmail) {
 		return Account{}, fmt.Errorf("%w: school email must be a *.edu.tw address", ErrInvalidInput)
 	}
+	allowed, err = s.rateAllowed(ctx, s.registerEmailLimiter, "auth-register-school-email", hex.EncodeToString(s.lookupHasher.Hash(schoolEmail)), 3, time.Hour)
+	if err != nil {
+		return Account{}, err
+	}
+	if !allowed {
+		return Account{}, ErrRateLimited
+	}
 	schoolEmailCiphertext, err := s.emailCipher.Seal(schoolEmail)
 	if err != nil {
 		return Account{}, fmt.Errorf("protect school email: %w", err)
@@ -853,6 +887,13 @@ func (s *Service) Login(ctx context.Context, input LoginInput, request *http.Req
 	username, err := normalizeUsername(input.Username)
 	if err != nil {
 		return SessionResult{}, ErrInvalidCredentials
+	}
+	allowed, err = s.rateAllowed(ctx, s.loginAccountLimiter, "auth-login-account", hex.EncodeToString(s.lookupHasher.Hash(username)), 10, time.Minute)
+	if err != nil {
+		return SessionResult{}, err
+	}
+	if !allowed {
+		return SessionResult{}, ErrRateLimited
 	}
 	account, passwordHash, err := s.store.FindAccountByUsername(ctx, username)
 	if err != nil {
@@ -1011,6 +1052,37 @@ func (s *Service) CreateBotAccount(ctx context.Context, rawUsername, label strin
 	return account, token, nil
 }
 
+// CreateAccountWithPassword creates an active, human-usable account with an
+// admin-chosen password instead of an emailed set-password link — for a
+// throwaway reviewer account with no real mailbox behind it (see
+// CreateBotAccount for the same "no contact email" trick, minus the
+// 'service' role: this account logs in normally with the given password).
+func (s *Service) CreateAccountWithPassword(ctx context.Context, rawUsername, rawPassword string) (Account, error) {
+	if !s.ready() {
+		return Account{}, ErrNotConfigured
+	}
+	username, err := normalizeUsername(rawUsername)
+	if err != nil {
+		return Account{}, err
+	}
+	if err := validatePassword(rawPassword); err != nil {
+		return Account{}, err
+	}
+	passwordHash, err := HashPassword(rawPassword)
+	if err != nil {
+		return Account{}, fmt.Errorf("hash password: %w", err)
+	}
+	nonce, err := NewOpaqueToken(16)
+	if err != nil {
+		return Account{}, err
+	}
+	emailCiphertext, err := s.emailCipher.Seal("")
+	if err != nil {
+		return Account{}, fmt.Errorf("protect email: %w", err)
+	}
+	return s.store.CreateAccount(ctx, username, emailCiphertext, s.lookupHasher.Hash("manual:"+username+":"+nonce), passwordHash)
+}
+
 func (s *Service) AuthorizeMutation(request *http.Request, session RequestSession) error {
 	if session.TokenKind == tokenKindBearer {
 		return nil
@@ -1029,11 +1101,32 @@ func (s *Service) AuthorizeMutation(request *http.Request, session RequestSessio
 	return nil
 }
 
+// SetCookieDomain attaches a Domain attribute to the session/CSRF cookies so
+// they're also sent to subdomains (e.g. a forward_auth gate on
+// grafana.{domain} needs the same session cookie the main site set). Leaving
+// it unset (the default) keeps today's behavior: cookies scoped to the
+// exact host that set them.
+func (s *Service) SetCookieDomain(domain string) {
+	s.cookieDomain = domain
+}
+
 func (s *Service) Logout(ctx context.Context, session RequestSession) error {
 	return s.store.RevokeSession(ctx, session.Session.ID, s.now().UTC())
 }
 
 func (s *Service) SetSessionCookies(writer http.ResponseWriter, result SessionResult) {
+	s.setSessionCookies(writer, result, s.cookieDomain)
+}
+
+// SetSessionCookiesForRequest keeps the canonical domain cookie for the main
+// site and subdomains, while using a host-only cookie on an alternate domain
+// such as an IDN alias. A Domain attribute for sta-tw.org is rejected by a
+// browser when the response came from xn--w2x.tw.
+func (s *Service) SetSessionCookiesForRequest(writer http.ResponseWriter, result SessionResult, request *http.Request) {
+	s.setSessionCookies(writer, result, s.cookieDomainForRequest(request))
+}
+
+func (s *Service) setSessionCookies(writer http.ResponseWriter, result SessionResult, domain string) {
 	secure := s.cookieSecure
 	sameSite := http.SameSiteLaxMode
 	if secure {
@@ -1042,6 +1135,7 @@ func (s *Service) SetSessionCookies(writer http.ResponseWriter, result SessionRe
 	http.SetCookie(writer, &http.Cookie{
 		Name:     sessionCookieName,
 		Value:    result.Token,
+		Domain:   domain,
 		Path:     "/",
 		Expires:  result.ExpiresAt,
 		MaxAge:   maxAge(result.ExpiresAt, s.now()),
@@ -1052,6 +1146,7 @@ func (s *Service) SetSessionCookies(writer http.ResponseWriter, result SessionRe
 	http.SetCookie(writer, &http.Cookie{
 		Name:     csrfCookieName,
 		Value:    result.CSRFToken,
+		Domain:   domain,
 		Path:     "/",
 		Expires:  result.ExpiresAt,
 		MaxAge:   maxAge(result.ExpiresAt, s.now()),
@@ -1062,9 +1157,37 @@ func (s *Service) SetSessionCookies(writer http.ResponseWriter, result SessionRe
 }
 
 func (s *Service) ClearSessionCookies(writer http.ResponseWriter) {
+	s.clearSessionCookies(writer, s.cookieDomain)
+}
+
+func (s *Service) ClearSessionCookiesForRequest(writer http.ResponseWriter, request *http.Request) {
+	s.clearSessionCookies(writer, s.cookieDomainForRequest(request))
+}
+
+func (s *Service) clearSessionCookies(writer http.ResponseWriter, domain string) {
 	for _, name := range []string{sessionCookieName, csrfCookieName} {
-		http.SetCookie(writer, &http.Cookie{Name: name, Value: "", Path: "/", MaxAge: -1, HttpOnly: name == sessionCookieName, Secure: s.cookieSecure})
+		http.SetCookie(writer, &http.Cookie{Name: name, Value: "", Domain: domain, Path: "/", MaxAge: -1, HttpOnly: name == sessionCookieName, Secure: s.cookieSecure})
 	}
+}
+
+func (s *Service) cookieDomainForRequest(request *http.Request) string {
+	if s.cookieDomain == "" || request == nil {
+		return s.cookieDomain
+	}
+	host := strings.ToLower(strings.TrimSpace(request.Host))
+	if host == "" && request.URL != nil {
+		host = strings.ToLower(strings.TrimSpace(request.URL.Host))
+	}
+	if parsedHost, _, err := net.SplitHostPort(host); err == nil {
+		host = parsedHost
+	} else {
+		host = strings.Trim(host, "[]")
+	}
+	domain := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(s.cookieDomain), "."))
+	if host == domain || strings.HasSuffix(host, "."+domain) {
+		return s.cookieDomain
+	}
+	return ""
 }
 
 func (s *Service) ready() bool {
@@ -1072,11 +1195,11 @@ func (s *Service) ready() bool {
 }
 
 func (s *Service) loginAllowed(ctx context.Context, request *http.Request) (bool, error) {
-	return s.rateAllowed(ctx, s.loginLimiter, "auth-login", clientIP(request), 10, time.Minute)
+	return s.rateAllowed(ctx, s.loginLimiter, "auth-login", clientIP(request), 120, time.Minute)
 }
 
 func (s *Service) registerAllowed(ctx context.Context, request *http.Request) (bool, error) {
-	return s.rateAllowed(ctx, s.registerLimiter, "auth-register", clientIP(request), 5, time.Minute)
+	return s.rateAllowed(ctx, s.registerLimiter, "auth-register", clientIP(request), 120, time.Minute)
 }
 
 func (s *Service) rateAllowed(ctx context.Context, local *security.FixedWindowLimiter, namespace, key string, limit int, window time.Duration) (bool, error) {
@@ -1140,6 +1263,13 @@ func clientIP(request *http.Request) string {
 		return "unknown"
 	}
 	host, _, err := net.SplitHostPort(strings.TrimSpace(request.RemoteAddr))
+	if err == nil {
+		peer := net.ParseIP(host)
+		forwarded := net.ParseIP(strings.TrimSpace(request.Header.Get("X-STA-Client-IP")))
+		if peer != nil && (peer.IsPrivate() || peer.IsLoopback()) && forwarded != nil {
+			return forwarded.String()
+		}
+	}
 	if err == nil && host != "" {
 		return host
 	}

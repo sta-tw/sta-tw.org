@@ -7,22 +7,48 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"sta-backend/internal/auth"
 	"sta-backend/internal/pagination"
+	"sta-backend/internal/security"
 )
 
 type Handler struct {
-	authService *auth.Service
-	repository  Repository
+	authService        *auth.Service
+	repository         Repository
+	threadLimiter      *security.FixedWindowLimiter
+	postLimiter        *security.FixedWindowLimiter
+	experienceLimiter  *security.FixedWindowLimiter
+	revisionLimiter    *security.FixedWindowLimiter
+	reactionLimiter    *security.FixedWindowLimiter
+	distributedLimiter security.DistributedLimiter
 }
 
 func NewHandler(authService *auth.Service, repository Repository) (*Handler, error) {
 	if authService == nil || repository == nil {
 		return nil, errors.New("content handler dependencies are missing")
 	}
-	return &Handler{authService: authService, repository: repository}, nil
+	return &Handler{
+		authService: authService,
+		repository:  repository,
+		// These endpoints previously had no rate limiting at all (a real
+		// gap, independent of storage backend); thresholds are new and
+		// generous — reactions in particular are cheap/frequent by nature.
+		threadLimiter:     security.NewFixedWindowLimiter(10, time.Minute, 10000),
+		postLimiter:       security.NewFixedWindowLimiter(20, time.Minute, 10000),
+		experienceLimiter: security.NewFixedWindowLimiter(10, time.Minute, 10000),
+		revisionLimiter:   security.NewFixedWindowLimiter(10, time.Minute, 10000),
+		reactionLimiter:   security.NewFixedWindowLimiter(60, time.Minute, 10000),
+	}, nil
+}
+
+// ConfigureDistributedLimiter wires a cross-replica rate-limit backend on top
+// of the local fast-path limiters, mirroring the pattern already used by
+// auth/chat/support/verification.
+func (h *Handler) ConfigureDistributedLimiter(limiter security.DistributedLimiter) {
+	h.distributedLimiter = limiter
 }
 
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
@@ -131,6 +157,9 @@ func (h *Handler) createThread(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if !h.checkRateLimit(w, r, h.threadLimiter, "content-thread", session.Session.Account.ID.String(), 10, time.Minute) {
+		return
+	}
 	spaceID, err := uuid.Parse(r.PathValue("spaceID"))
 	if err != nil {
 		writeContentError(w, http.StatusBadRequest, "invalid_space_id", "space id is invalid")
@@ -155,6 +184,9 @@ func (h *Handler) createThread(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) createPost(w http.ResponseWriter, r *http.Request) {
 	session, ok := h.requireMutation(w, r)
 	if !ok {
+		return
+	}
+	if !h.checkRateLimit(w, r, h.postLimiter, "content-post", session.Session.Account.ID.String(), 20, time.Minute) {
 		return
 	}
 	threadID, err := uuid.Parse(r.PathValue("threadID"))
@@ -219,6 +251,9 @@ func (h *Handler) createExperience(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if !h.checkRateLimit(w, r, h.experienceLimiter, "content-experience", session.Session.Account.ID.String(), 10, time.Minute) {
+		return
+	}
 	var input CreateExperienceInput
 	if err := decodeContentJSON(r, &input); err != nil || ValidateText(input.Title, input.Body) != nil {
 		writeContentError(w, http.StatusBadRequest, "invalid_experience", "experience data is invalid")
@@ -235,6 +270,9 @@ func (h *Handler) createExperience(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) createRevision(w http.ResponseWriter, r *http.Request) {
 	session, ok := h.requireMutation(w, r)
 	if !ok {
+		return
+	}
+	if !h.checkRateLimit(w, r, h.revisionLimiter, "content-revision", session.Session.Account.ID.String(), 10, time.Minute) {
 		return
 	}
 	experienceID, err := uuid.Parse(r.PathValue("experienceID"))
@@ -258,6 +296,9 @@ func (h *Handler) createRevision(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) submitRevision(w http.ResponseWriter, r *http.Request) {
 	session, ok := h.requireMutation(w, r)
 	if !ok {
+		return
+	}
+	if !h.checkRateLimit(w, r, h.revisionLimiter, "content-revision", session.Session.Account.ID.String(), 10, time.Minute) {
 		return
 	}
 	revisionID, err := uuid.Parse(r.PathValue("revisionID"))
@@ -347,6 +388,25 @@ func (h *Handler) requireMutation(w http.ResponseWriter, r *http.Request) (auth.
 	return session, true
 }
 
+// checkRateLimit applies a local-then-distributed rate check and writes the
+// appropriate error response on rejection. Callers should `return` when it
+// reports false.
+func (h *Handler) checkRateLimit(w http.ResponseWriter, r *http.Request, limiter *security.FixedWindowLimiter, namespace, key string, limit int, window time.Duration) bool {
+	now := time.Now()
+	rl := limiter.Take(key, now)
+	security.WriteRateLimitHeaders(w, rl, now)
+	allowed, err := security.CheckDistributed(r.Context(), h.distributedLimiter, rl.Allowed, namespace, key, limit, window, now)
+	if err != nil {
+		writeContentError(w, http.StatusServiceUnavailable, "rate_limit_unavailable", "rate limiting is temporarily unavailable")
+		return false
+	}
+	if !allowed {
+		writeContentError(w, http.StatusTooManyRequests, "rate_limited", "too many requests")
+		return false
+	}
+	return true
+}
+
 func (h *Handler) requireAdmin(w http.ResponseWriter, r *http.Request) (auth.RequestSession, bool) {
 	session, ok := h.requireMutation(w, r)
 	if !ok {
@@ -384,6 +444,9 @@ func (h *Handler) removeExperienceReaction(w http.ResponseWriter, r *http.Reques
 func (h *Handler) reactionOp(w http.ResponseWriter, r *http.Request, targetType, idParam string, add bool) {
 	session, ok := h.requireMutation(w, r)
 	if !ok {
+		return
+	}
+	if !h.checkRateLimit(w, r, h.reactionLimiter, "content-reaction", session.Session.Account.ID.String(), 60, time.Minute) {
 		return
 	}
 	targetID, err := uuid.Parse(r.PathValue(idParam))

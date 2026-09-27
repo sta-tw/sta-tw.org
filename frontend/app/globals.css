@@ -76,6 +76,14 @@ body {
     color: var(--foreground);
 }
 
+button:not(:disabled) {
+    cursor: pointer;
+}
+
+button:disabled {
+    cursor: not-allowed;
+}
+
 .article-dots {
     background-color: var(--surface);
     background-image: radial-gradient(circle, rgba(54, 53, 53, 0.08) 1.25px, transparent 1.25px);

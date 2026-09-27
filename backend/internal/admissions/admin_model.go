@@ -69,6 +69,9 @@ type AdminRepository interface {
 	ListProgramHistory(context.Context, uuid.UUID, ProgramIdentifier) ([]ProgramAuditEvent, error)
 	// DeleteProgram removes an empty placeholder program (admission_quota must be 0).
 	DeleteProgram(context.Context, uuid.UUID, ProgramIdentifier, string) error
+	// SetProgramArchived toggles a published program's visibility without
+	// touching its data — see PostgresRepository.SetProgramArchived.
+	SetProgramArchived(context.Context, uuid.UUID, ProgramIdentifier, bool, string) (AdminProgram, error)
 }
 
 func (input ProgramBatchInput) Validate() error {

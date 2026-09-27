@@ -83,12 +83,19 @@ type Config struct {
 	SMTPUseTLS                  bool
 	SMTPAllowInsecure           bool
 	PublicBaseURL               string
+	TurnstileSecret             string
+	TurnstileHostname           string
 	MeilisearchURL              string
 	MeilisearchKey              string
-	RequireAdminMFA             bool
-	AdminMFAGrantTTL            time.Duration
-	EmailEncryptionKey          []byte
-	LookupHMACKey               []byte
+	// RedisURL, when empty, disables Redis-backed distributed rate limiting
+	// and caching — services fall back to local-only limiting and uncached
+	// reads (fine for single-replica dev/test; required in production, see
+	// the production-required-vars check below).
+	RedisURL           string
+	RequireAdminMFA    bool
+	AdminMFAGrantTTL   time.Duration
+	EmailEncryptionKey []byte
+	LookupHMACKey      []byte
 	// LookupHMACSecondaryKeys are retired lookup-HMAC keys kept for reads while
 	// STA_LOOKUP_HMAC_KEY is being rotated. Format:
 	// STA_LOOKUP_HMAC_SECONDARY_KEYS="<base64>,<base64>".
@@ -106,6 +113,12 @@ type Config struct {
 	ShutdownTimeout               time.Duration
 	EnableDebugResponses          bool
 	CookieSecure                  bool
+	// CookieDomain, when set, is attached to the session/CSRF cookies so
+	// they're also sent to subdomains (e.g. grafana.sta-tw.org's
+	// forward_auth gate needs the same session cookie the main site set).
+	// Derived from PublicBaseURL's host in production; blank elsewhere,
+	// which preserves today's default "this exact host only" behavior.
+	CookieDomain string
 
 	// OTLP tracing. OTelExporterEndpoint blank disables the exporter and the
 	// request path keeps the dependency-free traceparent propagation.
@@ -168,8 +181,11 @@ func Load() (Config, error) {
 		SMTPFrom:                                strings.TrimSpace(os.Getenv("STA_SMTP_FROM")),
 		SMTPUseTLS:                              !strings.EqualFold(strings.TrimSpace(os.Getenv("STA_SMTP_USE_TLS")), "false"),
 		PublicBaseURL:                           strings.TrimRight(strings.TrimSpace(os.Getenv("STA_PUBLIC_BASE_URL")), "/"),
+		TurnstileSecret:                         strings.TrimSpace(os.Getenv("STA_TURNSTILE_SECRET")),
+		TurnstileHostname:                       strings.TrimSpace(os.Getenv("STA_TURNSTILE_HOSTNAME")),
 		MeilisearchURL:                          strings.TrimSpace(os.Getenv("STA_MEILISEARCH_URL")),
 		MeilisearchKey:                          strings.TrimSpace(os.Getenv("STA_MEILISEARCH_KEY")),
+		RedisURL:                                strings.TrimSpace(os.Getenv("STA_REDIS_URL")),
 		RequireAdminMFA:                         false,
 		MaxJSONBodyBytes:                        defaultMaxJSONBodyBytes,
 		ShutdownTimeout:                         defaultShutdownTimeout,
@@ -297,6 +313,9 @@ func Load() (Config, error) {
 		if len(config.EmailEncryptionKey) != 32 || len(config.LookupHMACKey) != 32 {
 			return Config{}, fmt.Errorf("field encryption and lookup keys are required in production")
 		}
+		if config.RedisURL == "" {
+			return Config{}, fmt.Errorf("STA_REDIS_URL is required in production")
+		}
 		if config.TelegramCrossCheckAllowTestProvisioning {
 			return Config{}, fmt.Errorf("Telegram cross-check test provisioning must be disabled in production")
 		}
@@ -312,6 +331,11 @@ func Load() (Config, error) {
 	}
 	config.EnableDebugResponses = config.Environment == developmentEnvironment
 	config.CookieSecure = config.Environment == productionEnvironment
+	if config.CookieSecure {
+		if u, err := url.Parse(config.PublicBaseURL); err == nil && u.Hostname() != "" {
+			config.CookieDomain = u.Hostname()
+		}
+	}
 
 	return config, nil
 }

@@ -133,6 +133,7 @@ type Program struct {
 	InterviewCount           string `json:"interview_count"`
 	AdmittedCount            string `json:"admitted_count"`
 	WaitlistedCount          string `json:"waitlisted_count"`
+	PromotedCount            string `json:"promoted_count"`
 	AdmissionRate            string `json:"admission_rate"`
 	FirstStagePassRate       string `json:"first_stage_pass_rate"`
 	CompetitionRatio         string `json:"competition_ratio"`
@@ -184,6 +185,7 @@ type ProgramInput struct {
 	InterviewCount                string          `json:"interview_count"`
 	AdmittedCount                 string          `json:"admitted_count"`
 	WaitlistedCount               string          `json:"waitlisted_count"`
+	PromotedCount                 string          `json:"promoted_count"`
 	AdmissionRate                 string          `json:"admission_rate"`
 	FirstStagePassRate            string          `json:"first_stage_pass_rate"`
 	CompetitionRatio              string          `json:"competition_ratio"`
@@ -251,6 +253,7 @@ func (input ProgramInput) materialize(schoolName string) (Program, error) {
 		InterviewCount:                input.InterviewCount,
 		AdmittedCount:                 input.AdmittedCount,
 		WaitlistedCount:               input.WaitlistedCount,
+		PromotedCount:                 input.PromotedCount,
 		AdmissionRate:                 input.AdmissionRate,
 		FirstStagePassRate:            input.FirstStagePassRate,
 		CompetitionRatio:              input.CompetitionRatio,
@@ -289,7 +292,7 @@ func (input ProgramInput) Validate() error {
 		input.RegistrationFee, input.ExamLocation, input.CheckinWaitlistProcess, input.FeeReductionEligibility,
 		input.AdmissionGroup, input.CrossGroup, input.AdmissionCategory, input.PriorityAdmission,
 		input.PortfolioRequired, input.RecommendationLetterType, input.MaxApplicablePrograms,
-		input.ApplicantCount, input.InterviewCount, input.AdmittedCount, input.WaitlistedCount,
+		input.ApplicantCount, input.InterviewCount, input.AdmittedCount, input.WaitlistedCount, input.PromotedCount,
 		input.AdmissionRate, input.FirstStagePassRate, input.CompetitionRatio,
 		input.SchoolOfficialURL, input.DepartmentOfficialURL,
 	} {
@@ -495,7 +498,7 @@ func (p Program) Validate() error {
 		p.RecommendationLetterDeadline, p.PortfolioDeadline,
 		p.AdmissionGroup, p.CrossGroup, p.AdmissionCategory, p.PriorityAdmission,
 		p.PortfolioRequired, p.RecommendationLetterType, p.MaxApplicablePrograms,
-		p.ApplicantCount, p.InterviewCount, p.AdmittedCount, p.WaitlistedCount,
+		p.ApplicantCount, p.InterviewCount, p.AdmittedCount, p.WaitlistedCount, p.PromotedCount,
 		p.AdmissionRate, p.FirstStagePassRate, p.CompetitionRatio,
 		p.SchoolOfficialURL, p.DepartmentOfficialURL,
 	} {
@@ -647,6 +650,7 @@ func normalizeProgramInput(input ProgramInput) ProgramInput {
 	input.InterviewCount = normalizeDash(input.InterviewCount)
 	input.AdmittedCount = normalizeDash(input.AdmittedCount)
 	input.WaitlistedCount = normalizeDash(input.WaitlistedCount)
+	input.PromotedCount = normalizeDash(input.PromotedCount)
 	input.AdmissionRate = normalizeDash(input.AdmissionRate)
 	input.FirstStagePassRate = normalizeDash(input.FirstStagePassRate)
 	input.CompetitionRatio = normalizeDash(input.CompetitionRatio)
@@ -661,6 +665,17 @@ func normalizeProgramInput(input ProgramInput) ProgramInput {
 			input.ExamItems[index].SourcePage = strconv.Itoa(*page)
 		}
 	}
+	// 書面審查 always sorts ahead of 面試, regardless of input order.
+	for i := range input.ExamItems {
+		for j := range input.ExamItems {
+			if strings.Contains(input.ExamItems[i].Name, "面試") &&
+				strings.Contains(input.ExamItems[j].Name, "書面審查") &&
+				input.ExamItems[i].SortOrder < input.ExamItems[j].SortOrder {
+				input.ExamItems[i].SortOrder, input.ExamItems[j].SortOrder = input.ExamItems[j].SortOrder, input.ExamItems[i].SortOrder
+			}
+		}
+	}
+	input.TimelineEvents = append([]TimelineEvent(nil), input.TimelineEvents...)
 	for index := range input.TimelineEvents {
 		input.TimelineEvents[index].Name = strings.TrimSpace(input.TimelineEvents[index].Name)
 		input.TimelineEvents[index].StartDate = normalizeDash(input.TimelineEvents[index].StartDate)
@@ -668,6 +683,11 @@ func normalizeProgramInput(input ProgramInput) ProgramInput {
 		input.TimelineEvents[index].EndDate = normalizeDash(input.TimelineEvents[index].EndDate)
 		input.TimelineEvents[index].EndTime = normalizeDash(input.TimelineEvents[index].EndTime)
 		input.TimelineEvents[index].Notes = normalizeDash(input.TimelineEvents[index].Notes)
+	}
+	// Order is whatever the caller sends (admin UI drags cards into place),
+	// not a recomputed date sort. Just re-number to match array position.
+	for index := range input.TimelineEvents {
+		input.TimelineEvents[index].SortOrder = index + 1
 	}
 	return input
 }

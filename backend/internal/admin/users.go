@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"sta-backend/internal/auth"
 	"sta-backend/internal/pagination"
 )
 
@@ -380,6 +381,37 @@ func (h *Handler) setAdmissionsModerator(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"admissions_moderator": body.Grant})
+}
+
+// resetPassword sends the same "set a new password" email the self-service
+// forgot-password flow sends — for a user who's locked out and can't trigger
+// it themselves. Never sees the account's plaintext email; see
+// auth.Service.RequestPasswordResetForAccount.
+func (h *Handler) resetPassword(w http.ResponseWriter, r *http.Request) {
+	session, ok := h.requireAdminMutation(w, r)
+	if !ok {
+		return
+	}
+	accountID, err := uuid.Parse(r.PathValue("accountID"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_account_id", "account id is invalid")
+		return
+	}
+	if err := h.auth.RequestPasswordResetForAccount(r.Context(), accountID); err != nil {
+		if errors.Is(err, auth.ErrNotConfigured) {
+			writeError(w, http.StatusServiceUnavailable, "service_unavailable", "password reset is not configured")
+			return
+		}
+		writeError(w, http.StatusNotFound, "not_found", "account not found or not active")
+		return
+	}
+	if _, err := h.pool.Exec(r.Context(), `
+		INSERT INTO audit_log (actor_account_id, action, entity_type, entity_key, reason)
+		VALUES ($1, 'account.password_reset_sent', 'account', $2, '-')`, session.Session.Account.ID, accountID.String()); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "sent"})
 }
 
 // --- data-layer helpers ---

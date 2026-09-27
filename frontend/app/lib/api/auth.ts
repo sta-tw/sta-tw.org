@@ -8,6 +8,7 @@ export interface RegisterInput {
     /** Must be a *.edu.tw address. The account stays inactive until the
      * password-set link mailed here is used (see confirmPasswordReset). */
     school_email: string;
+    turnstile_token: string;
 }
 
 export interface RegisterResult {
@@ -34,6 +35,7 @@ export function confirmPasswordReset(token: string, newPassword: string) {
 export interface LoginInput {
     username: string;
     password: string;
+    turnstile_token: string;
 }
 
 export interface LoginResult {

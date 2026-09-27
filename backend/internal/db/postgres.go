@@ -19,8 +19,9 @@ func OpenPostgres(ctx context.Context, databaseURL string) (*pgxpool.Pool, error
 	}
 	// This is sized for the initial deployment (roughly 100 concurrent users),
 	// not as a hard product limit. It can be overridden when deployment sizing
-	// is known, but must remain below PostgreSQL's connection budget.
-	poolConfig.MaxConns = 10
+	// is known, but must remain below PostgreSQL's connection budget
+	// (postgres's max_connections, currently 120 — see docker-compose.yml).
+	poolConfig.MaxConns = 100
 	poolConfig.MinConns = 1
 	poolConfig.MaxConnIdleTime = 5 * time.Minute
 	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)

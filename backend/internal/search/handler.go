@@ -16,10 +16,18 @@ import (
 // Handler serves GET /api/v1/search (public) and
 // POST /api/v1/admin/search/reindex (admin).
 type Handler struct {
-	auth    *auth.Service
-	client  *Client
-	pool    *pgxpool.Pool
-	limiter *security.FixedWindowLimiter
+	auth               *auth.Service
+	client             *Client
+	pool               *pgxpool.Pool
+	limiter            *security.FixedWindowLimiter
+	distributedLimiter security.DistributedLimiter
+}
+
+// ConfigureDistributedLimiter wires a cross-replica rate-limit backend on top
+// of the local fast-path limiter, mirroring the pattern already used by
+// auth/chat/support/verification.
+func (h *Handler) ConfigureDistributedLimiter(limiter security.DistributedLimiter) {
+	h.distributedLimiter = limiter
 }
 
 func NewHandler(authService *auth.Service, client *Client, pool *pgxpool.Pool) (*Handler, error) {
@@ -48,7 +56,12 @@ func (h *Handler) search(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	rl := h.limiter.Take(clientKey(r), now)
 	security.WriteRateLimitHeaders(w, rl, now)
-	if !rl.Allowed {
+	allowed, err := security.CheckDistributed(r.Context(), h.distributedLimiter, rl.Allowed, "search", clientKey(r), 30, time.Minute, now)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "rate_limit_unavailable", "rate limiting is temporarily unavailable")
+		return
+	}
+	if !allowed {
 		writeError(w, http.StatusTooManyRequests, "rate_limited", "too many search requests")
 		return
 	}

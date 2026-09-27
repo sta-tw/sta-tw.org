@@ -36,6 +36,14 @@ type ExternalHandler struct {
 	scanner            storage.Scanner
 	serviceToken       string
 	callbackLimiter    *security.FixedWindowLimiter
+	distributedLimiter security.DistributedLimiter
+}
+
+// ConfigureDistributedLimiter wires a cross-replica rate-limit backend on top
+// of the local fast-path limiter, mirroring the pattern already used by
+// auth/chat/support/verification.
+func (h *ExternalHandler) ConfigureDistributedLimiter(limiter security.DistributedLimiter) {
+	h.distributedLimiter = limiter
 }
 
 func NewExternalHandler(
@@ -213,7 +221,12 @@ func (h *ExternalHandler) requireAISystemToken(w http.ResponseWriter, r *http.Re
 	now := time.Now()
 	rl := h.callbackLimiter.Take(clientIP(r), now)
 	security.WriteRateLimitHeaders(w, rl, now)
-	if !rl.Allowed {
+	allowed, allowErr := security.CheckDistributed(r.Context(), h.distributedLimiter, rl.Allowed, "ingestion-callback", clientIP(r), 300, time.Minute, now)
+	if allowErr != nil {
+		writeIngestionError(w, http.StatusServiceUnavailable, "rate_limit_unavailable", "rate limiting is temporarily unavailable")
+		return uuid.Nil, false
+	}
+	if !allowed {
 		writeIngestionError(w, http.StatusTooManyRequests, "rate_limited", "too many extraction submissions")
 		return uuid.Nil, false
 	}
@@ -522,7 +535,12 @@ func (h *ExternalHandler) requireService(w http.ResponseWriter, r *http.Request)
 	now := time.Now()
 	rl := h.callbackLimiter.Take(clientIP(r), now)
 	security.WriteRateLimitHeaders(w, rl, now)
-	if !rl.Allowed {
+	allowed, allowErr := security.CheckDistributed(r.Context(), h.distributedLimiter, rl.Allowed, "ingestion-callback", clientIP(r), 300, time.Minute, now)
+	if allowErr != nil {
+		writeIngestionError(w, http.StatusServiceUnavailable, "rate_limit_unavailable", "rate limiting is temporarily unavailable")
+		return false
+	}
+	if !allowed {
 		writeIngestionError(w, http.StatusTooManyRequests, "rate_limited", "too many extraction callbacks")
 		return false
 	}

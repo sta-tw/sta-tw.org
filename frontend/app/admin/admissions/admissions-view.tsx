@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Dialog } from "radix-ui";
 import { twMerge } from "tailwind-merge";
 import {
@@ -16,6 +16,23 @@ import {
     Upload,
     X
 } from "lucide-react";
+import {
+    DndContext,
+    closestCenter,
+    KeyboardSensor,
+    PointerSensor,
+    useSensor,
+    useSensors,
+    type DragEndEvent
+} from "@dnd-kit/core";
+import {
+    SortableContext,
+    arrayMove,
+    sortableKeyboardCoordinates,
+    useSortable,
+    verticalListSortingStrategy
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import Button from "../../components/button";
 import {
     getAdminBrochureContentURL,
@@ -27,15 +44,18 @@ import {
     listAdminBrochureUploads,
     listAdminAdmissionProgramHistory,
     listAdminAdmissionPrograms,
+    listAllSchools,
     confirmAdminBrochureUpload,
     rejectAdminBrochureUpload,
     reviewAdminBrochure,
     reviewAdminAdmissionProgram,
+    setAdminAdmissionProgramArchived,
     setAdminBrochureVisibility,
     syncAdminAdmissionPrograms,
     updateAdminAdmissionProgram,
     uploadAdminBrochure,
     type AdminAdmissionProgram,
+    type AdmissionSchool,
     type AdmissionExamItem,
     type AdmissionProgramInput,
     type AdmissionTimelineEvent,
@@ -63,7 +83,7 @@ const programStatusLabel: Record<ProgramReviewStatus, string> = {
     approved: "已核准",
     published: "已上架",
     rejected: "已退回",
-    archived: "已封存"
+    archived: "已下架"
 };
 
 const brochureStatusLabel: Record<string, string> = {
@@ -174,6 +194,7 @@ const syncTemplate: AdmissionProgramInput = {
     interview_count: "-",
     admitted_count: "-",
     waitlisted_count: "-",
+    promoted_count: "-",
     admission_rate: "-",
     first_stage_pass_rate: "-",
     competition_ratio: "-",
@@ -195,6 +216,7 @@ export default function AdmissionsView() {
     const [programStatus, setProgramStatus] = useState<ProgramReviewStatus | "">("");
     const [programQuery, setProgramQuery] = useState("");
     const [programs, setPrograms] = useState<AdminAdmissionProgram[] | null>(null);
+    const [schools, setSchools] = useState<AdmissionSchool[]>([]);
     const [programLoading, setProgramLoading] = useState(false);
     const [programError, setProgramError] = useState<string | null>(null);
     const [programHasMore, setProgramHasMore] = useState(false);
@@ -202,12 +224,12 @@ export default function AdmissionsView() {
     const [syncOpen, setSyncOpen] = useState(false);
 
     const [brochures, setBrochures] = useState<BrochureDocument[] | null>(null);
-    const [brochureLoading, setBrochureLoading] = useState(false);
-    const [brochureError, setBrochureError] = useState<string | null>(null);
+    const [, setBrochureLoading] = useState(false);
+    const [, setBrochureError] = useState<string | null>(null);
     const [selectedBrochure, setSelectedBrochure] = useState<BrochureDocument | null>(null);
 
     const [brochureUploads, setBrochureUploads] = useState<BrochureUpload[] | null>(null);
-    const [brochureUploadLoading, setBrochureUploadLoading] = useState(false);
+    const [, setBrochureUploadLoading] = useState(false);
     const [brochureUploadError, setBrochureUploadError] = useState<string | null>(null);
     const [selectedBrochureUpload, setSelectedBrochureUpload] = useState<BrochureUpload | null>(
         null
@@ -270,14 +292,21 @@ export default function AdmissionsView() {
         }
     }
 
+    /* eslint-disable react-hooks/set-state-in-effect */
     useEffect(() => {
         // The admin shell has already completed the role/MFA gate before this
         // page renders. These calls are therefore safe to make on entry and
         // when the verified MFA grant changes.
-        // eslint-disable-next-line react-hooks/set-state-in-effect
         void Promise.all([loadPrograms(), loadBrochures(), loadBrochureUploads()]);
+        // Every active school regardless of admission-program status (a
+        // school with no published 116 program still needs its name shown
+        // in the brochure table) — used for the school-name lookup.
+        void listAllSchools()
+            .then((response) => setSchools(response.data))
+            .catch(() => setSchools([]));
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [mfaCode]);
+    /* eslint-enable react-hooks/set-state-in-effect */
 
     useEffect(() => {
         if (activeTab !== "brochures") return;
@@ -371,6 +400,19 @@ export default function AdmissionsView() {
         void Promise.all([loadPrograms(), loadBrochures(), loadBrochureUploads()]);
     }
 
+    const schoolNameByCode = useMemo(() => {
+        const map: Record<string, string> = {};
+        for (const item of schools) {
+            map[item.school_code] = item.school_name;
+        }
+        for (const item of programs ?? []) {
+            // Fall back to whatever the loaded programs list already knows,
+            // for a school listAdmissionSchools() doesn't currently surface
+            // (e.g. no published quota>0 program yet).
+            if (!map[item.school_code]) map[item.school_code] = item.school_name;
+        }
+        return map;
+    }, [schools, programs]);
     const pendingPrograms =
         programs?.filter((item) => item.review_status === "pending").length ?? 0;
     const pendingBrochures =
@@ -485,7 +527,7 @@ export default function AdmissionsView() {
                                         <option value="pending">待審核</option>
                                         <option value="published">已上架</option>
                                         <option value="rejected">已退回</option>
-                                        <option value="archived">已封存</option>
+                                        <option value="archived">已下架</option>
                                     </select>
                                 </Field>
                                 <Field label="搜尋校名／科系／識別碼">
@@ -664,6 +706,18 @@ export default function AdmissionsView() {
                                 onReupload={() => fileInputRef.current?.click()}
                             />
                         </section>
+
+                        <section className={panelClass}>
+                            <h2 className="font-serif text-xl text-ink">已建檔簡章</h2>
+                            <p className="mt-1 max-w-3xl font-sans text-sm leading-6 text-copy-muted">
+                                已上架的簡章可以在這裡下架；已下架的簡章可以重新上架。
+                            </p>
+                            <BrochureDocumentTable
+                                brochures={brochures}
+                                schoolNameByCode={schoolNameByCode}
+                                onSelect={setSelectedBrochure}
+                            />
+                        </section>
                     </section>
                 )}
 
@@ -832,6 +886,87 @@ function BrochureUploadQueue({
     );
 }
 
+// Lists every academic_year/school_code brochure row so staff can open the
+// management dialog (下架/重新上架) for an already-built brochure — pending
+// review, once published, or after being taken down.
+function BrochureDocumentTable({
+    brochures,
+    schoolNameByCode,
+    onSelect
+}: {
+    brochures: BrochureDocument[] | null;
+    schoolNameByCode: Record<string, string>;
+    onSelect: (brochure: BrochureDocument) => void;
+}) {
+    const sorted = brochures
+        ? [...brochures].sort(
+              (a, b) =>
+                  b.academic_year - a.academic_year || a.school_code.localeCompare(b.school_code)
+          )
+        : null;
+    return (
+        <div className="mt-4 overflow-x-auto rounded-[var(--radius-small)] border border-ink/10">
+            <table className="w-full min-w-[640px] font-sans text-sm">
+                <thead>
+                    <tr className="border-b border-ink/10 text-left text-copy-muted">
+                        <Th>學校</Th>
+                        <Th>學年度</Th>
+                        <Th>狀態</Th>
+                        <Th>更新時間</Th>
+                        <Th />
+                    </tr>
+                </thead>
+                <tbody>
+                    {sorted?.map((brochure) => (
+                        <tr
+                            key={`brochure-${brochure.academic_year}-${brochure.school_code}`}
+                            className="border-b border-ink/5 last:border-0"
+                        >
+                            <td className="px-4 py-3">
+                                <p className="font-bold text-ink">
+                                    {schoolNameByCode[brochure.school_code] ?? brochure.school_code}
+                                </p>
+                                <p className="mt-1 font-mono text-[11px] text-copy-muted">
+                                    {brochure.school_code}
+                                </p>
+                            </td>
+                            <td className="px-4 py-3 text-xs whitespace-nowrap text-copy-muted">
+                                {brochure.academic_year} 學年度
+                            </td>
+                            <td className="px-4 py-3">
+                                <StatusBadge
+                                    label={
+                                        brochureStatusLabel[brochure.review_status] ??
+                                        brochure.review_status
+                                    }
+                                    status={brochure.review_status}
+                                />
+                            </td>
+                            <td className="px-4 py-3 text-xs whitespace-nowrap text-copy-muted">
+                                {formatDate(brochure.updated_at)}
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                                <button
+                                    type="button"
+                                    onClick={() => onSelect(brochure)}
+                                    className="font-sans text-xs font-bold text-ink underline underline-offset-2"
+                                >
+                                    管理
+                                </button>
+                            </td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+            {brochures === null ? (
+                <LoadingState />
+            ) : brochures.length === 0 ? (
+                <EmptyState text="目前沒有任何已建檔簡章。" />
+            ) : null}
+        </div>
+    );
+}
+
 function BrochureUploadReviewDialog({
     upload,
     mfaCode,
@@ -859,6 +994,9 @@ function BrochureUploadReviewDialog({
     const [error, setError] = useState<string | null>(null);
     const initializedUploadID = useRef<string | null>(null);
 
+    // Selecting a different upload intentionally resets the dialog-local
+    // state before its detail and PDF requests complete.
+    /* eslint-disable react-hooks/set-state-in-effect */
     useEffect(() => {
         if (!upload) return;
         const currentUpload = upload;
@@ -950,6 +1088,7 @@ function BrochureUploadReviewDialog({
             if (objectURL) URL.revokeObjectURL(objectURL);
         };
     }, [mfaCode, upload]);
+    /* eslint-enable react-hooks/set-state-in-effect */
 
     async function download() {
         if (!upload) return;
@@ -1433,6 +1572,95 @@ function BrochureUploadReviewDialog({
     );
 }
 
+function TimelineEventCard({
+    id,
+    event,
+    onUpdate,
+    onRemove
+}: {
+    id: string;
+    event: AdmissionTimelineEvent;
+    onUpdate: (patch: Partial<AdmissionTimelineEvent>) => void;
+    onRemove: () => void;
+}) {
+    const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+        id
+    });
+    const style = {
+        transform: CSS.Transform.toString(transform),
+        transition,
+        opacity: isDragging ? 0.6 : 1
+    };
+
+    return (
+        <div
+            ref={setNodeRef}
+            style={style}
+            className="rounded-[var(--radius-small)] border border-ink/10 bg-ink/[0.025] p-3"
+        >
+            <div
+                {...attributes}
+                {...listeners}
+                aria-label="拖曳調整順序"
+                className="flex cursor-grab touch-none items-center justify-between gap-2 active:cursor-grabbing"
+            >
+                <span className="font-sans text-xs font-bold text-ink">時程項目</span>
+                <button
+                    type="button"
+                    onClick={onRemove}
+                    onPointerDown={(event) => event.stopPropagation()}
+                    className="font-sans text-xs text-copy-muted underline underline-offset-2 hover:text-red-600"
+                >
+                    移除
+                </button>
+            </div>
+            <div className="mt-3">
+                <Field label="項目名稱">
+                    <input
+                        className={`${inputClass} w-full`}
+                        placeholder="例如 網路報名、二階名單公布、正取生報到"
+                        value={displayFormValue(event.name)}
+                        onChange={(evt) => onUpdate({ name: evt.target.value })}
+                    />
+                </Field>
+            </div>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <DateField
+                    label="開始日期"
+                    value={event.start_date}
+                    onChange={(value) => onUpdate({ start_date: value })}
+                />
+                <TimeField
+                    label="開始時間（24小時制）"
+                    value={event.start_time}
+                    onChange={(value) => onUpdate({ start_time: value })}
+                />
+            </div>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <DateField
+                    label="結束日期（單一天/時間點不填）"
+                    value={event.end_date}
+                    onChange={(value) => onUpdate({ end_date: value })}
+                />
+                <TimeField
+                    label="結束時間（24小時制）"
+                    value={event.end_time}
+                    onChange={(value) => onUpdate({ end_time: value })}
+                />
+            </div>
+            <div className="mt-3">
+                <Field label="備註">
+                    <input
+                        className={`${inputClass} w-full`}
+                        value={displayFormValue(event.notes)}
+                        onChange={(evt) => onUpdate({ notes: evt.target.value })}
+                    />
+                </Field>
+            </div>
+        </div>
+    );
+}
+
 function BrochureProgramFields({
     program,
     onChange,
@@ -1516,6 +1744,26 @@ function BrochureProgramFields({
             timeline_events: program.timeline_events
                 .filter((_, eventIndex) => eventIndex !== index)
                 .map((event, eventIndex) => ({ ...event, sort_order: eventIndex + 1 }))
+        });
+    }
+
+    const timelineIds = program.timeline_events.map((_, index) => `timeline-${index}`);
+    const timelineSensors = useSensors(
+        useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+        useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+    );
+
+    function handleTimelineDragEnd(event: DragEndEvent) {
+        const { active, over } = event;
+        if (!over || active.id === over.id) return;
+        const oldIndex = timelineIds.indexOf(String(active.id));
+        const newIndex = timelineIds.indexOf(String(over.id));
+        if (oldIndex === -1 || newIndex === -1) return;
+        onChange({
+            ...program,
+            timeline_events: arrayMove(program.timeline_events, oldIndex, newIndex).map(
+                (item, index) => ({ ...item, sort_order: index + 1 })
+            )
         });
     }
 
@@ -1620,7 +1868,8 @@ function BrochureProgramFields({
                     <div>
                         <h4 className="font-sans text-sm font-bold text-ink">招生時程</h4>
                         <p className="mt-1 font-sans text-xs leading-5 text-copy-muted">
-                            依簡章公告順序新增每個時程項目（網路報名、二階名單公布、放榜、報到、遞補…）。只填開始日期／時間代表單一天或單一時間點；有結束日期才會顯示成時間段（例如報名期間 9/29～10/7）。
+                            依需求新增時程項目（網路報名、二階名單公布、放榜、報到、遞補…），拖曳標題列調整顯示順序。只填開始日期／時間代表單一天或單一時間點；有結束日期才會顯示成時間段（例如報名期間
+                            9/29～10/7）。
                         </p>
                     </div>
                     <Button
@@ -1631,104 +1880,30 @@ function BrochureProgramFields({
                         新增時程項目
                     </Button>
                 </div>
-                <div className="mt-3 flex flex-col gap-3">
-                    {program.timeline_events.map((event, index) => (
-                        <div
-                            key={`timeline-event-${index}`}
-                            className="rounded-[var(--radius-small)] border border-ink/10 bg-ink/[0.025] p-3"
-                        >
-                            <div className="flex items-center justify-between gap-2">
-                                <span className="font-sans text-xs font-bold text-ink">
-                                    時程項目 {index + 1}
-                                </span>
-                                <button
-                                    type="button"
-                                    onClick={() => removeTimelineEvent(index)}
-                                    className="font-sans text-xs text-copy-muted underline underline-offset-2 hover:text-red-600"
-                                >
-                                    移除
-                                </button>
-                            </div>
-                            <div className="mt-3 grid gap-3 sm:grid-cols-[minmax(0,1fr)_7rem]">
-                                <Field label="項目名稱">
-                                    <input
-                                        className={`${inputClass} w-full`}
-                                        placeholder="例如 網路報名、二階名單公布、正取生報到"
-                                        value={displayFormValue(event.name)}
-                                        onChange={(evt) =>
-                                            updateTimelineEvent(index, { name: evt.target.value })
-                                        }
-                                    />
-                                </Field>
-                                <Field label="順序">
-                                    <input
-                                        className={`${inputClass} w-full`}
-                                        type="number"
-                                        min={1}
-                                        step={1}
-                                        value={event.sort_order}
-                                        onChange={(evt) =>
-                                            updateTimelineEvent(index, {
-                                                sort_order: Math.max(
-                                                    1,
-                                                    Number(evt.target.value) || index + 1
-                                                )
-                                            })
-                                        }
-                                    />
-                                </Field>
-                            </div>
-                            <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                                <DateField
-                                    label="開始日期"
-                                    value={event.start_date}
-                                    onChange={(value) =>
-                                        updateTimelineEvent(index, { start_date: value })
-                                    }
+                <DndContext
+                    sensors={timelineSensors}
+                    collisionDetection={closestCenter}
+                    onDragEnd={handleTimelineDragEnd}
+                >
+                    <SortableContext items={timelineIds} strategy={verticalListSortingStrategy}>
+                        <div className="mt-3 flex flex-col gap-3">
+                            {program.timeline_events.map((event, index) => (
+                                <TimelineEventCard
+                                    key={timelineIds[index]}
+                                    id={timelineIds[index]}
+                                    event={event}
+                                    onUpdate={(patch) => updateTimelineEvent(index, patch)}
+                                    onRemove={() => removeTimelineEvent(index)}
                                 />
-                                <TimeField
-                                    label="開始時間（24小時制）"
-                                    value={event.start_time}
-                                    onChange={(value) =>
-                                        updateTimelineEvent(index, { start_time: value })
-                                    }
-                                />
-                            </div>
-                            <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                                <DateField
-                                    label="結束日期（單一天/時間點不填）"
-                                    value={event.end_date}
-                                    onChange={(value) =>
-                                        updateTimelineEvent(index, { end_date: value })
-                                    }
-                                />
-                                <TimeField
-                                    label="結束時間（24小時制）"
-                                    value={event.end_time}
-                                    onChange={(value) =>
-                                        updateTimelineEvent(index, { end_time: value })
-                                    }
-                                />
-                            </div>
-                            <div className="mt-3">
-                                <Field label="備註">
-                                    <input
-                                        className={`${inputClass} w-full`}
-                                        value={displayFormValue(event.notes)}
-                                        onChange={(evt) =>
-                                            updateTimelineEvent(index, { notes: evt.target.value })
-                                        }
-                                    />
-                                </Field>
-                            </div>
+                            ))}
+                            {program.timeline_events.length === 0 ? (
+                                <p className="rounded-[var(--radius-small)] bg-accent-yellow/20 px-3 py-2 font-sans text-sm text-ink">
+                                    尚未有時程項目（可留空，之後再補）。
+                                </p>
+                            ) : null}
                         </div>
-                    ))}
-                    {program.timeline_events.length === 0 ? (
-                        <p className="rounded-[var(--radius-small)] bg-accent-yellow/20 px-3 py-2 font-sans text-sm text-ink">
-                            尚未有時程項目（可留空，之後再補）。
-                        </p>
-                    ) : null}
-                </div>
+                    </SortableContext>
+                </DndContext>
             </div>
 
             <div className="border-t border-ink/10 pt-5">
@@ -2020,9 +2195,7 @@ function BrochureProgramFields({
                         <input
                             className={`${inputClass} w-full`}
                             value={displayFormValue(program.admission_group)}
-                            onChange={(event) =>
-                                updateField("admission_group", event.target.value)
-                            }
+                            onChange={(event) => updateField("admission_group", event.target.value)}
                         />
                     </Field>
                     <Field label="跨學群">
@@ -2081,27 +2254,21 @@ function BrochureProgramFields({
                         <input
                             className={`${inputClass} w-full`}
                             value={displayFormValue(program.applicant_count)}
-                            onChange={(event) =>
-                                updateField("applicant_count", event.target.value)
-                            }
+                            onChange={(event) => updateField("applicant_count", event.target.value)}
                         />
                     </Field>
                     <Field label="面試人數">
                         <input
                             className={`${inputClass} w-full`}
                             value={displayFormValue(program.interview_count)}
-                            onChange={(event) =>
-                                updateField("interview_count", event.target.value)
-                            }
+                            onChange={(event) => updateField("interview_count", event.target.value)}
                         />
                     </Field>
                     <Field label="正取人數">
                         <input
                             className={`${inputClass} w-full`}
                             value={displayFormValue(program.admitted_count)}
-                            onChange={(event) =>
-                                updateField("admitted_count", event.target.value)
-                            }
+                            onChange={(event) => updateField("admitted_count", event.target.value)}
                         />
                     </Field>
                     <Field label="備取人數">
@@ -2113,13 +2280,18 @@ function BrochureProgramFields({
                             }
                         />
                     </Field>
+                    <Field label="最終遞補人數">
+                        <input
+                            className={`${inputClass} w-full`}
+                            value={displayFormValue(program.promoted_count)}
+                            onChange={(event) => updateField("promoted_count", event.target.value)}
+                        />
+                    </Field>
                     <Field label="錄取率">
                         <input
                             className={`${inputClass} w-full`}
                             value={displayFormValue(program.admission_rate)}
-                            onChange={(event) =>
-                                updateField("admission_rate", event.target.value)
-                            }
+                            onChange={(event) => updateField("admission_rate", event.target.value)}
                         />
                     </Field>
                     <Field label="初試通過率">
@@ -2158,7 +2330,9 @@ function ProgramDialog({
     onChanged: (program: AdminAdmissionProgram) => void;
 }) {
     const [reason, setReason] = useState("");
-    const [pendingAction, setPendingAction] = useState<"approve" | "reject" | "save" | null>(null);
+    const [pendingAction, setPendingAction] = useState<
+        "approve" | "reject" | "save" | "archive" | "unarchive" | null
+    >(null);
     const [error, setError] = useState<string | null>(null);
     const [notice, setNotice] = useState<string | null>(null);
     const [history, setHistory] = useState<ProgramAuditEvent[] | null>(null);
@@ -2204,6 +2378,37 @@ function ProgramDialog({
             );
             onChanged(response.data);
             setNotice(approved ? "招生資料已審核並上架。" : "招生資料已退回。 ");
+            setReason("");
+            const historyResponse = await listAdminAdmissionProgramHistory(
+                program.program_identifier,
+                mfaCode || undefined
+            );
+            setHistory(historyResponse.data);
+        } catch (cause) {
+            setError(describeError(cause));
+        } finally {
+            setPendingAction(null);
+        }
+    }
+
+    async function runArchive(archived: boolean) {
+        if (!program) return;
+        if (!reason.trim()) {
+            setError(archived ? "請填寫下架原因。" : "請填寫重新上架備註。");
+            return;
+        }
+        setPendingAction(archived ? "archive" : "unarchive");
+        setError(null);
+        setNotice(null);
+        try {
+            const response = await setAdminAdmissionProgramArchived(
+                program.program_identifier,
+                archived,
+                reason.trim(),
+                mfaCode || undefined
+            );
+            onChanged(response.data);
+            setNotice(archived ? "招生資料已下架。" : "招生資料已重新上架。");
             setReason("");
             const historyResponse = await listAdminAdmissionProgramHistory(
                 program.program_identifier,
@@ -2286,7 +2491,7 @@ function ProgramDialog({
                     {program ? (
                         <div className="mt-6 flex flex-col gap-6">
                             <div className="flex flex-wrap items-center justify-between gap-3 rounded-[var(--radius-small)] bg-ink/[0.04] px-4 py-3">
-                                <div className="flex items-center gap-3">
+                                <div className="flex flex-wrap items-center gap-3">
                                     <span className="font-sans text-sm text-copy-muted">
                                         目前狀態
                                     </span>
@@ -2325,7 +2530,7 @@ function ProgramDialog({
                                         <ActionReason
                                             value={reason}
                                             onChange={setReason}
-                                            label="修正原因（必填）"
+                                            label="修正 / 上下架原因（必填）"
                                         />
                                         <div className="flex flex-wrap gap-2">
                                             <Button
@@ -2349,6 +2554,42 @@ function ProgramDialog({
                                             >
                                                 還原目前資料
                                             </Button>
+                                            {program.review_status === "published" ? (
+                                                <Button
+                                                    type="button"
+                                                    onClick={() => void runArchive(true)}
+                                                    disabled={pendingAction !== null}
+                                                    className="h-10 gap-2 bg-red-600 px-4 text-sm hover:bg-red-700 active:bg-red-800"
+                                                >
+                                                    {pendingAction === "archive" ? (
+                                                        <Loader2
+                                                            aria-hidden
+                                                            className="h-4 w-4 animate-spin"
+                                                        />
+                                                    ) : (
+                                                        <EyeOff aria-hidden className="h-4 w-4" />
+                                                    )}
+                                                    下架
+                                                </Button>
+                                            ) : null}
+                                            {program.review_status === "archived" ? (
+                                                <Button
+                                                    type="button"
+                                                    onClick={() => void runArchive(false)}
+                                                    disabled={pendingAction !== null}
+                                                    className="h-10 gap-2 bg-accent-green-strong px-4 text-sm text-ink hover:bg-accent-green"
+                                                >
+                                                    {pendingAction === "unarchive" ? (
+                                                        <Loader2
+                                                            aria-hidden
+                                                            className="h-4 w-4 animate-spin"
+                                                        />
+                                                    ) : (
+                                                        <Eye aria-hidden className="h-4 w-4" />
+                                                    )}
+                                                    重新上架
+                                                </Button>
+                                            ) : null}
                                         </div>
                                     </div>
                                 </div>
@@ -2421,11 +2662,27 @@ function ProgramYearHistorySection({
     const [years, setYears] = useState<AdminAdmissionProgram[] | null>(null);
     const [adding, setAdding] = useState(false);
     const [newYear, setNewYear] = useState("");
+    const [admissionQuota, setAdmissionQuota] = useState("");
     const [applicantCount, setApplicantCount] = useState("");
     const [admittedCount, setAdmittedCount] = useState("");
     const [waitlistedCount, setWaitlistedCount] = useState("");
+    const [promotedCount, setPromotedCount] = useState("");
     const [pending, setPending] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [rowEdits, setRowEdits] = useState<
+        Record<
+            string,
+            {
+                admission_quota: string;
+                applicant_count: string;
+                admitted_count: string;
+                waitlisted_count: string;
+                promoted_count: string;
+            }
+        >
+    >({});
+    const [savingRow, setSavingRow] = useState<string | null>(null);
+    const [rowError, setRowError] = useState<string | null>(null);
 
     function reload() {
         return listAdminAdmissionPrograms(
@@ -2433,7 +2690,22 @@ function ProgramYearHistorySection({
             mfaCode || undefined
         )
             .then((response) => {
-                setYears([...response.data].sort((a, b) => b.academic_year - a.academic_year));
+                const sorted = [...response.data].sort((a, b) => b.academic_year - a.academic_year);
+                setYears(sorted);
+                setRowEdits(
+                    Object.fromEntries(
+                        sorted.map((entry) => [
+                            entry.program_identifier,
+                            {
+                                admission_quota: String(entry.admission_quota),
+                                applicant_count: displayFormValue(entry.applicant_count),
+                                admitted_count: displayFormValue(entry.admitted_count),
+                                waitlisted_count: displayFormValue(entry.waitlisted_count),
+                                promoted_count: displayFormValue(entry.promoted_count)
+                            }
+                        ])
+                    )
+                );
             })
             .catch(() => setYears([]));
     }
@@ -2442,6 +2714,48 @@ function ProgramYearHistorySection({
         void reload();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [program.school_code, program.program_code, mfaCode]);
+
+    async function saveRow(entry: AdminAdmissionProgram) {
+        const edit = rowEdits[entry.program_identifier];
+        if (!edit) return;
+        const quota = Number(edit.admission_quota);
+        if (!Number.isInteger(quota) || quota < 0) {
+            setRowError(`${entry.academic_year} 學年度：招生人數必須是不小於 0 的整數。`);
+            return;
+        }
+        setSavingRow(entry.program_identifier);
+        setRowError(null);
+        try {
+            const item: AdmissionProgramInput = {
+                ...programToInput(entry),
+                admission_quota: quota,
+                applicant_count: edit.applicant_count.trim() || "-",
+                admitted_count: edit.admitted_count.trim() || "-",
+                waitlisted_count: edit.waitlisted_count.trim() || "-",
+                promoted_count: edit.promoted_count.trim() || "-"
+            };
+            const response = await updateAdminAdmissionProgram(
+                entry.program_identifier,
+                `${entry.academic_year} 學年度歷史招生資料補登/修正`,
+                item,
+                mfaCode || undefined
+            );
+            const updated = response.data;
+            if (updated.review_status !== "published") {
+                await reviewAdminAdmissionProgram(
+                    updated.program_identifier,
+                    true,
+                    "歷史資料補登，直接上架",
+                    mfaCode || undefined
+                );
+            }
+            await reload();
+        } catch (cause) {
+            setRowError(describeError(cause));
+        } finally {
+            setSavingRow(null);
+        }
+    }
 
     async function submitNewYear() {
         setError(null);
@@ -2454,14 +2768,21 @@ function ProgramYearHistorySection({
             setError(`${year} 學年度已經有資料了，請直接在下方列表修改。`);
             return;
         }
+        const quota = admissionQuota.trim() ? Number(admissionQuota) : program.admission_quota;
+        if (!Number.isInteger(quota) || quota < 0) {
+            setError("招生人數必須是不小於 0 的整數。");
+            return;
+        }
         setPending(true);
         try {
             const item: AdmissionProgramInput = {
                 ...programToInput(program),
                 academic_year: year,
+                admission_quota: quota,
                 applicant_count: applicantCount.trim() || "-",
                 admitted_count: admittedCount.trim() || "-",
-                waitlisted_count: waitlistedCount.trim() || "-"
+                waitlisted_count: waitlistedCount.trim() || "-",
+                promoted_count: promotedCount.trim() || "-"
             };
             const syncResponse = await syncAdminAdmissionPrograms(
                 `補登 ${year} 學年度歷史招生資料`,
@@ -2478,9 +2799,11 @@ function ProgramYearHistorySection({
                 );
             }
             setNewYear("");
+            setAdmissionQuota("");
             setApplicantCount("");
             setAdmittedCount("");
             setWaitlistedCount("");
+            setPromotedCount("");
             setAdding(false);
             await reload();
         } catch (cause) {
@@ -2507,41 +2830,58 @@ function ProgramYearHistorySection({
             </p>
 
             {adding ? (
-                <div className="mt-3 flex flex-wrap items-end gap-3 rounded-[var(--radius-small)] bg-ink/[0.03] p-3">
-                    <Field label="學年度">
-                        <input
-                            className={`${inputClass} w-24`}
-                            value={newYear}
-                            onChange={(event) => setNewYear(event.target.value)}
-                            placeholder="114"
-                        />
-                    </Field>
-                    <Field label="報名人數">
-                        <input
-                            className={`${inputClass} w-24`}
-                            value={applicantCount}
-                            onChange={(event) => setApplicantCount(event.target.value)}
-                        />
-                    </Field>
-                    <Field label="正取人數">
-                        <input
-                            className={`${inputClass} w-24`}
-                            value={admittedCount}
-                            onChange={(event) => setAdmittedCount(event.target.value)}
-                        />
-                    </Field>
-                    <Field label="備取人數">
-                        <input
-                            className={`${inputClass} w-24`}
-                            value={waitlistedCount}
-                            onChange={(event) => setWaitlistedCount(event.target.value)}
-                        />
-                    </Field>
+                <div className="mt-3 rounded-[var(--radius-small)] bg-ink/[0.03] p-3">
+                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+                        <Field label="學年度">
+                            <input
+                                className={`${inputClass} w-full`}
+                                value={newYear}
+                                onChange={(event) => setNewYear(event.target.value)}
+                                placeholder="114"
+                            />
+                        </Field>
+                        <Field label="招生人數">
+                            <input
+                                className={`${inputClass} w-full`}
+                                value={admissionQuota}
+                                onChange={(event) => setAdmissionQuota(event.target.value)}
+                                placeholder={String(program.admission_quota)}
+                            />
+                        </Field>
+                        <Field label="報名人數">
+                            <input
+                                className={`${inputClass} w-full`}
+                                value={applicantCount}
+                                onChange={(event) => setApplicantCount(event.target.value)}
+                            />
+                        </Field>
+                        <Field label="正取人數">
+                            <input
+                                className={`${inputClass} w-full`}
+                                value={admittedCount}
+                                onChange={(event) => setAdmittedCount(event.target.value)}
+                            />
+                        </Field>
+                        <Field label="備取人數">
+                            <input
+                                className={`${inputClass} w-full`}
+                                value={waitlistedCount}
+                                onChange={(event) => setWaitlistedCount(event.target.value)}
+                            />
+                        </Field>
+                        <Field label="最終遞補人數">
+                            <input
+                                className={`${inputClass} w-full`}
+                                value={promotedCount}
+                                onChange={(event) => setPromotedCount(event.target.value)}
+                            />
+                        </Field>
+                    </div>
                     <Button
                         type="button"
                         onClick={() => void submitNewYear()}
                         disabled={pending}
-                        className="h-10 gap-2 px-4 text-sm"
+                        className="mt-3 h-10 gap-2 px-4 text-sm"
                     >
                         {pending ? <Loader2 aria-hidden className="h-4 w-4 animate-spin" /> : null}
                         {pending ? "建立中…" : "建立"}
@@ -2556,31 +2896,129 @@ function ProgramYearHistorySection({
                 <p className="mt-3 font-sans text-sm text-copy-muted">目前沒有任何學年度資料。</p>
             ) : (
                 <div className="mt-3 overflow-x-auto">
-                    <table className="w-full min-w-[28rem] border-collapse text-left font-sans text-sm">
+                    {rowError ? (
+                        <p className="mb-2 font-sans text-sm text-red-600">{rowError}</p>
+                    ) : null}
+                    <table className="w-full min-w-[42rem] border-collapse text-left font-sans text-sm">
                         <thead className="text-copy-muted">
                             <tr className="border-b border-ink/10">
                                 <th className="py-1.5 pr-3 font-medium">學年度</th>
+                                <th className="py-1.5 pr-3 font-medium">招生人數</th>
                                 <th className="py-1.5 pr-3 font-medium">報名人數</th>
                                 <th className="py-1.5 pr-3 font-medium">正取人數</th>
                                 <th className="py-1.5 pr-3 font-medium">備取人數</th>
+                                <th className="py-1.5 pr-3 font-medium">最終遞補人數</th>
                                 <th className="py-1.5 pr-3 font-medium">狀態</th>
+                                <th className="py-1.5 pr-3 font-medium" />
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-ink/10 text-ink/80">
-                            {years.map((entry) => (
-                                <tr key={entry.program_identifier}>
-                                    <td className="py-1.5 pr-3">
-                                        {entry.academic_year}
-                                        {entry.academic_year === program.academic_year ? "（目前）" : ""}
-                                    </td>
-                                    <td className="py-1.5 pr-3">{displayFormValue(entry.applicant_count)}</td>
-                                    <td className="py-1.5 pr-3">{displayFormValue(entry.admitted_count)}</td>
-                                    <td className="py-1.5 pr-3">{displayFormValue(entry.waitlisted_count)}</td>
-                                    <td className="py-1.5 pr-3">
-                                        {programStatusLabel[entry.review_status] ?? entry.review_status}
-                                    </td>
-                                </tr>
-                            ))}
+                            {years.map((entry) => {
+                                const edit = rowEdits[entry.program_identifier];
+                                if (!edit) return null;
+                                const rowInputClass = `${inputClass} w-20`;
+                                return (
+                                    <tr key={entry.program_identifier}>
+                                        <td className="py-1.5 pr-3 whitespace-nowrap">
+                                            {entry.academic_year}
+                                            {entry.academic_year === program.academic_year
+                                                ? "（目前）"
+                                                : ""}
+                                        </td>
+                                        <td className="py-1.5 pr-3">
+                                            <input
+                                                className={rowInputClass}
+                                                value={edit.admission_quota}
+                                                onChange={(event) =>
+                                                    setRowEdits((prev) => ({
+                                                        ...prev,
+                                                        [entry.program_identifier]: {
+                                                            ...edit,
+                                                            admission_quota: event.target.value
+                                                        }
+                                                    }))
+                                                }
+                                            />
+                                        </td>
+                                        <td className="py-1.5 pr-3">
+                                            <input
+                                                className={rowInputClass}
+                                                value={edit.applicant_count}
+                                                onChange={(event) =>
+                                                    setRowEdits((prev) => ({
+                                                        ...prev,
+                                                        [entry.program_identifier]: {
+                                                            ...edit,
+                                                            applicant_count: event.target.value
+                                                        }
+                                                    }))
+                                                }
+                                            />
+                                        </td>
+                                        <td className="py-1.5 pr-3">
+                                            <input
+                                                className={rowInputClass}
+                                                value={edit.admitted_count}
+                                                onChange={(event) =>
+                                                    setRowEdits((prev) => ({
+                                                        ...prev,
+                                                        [entry.program_identifier]: {
+                                                            ...edit,
+                                                            admitted_count: event.target.value
+                                                        }
+                                                    }))
+                                                }
+                                            />
+                                        </td>
+                                        <td className="py-1.5 pr-3">
+                                            <input
+                                                className={rowInputClass}
+                                                value={edit.waitlisted_count}
+                                                onChange={(event) =>
+                                                    setRowEdits((prev) => ({
+                                                        ...prev,
+                                                        [entry.program_identifier]: {
+                                                            ...edit,
+                                                            waitlisted_count: event.target.value
+                                                        }
+                                                    }))
+                                                }
+                                            />
+                                        </td>
+                                        <td className="py-1.5 pr-3">
+                                            <input
+                                                className={rowInputClass}
+                                                value={edit.promoted_count}
+                                                onChange={(event) =>
+                                                    setRowEdits((prev) => ({
+                                                        ...prev,
+                                                        [entry.program_identifier]: {
+                                                            ...edit,
+                                                            promoted_count: event.target.value
+                                                        }
+                                                    }))
+                                                }
+                                            />
+                                        </td>
+                                        <td className="py-1.5 pr-3 whitespace-nowrap">
+                                            {programStatusLabel[entry.review_status] ??
+                                                entry.review_status}
+                                        </td>
+                                        <td className="py-1.5 pr-3">
+                                            <button
+                                                type="button"
+                                                onClick={() => void saveRow(entry)}
+                                                disabled={savingRow !== null}
+                                                className="font-sans text-xs font-bold text-ink underline underline-offset-2 disabled:opacity-50"
+                                            >
+                                                {savingRow === entry.program_identifier
+                                                    ? "儲存中…"
+                                                    : "儲存"}
+                                            </button>
+                                        </td>
+                                    </tr>
+                                );
+                            })}
                         </tbody>
                     </table>
                 </div>
@@ -2733,13 +3171,35 @@ function BrochureDialog({
                     {brochure ? (
                         <div className="mt-6 flex flex-col gap-5">
                             <div className="flex flex-wrap items-center justify-between gap-3 rounded-[var(--radius-small)] bg-ink/[0.04] px-4 py-3">
-                                <StatusBadge
-                                    label={
-                                        brochureStatusLabel[brochure.review_status] ??
-                                        brochure.review_status
-                                    }
-                                    status={brochure.review_status}
-                                />
+                                <div className="flex flex-wrap items-center gap-3">
+                                    <StatusBadge
+                                        label={
+                                            brochureStatusLabel[brochure.review_status] ??
+                                            brochure.review_status
+                                        }
+                                        status={brochure.review_status}
+                                    />
+                                    {brochure.review_status === "published" ? (
+                                        <button
+                                            type="button"
+                                            onClick={() => void run("unpublish")}
+                                            disabled={pendingAction !== null}
+                                            className="font-sans text-xs font-bold text-red-600 underline underline-offset-2"
+                                        >
+                                            {pendingAction === "unpublish" ? "下架中…" : "下架"}
+                                        </button>
+                                    ) : null}
+                                    {brochure.review_status === "archived" ? (
+                                        <button
+                                            type="button"
+                                            onClick={() => void run("publish")}
+                                            disabled={pendingAction !== null}
+                                            className="font-sans text-xs font-bold text-ink underline underline-offset-2"
+                                        >
+                                            {pendingAction === "publish" ? "上架中…" : "重新上架"}
+                                        </button>
+                                    ) : null}
+                                </div>
                                 <Button
                                     type="button"
                                     onClick={() => void download()}
@@ -2754,6 +3214,18 @@ function BrochureDialog({
                                     下載檔案
                                 </Button>
                             </div>
+                            {(brochure.review_status === "published" ||
+                                brochure.review_status === "archived") && (
+                                <ActionReason
+                                    value={reason}
+                                    onChange={setReason}
+                                    label={
+                                        brochure.review_status === "published"
+                                            ? "下架原因（必填）"
+                                            : "重新上架備註（必填）"
+                                    }
+                                />
+                            )}
 
                             <dl className="grid gap-x-6 gap-y-4 font-sans text-sm sm:grid-cols-2">
                                 <DetailItem label="檔名" value={brochure.original_file_name} />
@@ -2818,44 +3290,6 @@ function BrochureDialog({
                                             退回
                                         </Button>
                                     </div>
-                                </div>
-                            ) : null}
-
-                            {brochure.review_status === "published" ? (
-                                <div className="border-t border-ink/10 pt-5">
-                                    <ActionReason
-                                        value={reason}
-                                        onChange={setReason}
-                                        label="下架原因（必填）"
-                                    />
-                                    <Button
-                                        type="button"
-                                        onClick={() => void run("unpublish")}
-                                        disabled={pendingAction !== null}
-                                        className="mt-3 h-10 gap-2 bg-red-600 px-4 text-sm hover:bg-red-700 active:bg-red-800"
-                                    >
-                                        <EyeOff aria-hidden className="h-4 w-4" />
-                                        下架
-                                    </Button>
-                                </div>
-                            ) : null}
-
-                            {brochure.review_status === "archived" ? (
-                                <div className="border-t border-ink/10 pt-5">
-                                    <ActionReason
-                                        value={reason}
-                                        onChange={setReason}
-                                        label="重新上架備註（必填）"
-                                    />
-                                    <Button
-                                        type="button"
-                                        onClick={() => void run("publish")}
-                                        disabled={pendingAction !== null}
-                                        className="mt-3 h-10 gap-2 bg-accent-green-strong px-4 text-sm text-ink hover:bg-accent-green"
-                                    >
-                                        <Eye aria-hidden className="h-4 w-4" />
-                                        重新上架
-                                    </Button>
                                 </div>
                             ) : null}
 
@@ -3003,72 +3437,127 @@ function ProgramDetails({ program }: { program: AdminAdmissionProgram }) {
         <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
             <ProgramBrochurePreview program={program} />
             <div className="flex min-w-0 flex-col gap-5">
-            <div className="grid gap-x-6 gap-y-4 font-sans text-sm sm:grid-cols-3">
-                <DetailItem label="學年度" value={String(program.academic_year)} />
-                <DetailItem
-                    label="校系編號"
-                    value={`${program.school_code} ／ ${program.program_code}`}
-                    mono
-                />
-                <DetailItem label="招生名額" value={String(program.admission_quota)} />
-                <DetailItem
-                    label="簡章狀態"
-                    value={program.brochure_is_tentative ? "暫定" : "正式"}
-                />
-                <DetailItem label="諮詢電話" value={program.consultation_phone} />
-                <DetailItem label="諮詢信箱" value={program.consultation_email} />
-                <DetailItem label="諮詢聯絡人／單位" value={program.consultation_contact} />
-                <DetailItem label="來源定位" value={program.source_locator} mono />
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-                <TextBlock title="特殊才能對象" value={program.special_talent_target} />
-                <TextBlock title="不同教育背景" value={program.different_education_backgrounds} />
-            </div>
-            <TextBlock title="考試項目" value="">
-                <div className="overflow-x-auto rounded-[var(--radius-small)] border border-ink/10">
-                    <table className="w-full min-w-[520px] font-sans text-sm">
-                        <thead>
-                            <tr className="border-b border-ink/10 text-left text-copy-muted">
-                                <Th>順序</Th>
-                                <Th>階段</Th>
-                                <Th>項目</Th>
-                                <Th>比重／倍率</Th>
-                                <Th>來源頁</Th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {program.exam_items.map((item) => (
-                                <tr
-                                    key={`${item.sort_order}-${item.name}`}
-                                    className="border-b border-ink/5 last:border-0"
-                                >
-                                    <td className="px-3 py-2">{item.sort_order}</td>
-                                    <td className="px-3 py-2 text-copy-muted">{item.stage}</td>
-                                    <td className="px-3 py-2">
-                                        <p className="font-bold text-ink">{item.name}</p>
-                                        <p className="mt-1 text-xs text-copy-muted">
-                                            {item.description}
-                                        </p>
-                                    </td>
-                                    <td className="px-3 py-2 text-copy-muted">
-                                        {formatExamWeight(item)}
-                                    </td>
-                                    <td className="px-3 py-2 text-copy-muted">
-                                        {item.source_page}
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
+                <div className="grid gap-x-6 gap-y-4 font-sans text-sm sm:grid-cols-3">
+                    <DetailItem label="學年度" value={String(program.academic_year)} />
+                    <DetailItem label="學群" value={program.admission_group} />
+                    <DetailItem label="學類" value={program.admission_category} />
+                    <DetailItem label="招生名額" value={String(program.admission_quota)} />
+                    <DetailItem label="報名費用" value={program.registration_fee} />
+                    <DetailItem
+                        label="校系編號"
+                        value={`${program.school_code} ／ ${program.program_code}`}
+                        mono
+                    />
+                    <DetailItem label="跨學群" value={program.cross_group} />
+                    <DetailItem
+                        label="簡章狀態"
+                        value={program.brochure_is_tentative ? "暫定" : "正式"}
+                    />
+                    <DetailItem label="諮詢電話" value={program.consultation_phone} />
+                    <DetailItem label="諮詢信箱" value={program.consultation_email} />
+                    <DetailItem label="諮詢聯絡人／單位" value={program.consultation_contact} />
+                    <DetailItem label="來源定位" value={program.source_locator} mono />
                 </div>
-            </TextBlock>
-            <div className="grid gap-4 sm:grid-cols-2">
-                <TextBlock title="招生條件補充" value={program.different_education_other} />
-                <TextBlock title="備註" value={program.notes} />
-            </div>
+                <TextBlock title="考試項目" value="">
+                    <div className="overflow-x-auto rounded-[var(--radius-small)] border border-ink/10">
+                        <table className="w-full min-w-[520px] font-sans text-sm">
+                            <thead>
+                                <tr className="border-b border-ink/10 text-left text-copy-muted">
+                                    <Th>順序</Th>
+                                    <Th>階段</Th>
+                                    <Th>項目</Th>
+                                    <Th>比重／倍率</Th>
+                                    <Th>來源頁</Th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {program.exam_items.map((item) => (
+                                    <tr
+                                        key={`${item.sort_order}-${item.name}`}
+                                        className="border-b border-ink/5 last:border-0"
+                                    >
+                                        <td className="px-3 py-2">{item.sort_order}</td>
+                                        <td className="px-3 py-2 text-copy-muted">{item.stage}</td>
+                                        <td className="px-3 py-2">
+                                            <p className="font-bold text-ink">{item.name}</p>
+                                            <p className="mt-1 text-xs text-copy-muted">
+                                                {item.description}
+                                            </p>
+                                        </td>
+                                        <td className="px-3 py-2 text-copy-muted">
+                                            {formatExamWeight(item)}
+                                        </td>
+                                        <td className="px-3 py-2 text-copy-muted">
+                                            {item.source_page}
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </TextBlock>
+                <div className="grid gap-4 sm:grid-cols-2">
+                    <TextBlock title="特殊才能對象" value={program.special_talent_target} />
+                    <TextBlock
+                        title="不同教育背景"
+                        value={program.different_education_backgrounds}
+                    />
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                    <TextBlock title="招生條件補充" value={program.different_education_other} />
+                    <TextBlock title="備註" value={program.notes} />
+                </div>
+                <TextBlock title="招生時程" value="">
+                    {program.timeline_events.length === 0 ? (
+                        <p className="font-sans text-sm text-copy-muted">-</p>
+                    ) : (
+                        <div className="overflow-x-auto rounded-[var(--radius-small)] border border-ink/10">
+                            <table className="w-full min-w-[420px] font-sans text-sm">
+                                <thead>
+                                    <tr className="border-b border-ink/10 text-left text-copy-muted">
+                                        <Th>順序</Th>
+                                        <Th>項目</Th>
+                                        <Th>時間</Th>
+                                        <Th>備註</Th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {program.timeline_events.map((event) => (
+                                        <tr
+                                            key={`${event.sort_order}-${event.name}`}
+                                            className="border-b border-ink/5 last:border-0"
+                                        >
+                                            <td className="px-3 py-2">{event.sort_order}</td>
+                                            <td className="px-3 py-2 font-bold text-ink">
+                                                {event.name}
+                                            </td>
+                                            <td className="px-3 py-2 text-copy-muted">
+                                                {formatAdminTimelineRange(event)}
+                                            </td>
+                                            <td className="px-3 py-2 text-copy-muted">
+                                                {displayFormValue(event.notes)}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+                </TextBlock>
             </div>
         </div>
     );
+}
+
+function formatAdminTimelineRange(event: AdmissionTimelineEvent): string {
+    const hasStart = event.start_date !== "-";
+    if (!hasStart) return "-";
+    const start =
+        event.start_time !== "-" ? `${event.start_date} ${event.start_time}` : event.start_date;
+    const hasEnd = event.end_date !== "-";
+    if (!hasEnd) return start;
+    const end = event.end_time !== "-" ? `${event.end_date} ${event.end_time}` : event.end_date;
+    return `${start} ～ ${end}`;
 }
 
 // Streams the PDF through the API (not a signed storage URL) so it works
@@ -3078,6 +3567,9 @@ function ProgramBrochurePreview({ program }: { program: AdminAdmissionProgram })
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
+    // The preview state belongs to the selected program, so reset it when
+    // the program identity changes before starting the next fetch.
+    /* eslint-disable react-hooks/set-state-in-effect */
     useEffect(() => {
         let ignore = false;
         let objectURL: string | null = null;
@@ -3122,6 +3614,7 @@ function ProgramBrochurePreview({ program }: { program: AdminAdmissionProgram })
             if (objectURL) URL.revokeObjectURL(objectURL);
         };
     }, [program.academic_year, program.school_code]);
+    /* eslint-enable react-hooks/set-state-in-effect */
 
     const pageMatch = program.source_locator.match(/-(\d{1,3})$/);
     const page = pageMatch ? Number(pageMatch[1]) : undefined;
@@ -3147,7 +3640,7 @@ function ProgramBrochurePreview({ program }: { program: AdminAdmissionProgram })
                     key={previewSource}
                     title={`${program.admission_program_name} 原始簡章 PDF 預覽`}
                     src={previewSource}
-                    className="h-[28rem] w-full bg-white lg:h-[calc(100vh-20rem)] lg:min-h-[28rem]"
+                    className="h-[28rem] w-full bg-white lg:h-[calc(100vh-12rem)]"
                 />
             ) : loading ? (
                 <div className="flex h-72 items-center justify-center">
@@ -3447,11 +3940,11 @@ function UploadReportDialog({ upload }: { upload: BrochureUpload }) {
                         <DetailItem label="上傳時間" value={formatDate(upload.created_at)} />
                         <DetailItem
                             label="來源管道"
-                            value={intakeChannelLabel[upload.intake_channel] ?? upload.intake_channel}
+                            value={
+                                intakeChannelLabel[upload.intake_channel] ?? upload.intake_channel
+                            }
                         />
-                        {sourceURL ? (
-                            <DetailItem label="原始網址" value={sourceURL} mono />
-                        ) : null}
+                        {sourceURL ? <DetailItem label="原始網址" value={sourceURL} mono /> : null}
                         {upload.detected_academic_year ? (
                             <DetailItem
                                 label="系統辨識學年度"
@@ -3491,7 +3984,7 @@ function UploadReportDialog({ upload }: { upload: BrochureUpload }) {
                     {upload.error_message ? (
                         <div className="mt-5">
                             <p className="font-sans text-xs font-bold text-copy-muted">錯誤內容</p>
-                            <pre className="mt-2 max-h-64 overflow-auto rounded-[var(--radius-small)] bg-red-50 p-3 font-mono text-xs whitespace-pre-wrap break-words text-red-700">
+                            <pre className="mt-2 max-h-64 overflow-auto rounded-[var(--radius-small)] bg-red-50 p-3 font-mono text-xs break-words whitespace-pre-wrap text-red-700">
                                 {upload.error_message}
                             </pre>
                         </div>
@@ -3594,6 +4087,7 @@ function programToInput(program: AdminAdmissionProgram): AdmissionProgramInput {
         interview_count: program.interview_count,
         admitted_count: program.admitted_count,
         waitlisted_count: program.waitlisted_count,
+        promoted_count: program.promoted_count,
         admission_rate: program.admission_rate,
         first_stage_pass_rate: program.first_stage_pass_rate,
         competition_ratio: program.competition_ratio,
@@ -3670,6 +4164,7 @@ function candidateToProgramInput(candidate: BrochureUploadCandidate): AdmissionP
         interview_count: asText(data.interview_count),
         admitted_count: asText(data.admitted_count),
         waitlisted_count: asText(data.waitlisted_count),
+        promoted_count: asText(data.promoted_count),
         admission_rate: asText(data.admission_rate),
         first_stage_pass_rate: asText(data.first_stage_pass_rate),
         competition_ratio: asText(data.competition_ratio),
@@ -3745,6 +4240,7 @@ function emptyProgramInput(academicYear: number, schoolCode: string): AdmissionP
         interview_count: "-",
         admitted_count: "-",
         waitlisted_count: "-",
+        promoted_count: "-",
         admission_rate: "-",
         first_stage_pass_rate: "-",
         competition_ratio: "-",

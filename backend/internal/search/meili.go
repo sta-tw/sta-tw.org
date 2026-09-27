@@ -90,21 +90,79 @@ var taiVariantSynonyms = map[string][]string{
 	"台東": {"臺東"}, "臺東": {"台東"},
 }
 
+// schoolAbbreviationSynonyms covers common short forms of a school's name
+// that AREN'T a contiguous substring of the official name (so plain
+// substring/prefix matching alone can't find them) — e.g. "交大" doesn't
+// literally appear in "國立陽明交通大學" (the sequence there is 交-通-大,
+// not 交-大). A name like "中興大學", where the short form IS already a
+// contiguous substring (中興 or 興大), needs no entry here.
+var schoolAbbreviationSynonyms = map[string][]string{
+	"政大": {"國立政治大學"}, "國立政治大學": {"政大"},
+	"清大": {"國立清華大學"}, "國立清華大學": {"清大"},
+	"台大": {"國立臺灣大學"}, "臺大": {"國立臺灣大學"}, "國立臺灣大學": {"台大", "臺大"},
+	"師大": {"國立臺灣師範大學"}, "國立臺灣師範大學": {"師大"},
+	"成大": {"國立成功大學"}, "國立成功大學": {"成大"},
+	"交大": {"國立陽明交通大學"}, "陽明交大": {"國立陽明交通大學"}, "國立陽明交通大學": {"交大", "陽明交大"},
+	"中大": {"國立中央大學", "國立中山大學", "中原大學"},
+	"海大": {"國立臺灣海洋大學"}, "國立臺灣海洋大學": {"海大"},
+	"高師大": {"國立高雄師範大學"}, "國立高雄師範大學": {"高師大"},
+	"彰師大": {"國立彰化師範大學"}, "國立彰化師範大學": {"彰師大"},
+	"嘉大": {"國立嘉義大學"}, "國立嘉義大學": {"嘉大"},
+	"高大": {"國立高雄大學"}, "國立高雄大學": {"高大"},
+	"暨大": {"國立暨南國際大學"}, "國立暨南國際大學": {"暨大"},
+	"北藝大": {"國立臺北藝術大學"}, "國立臺北藝術大學": {"北藝大"},
+	"台藝大": {"國立臺灣藝術大學"}, "臺藝大": {"國立臺灣藝術大學"}, "國立臺灣藝術大學": {"台藝大", "臺藝大"},
+	"宜大": {"國立宜蘭大學"}, "國立宜蘭大學": {"宜大"},
+	"南大": {"國立臺南大學"}, "國立臺南大學": {"南大"},
+	"北教大": {"國立臺北教育大學"}, "國立臺北教育大學": {"北教大"},
+	"中教大": {"國立臺中教育大學"}, "國立臺中教育大學": {"中教大"},
+	"屏大": {"國立屏東大學"}, "國立屏東大學": {"屏大"},
+	"台科大": {"國立臺灣科技大學"}, "臺科大": {"國立臺灣科技大學"}, "國立臺灣科技大學": {"台科大", "臺科大"},
+	"雲科大": {"國立雲林科技大學"}, "國立雲林科技大學": {"雲科大"},
+	"屏科大": {"國立屏東科技大學"}, "國立屏東科技大學": {"屏科大"},
+	"北科大": {"國立臺北科技大學"}, "國立臺北科技大學": {"北科大"},
+	"虎科大": {"國立虎尾科技大學"}, "國立虎尾科技大學": {"虎科大"},
+	"高餐大": {"國立高雄餐旅大學"}, "高餐": {"國立高雄餐旅大學"}, "國立高雄餐旅大學": {"高餐大", "高餐"},
+	"台中科大": {"國立臺中科技大學"}, "中科大": {"國立臺中科技大學"}, "國立臺中科技大學": {"台中科大", "中科大"},
+	"北商大": {"國立臺北商業大學"}, "國立臺北商業大學": {"北商大"},
+	"高科大": {"國立高雄科技大學"}, "國立高雄科技大學": {"高科大"},
+	"輔大": {"輔仁大學"}, "輔仁大學": {"輔大"},
+	"淡大": {"淡江大學"}, "淡江大學": {"淡大"},
+	"高醫": {"高雄醫學大學"}, "高醫大": {"高雄醫學大學"}, "高雄醫學大學": {"高醫", "高醫大"},
+	"北醫": {"臺北醫學大學"}, "北醫大": {"臺北醫學大學"}, "臺北醫學大學": {"北醫", "北醫大"},
+	"亞大": {"亞洲大學"}, "亞洲大學": {"亞大"},
+}
+
+// searchSynonyms merges the two maps above; since neither has overlapping
+// keys today a plain union is enough (last-write-wins would apply if they
+// ever did overlap).
+var searchSynonyms = mergeSynonyms(taiVariantSynonyms, schoolAbbreviationSynonyms)
+
+func mergeSynonyms(maps ...map[string][]string) map[string][]string {
+	out := make(map[string][]string)
+	for _, m := range maps {
+		for k, v := range m {
+			out[k] = v
+		}
+	}
+	return out
+}
+
 func (c *Client) EnsureIndexes(ctx context.Context) error {
 	settings := map[string]map[string]any{
 		IndexSchools: {
 			"searchableAttributes": []string{"school_name", "school_code"},
 			"filterableAttributes": []string{"institution_type", "is_active"},
-			"synonyms":             taiVariantSynonyms,
+			"synonyms":             searchSynonyms,
 		},
 		IndexPrograms: {
 			"searchableAttributes": []string{"admission_program_name", "school_name", "program_identifier", "special_talent_target"},
 			"filterableAttributes": []string{"academic_year", "school_code"},
-			"synonyms":             taiVariantSynonyms,
+			"synonyms":             searchSynonyms,
 		},
 		IndexExperiences: {
 			"searchableAttributes": []string{"title", "snippet"},
-			"synonyms":             taiVariantSynonyms,
+			"synonyms":             searchSynonyms,
 		},
 	}
 	for name, s := range settings {

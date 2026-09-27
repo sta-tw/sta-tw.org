@@ -1,3 +1,4 @@
+import Link from "next/link";
 import Button from "./button";
 
 export default function HeroSection() {
@@ -24,8 +25,8 @@ export default function HeroSection() {
                         Special Talent Admission
                     </p>
                 </div>
-                <Button className="h-14 w-full max-w-80 text-lg sm:h-16 sm:text-2xl">
-                    按下按鈕，前途在手
+                <Button asChild className="h-14 w-full max-w-80 text-lg sm:h-16 sm:text-2xl">
+                    <Link href="/articlemain">按下按鈕，前途在手</Link>
                 </Button>
             </div>
         </section>

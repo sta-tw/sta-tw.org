@@ -1,15 +1,14 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Label } from "radix-ui";
 import Button from "../components/button";
-import { publicPath } from "../lib/public-path";
 import { login } from "../lib/api/auth";
 import { notifyAuthChanged } from "../lib/auth-events";
 import { ApiError } from "../lib/api/types";
+import TurnstileWidget from "../components/turnstile-widget";
 
 const focusStyle =
     "focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ink";
@@ -23,6 +22,10 @@ function loginErrorMessage(error: unknown): string {
                 return "帳號或密碼不正確。";
             case "rate_limited":
                 return "嘗試次數過多，請稍後再試。";
+            case "turnstile_invalid":
+                return "驗證未通過，請重新完成驗證。";
+            case "turnstile_unavailable":
+                return "驗證服務暫時無法使用，請稍後再試。";
             case "network_error":
                 return error.message;
             default:
@@ -36,6 +39,8 @@ export default function LoginForm() {
     const router = useRouter();
     const [notice, setNotice] = useState("");
     const [submitting, setSubmitting] = useState(false);
+    const [turnstileToken, setTurnstileToken] = useState("");
+    const [resetSignal, setResetSignal] = useState(0);
 
     function showPreviewNotice(action: string) {
         setNotice(`${action}功能尚未開放，敬請期待。`);
@@ -50,45 +55,22 @@ export default function LoginForm() {
                 登入帳號
             </h1>
 
-            <div className="flex flex-col gap-3">
-                {(["Google", "Discord"] as const).map((provider) => (
-                    <Button
-                        key={provider}
-                        type="button"
-                        onClick={() => showPreviewNotice(`${provider} 登入`)}
-                        className={`h-12 w-full gap-3 rounded-xl border border-ink/25 bg-white/70 font-sans text-base font-medium text-ink hover:bg-ink/5 active:bg-ink/10 ${focusStyle}`}
-                    >
-                        <span
-                            className={`flex size-7 items-center justify-center rounded-sm ${provider === "Discord" ? "bg-[#5865f2]" : "bg-white"}`}
-                        >
-                            <Image
-                                src={publicPath(`/login/${provider.toLowerCase()}.svg`)}
-                                alt=""
-                                width={20}
-                                height={20}
-                            />
-                        </span>
-                        使用 {provider} 登入
-                    </Button>
-                ))}
-            </div>
-
-            <div className="my-6 flex items-center gap-4 text-sm text-copy-muted">
-                <span className="h-px flex-1 bg-ink/20" />
-                <span>或者以 Email 登入</span>
-                <span className="h-px flex-1 bg-ink/20" />
-            </div>
-
             <form
                 onSubmit={(event) => {
                     event.preventDefault();
                     if (submitting) return;
+                    if (!turnstileToken) {
+                        setNotice("請先完成 Cloudflare 驗證。");
+                        return;
+                    }
                     const form = event.currentTarget;
-                    const username = (form.elements.namedItem("username") as HTMLInputElement).value;
-                    const password = (form.elements.namedItem("password") as HTMLInputElement).value;
+                    const username = (form.elements.namedItem("username") as HTMLInputElement)
+                        .value;
+                    const password = (form.elements.namedItem("password") as HTMLInputElement)
+                        .value;
                     setNotice("");
                     setSubmitting(true);
-                    login({ username, password })
+                    login({ username, password, turnstile_token: turnstileToken })
                         .then(() => {
                             notifyAuthChanged();
                             router.push("/");
@@ -96,6 +78,7 @@ export default function LoginForm() {
                         })
                         .catch((error: unknown) => {
                             setNotice(loginErrorMessage(error));
+                            setResetSignal((value) => value + 1);
                         })
                         .finally(() => setSubmitting(false));
                 }}
@@ -129,9 +112,14 @@ export default function LoginForm() {
                         className={inputStyle}
                     />
                 </div>
+                <TurnstileWidget
+                    action="login"
+                    onTokenChange={setTurnstileToken}
+                    resetSignal={resetSignal}
+                />
                 <Button
                     type="submit"
-                    disabled={submitting}
+                    disabled={submitting || !turnstileToken}
                     className={`mt-6 h-12 w-full rounded-xl bg-accent-green font-sans text-lg text-ink hover:bg-accent-green-strong active:bg-accent-green-strong disabled:cursor-not-allowed disabled:opacity-60 ${focusStyle}`}
                 >
                     {submitting ? "登入中…" : "登入"}

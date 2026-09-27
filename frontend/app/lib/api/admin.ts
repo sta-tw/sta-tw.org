@@ -138,6 +138,73 @@ export function setAdmissionsModerator(
     );
 }
 
+/** Sends the same "set a new password" email the self-service forgot-password
+ * flow sends, for a user who's locked out. Never exposes the account's
+ * plaintext email to the admin. */
+export function resetUserPassword(accountId: string, mfaCode?: string) {
+    return apiFetch<{ status: string }>(`/api/v1/admin/users/${accountId}/reset-password`, {
+        method: "POST",
+        headers: mfaHeader(mfaCode)
+    });
+}
+
+export interface CreateInvitedUserInput {
+    mode: "invite";
+    username: string;
+    email: string;
+}
+
+export interface CreateServiceUserInput {
+    mode: "service";
+    username: string;
+    label: string;
+    grant_admin: boolean;
+}
+
+/** An active, human-usable account with an admin-chosen password instead of
+ * an emailed set-password link — for a throwaway account with no real
+ * mailbox behind it (e.g. a batch of brochure-proofreading logins). */
+export interface CreatePasswordUserInput {
+    mode: "password";
+    username: string;
+    password: string;
+    grant_admissions_moderator: boolean;
+}
+
+export interface CreatedInvitedUser {
+    account: AdminUser;
+    invited: true;
+}
+
+export interface CreatedServiceUser {
+    account: AdminUser;
+    /** Returned once, here, and never recoverable afterward. */
+    token: string;
+    granted_admin: boolean;
+}
+
+export interface CreatedPasswordUser {
+    account: AdminUser;
+    admissions_moderator: boolean;
+}
+
+export async function createUser(
+    input: CreateInvitedUserInput | CreateServiceUserInput | CreatePasswordUserInput,
+    mfaCode?: string
+) {
+    const response = await apiFetch<{
+        data: CreatedInvitedUser | CreatedServiceUser | CreatedPasswordUser;
+    }>(
+        "/api/v1/admin/users",
+        {
+            method: "POST",
+            body: input,
+            headers: mfaHeader(mfaCode)
+        }
+    );
+    return response.data;
+}
+
 // --- audit log -----------------------------------------------------------
 
 export interface AuditRow {

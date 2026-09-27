@@ -1,14 +1,8 @@
 # Build context is the monorepo root (see ../docker-compose.yml).
-FROM node:20-alpine AS frontend-build
-WORKDIR /app
-RUN corepack enable
-COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml ./
-RUN pnpm install --frozen-lockfile
-COPY frontend/ .
-ARG NEXT_PUBLIC_API_BASE_URL=
-ENV NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL
-RUN pnpm build
-
+#
+# Frontend static output no longer lives in this image — it's built by the
+# frontend-build service into a shared volume mounted at /srv/frontend, so a
+# frontend-only deploy never needs this container to restart. See
+# ../frontend/Dockerfile and the caddy service's volumes in docker-compose.yml.
 FROM caddy:2-alpine
 COPY backend/deploy/caddy/Caddyfile /etc/caddy/Caddyfile
-COPY --from=frontend-build /app/out /srv/frontend

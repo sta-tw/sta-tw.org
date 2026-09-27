@@ -13,16 +13,16 @@ import FaqAccordion from "./faq-accordion";
 
 const slides = [
     {
-        image: publicPath("/articlemain/starlit-boat-hero.png"),
-        alt: "小船載著展翅的學生航行在星空與海面之間"
+        image: publicPath("/articlemain/sta-coming-soon.webp"),
+        alt: "S.T.A 網站即將上線施工告示"
     },
     {
-        image: publicPath("/articlemain/starlit-boat-hero.png"),
-        alt: "小船載著展翅的學生航行在星空與海面之間"
+        image: publicPath("/articlemain/sta-coming-soon.webp"),
+        alt: "S.T.A 網站即將上線施工告示"
     },
     {
-        image: publicPath("/articlemain/starlit-boat-hero.png"),
-        alt: "小船載著展翅的學生航行在星空與海面之間"
+        image: publicPath("/articlemain/sta-coming-soon.webp"),
+        alt: "S.T.A 網站即將上線施工告示"
     }
 ];
 

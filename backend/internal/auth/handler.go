@@ -13,8 +13,13 @@ import (
 )
 
 type Handler struct {
-	service *Service
-	logger  *slog.Logger
+	service   *Service
+	logger    *slog.Logger
+	turnstile *TurnstileVerifier
+}
+
+func (h *Handler) ConfigureTurnstile(verifier *TurnstileVerifier) {
+	h.turnstile = verifier
 }
 
 func NewHandler(service *Service, logger *slog.Logger) (*Handler, error) {
@@ -54,6 +59,9 @@ func (h *Handler) register(w http.ResponseWriter, r *http.Request) {
 	var input RegisterInput
 	if err := decodeJSON(r, &input); err != nil {
 		writeAuthError(w, http.StatusBadRequest, "invalid_request", "request body is invalid")
+		return
+	}
+	if !h.verifyTurnstile(w, r, input.TurnstileToken, "signup") {
 		return
 	}
 	account, err := h.service.Register(r.Context(), input, r)
@@ -357,6 +365,9 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 		writeAuthError(w, http.StatusBadRequest, "invalid_request", "request body is invalid")
 		return
 	}
+	if !h.verifyTurnstile(w, r, input.TurnstileToken, "login") {
+		return
+	}
 	result, err := h.service.Login(r.Context(), input, r)
 	if err != nil {
 		if errors.Is(err, ErrRateLimited) {
@@ -365,7 +376,7 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 		h.writeServiceError(w, err)
 		return
 	}
-	h.service.SetSessionCookies(w, result)
+	h.service.SetSessionCookiesForRequest(w, result, r)
 	writeAuthJSON(w, http.StatusOK, sessionResponse{Account: result.Account, ExpiresAt: result.ExpiresAt})
 }
 
@@ -393,7 +404,7 @@ func (h *Handler) me(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
 	session, err := h.service.Authenticate(r.Context(), r)
 	if err != nil {
-		h.service.ClearSessionCookies(w)
+		h.service.ClearSessionCookiesForRequest(w, r)
 		writeAuthError(w, http.StatusUnauthorized, "unauthorized", "authentication is required")
 		return
 	}
@@ -406,17 +417,27 @@ func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
 		writeAuthError(w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
 	}
-	h.service.ClearSessionCookies(w)
+	h.service.ClearSessionCookiesForRequest(w, r)
 	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *Handler) oauthLoginStart(w http.ResponseWriter, r *http.Request) {
-	url, err := h.service.OAuthStart(r.Context(), r.PathValue("provider"), nil, r.URL.Query().Get("return_to"))
-	if err != nil {
-		h.writeOAuthError(w, err)
-		return
+	writeAuthError(w, http.StatusServiceUnavailable, "oauth_unavailable", "social login is temporarily unavailable")
+}
+
+func (h *Handler) verifyTurnstile(w http.ResponseWriter, r *http.Request, token, action string) bool {
+	if h.turnstile == nil {
+		return true
 	}
-	http.Redirect(w, r, url, http.StatusFound)
+	if err := h.turnstile.Verify(r.Context(), token, action, clientIP(r)); err != nil {
+		if errors.Is(err, ErrTurnstileInvalid) {
+			writeAuthError(w, http.StatusForbidden, "turnstile_invalid", "verification failed")
+		} else {
+			writeAuthError(w, http.StatusServiceUnavailable, "turnstile_unavailable", "verification service unavailable")
+		}
+		return false
+	}
+	return true
 }
 
 func (h *Handler) oauthBindStart(w http.ResponseWriter, r *http.Request) {
@@ -468,7 +489,7 @@ func (h *Handler) oauthCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if result.Session != nil {
-		h.service.SetSessionCookies(w, *result.Session)
+		h.service.SetSessionCookiesForRequest(w, *result.Session, r)
 	}
 	target := result.ReturnTo
 	if target == "" {

@@ -27,7 +27,7 @@ const adminProgramSelect = `
 		p.checkin_waitlist_process, p.fee_reduction_eligibility,
 		p.admission_group, p.cross_group, p.admission_category, p.priority_admission,
 		p.portfolio_required, p.recommendation_letter_type, p.max_applicable_programs,
-		p.applicant_count, p.interview_count, p.admitted_count, p.waitlisted_count,
+		p.applicant_count, p.interview_count, p.admitted_count, p.waitlisted_count, p.promoted_count,
 		p.admission_rate, p.first_stage_pass_rate, p.competition_ratio,
 		p.school_official_url, p.department_official_url,
 		p.created_at, p.updated_at
@@ -184,7 +184,7 @@ func (r *PostgresRepository) UpsertProgramsInTx(ctx context.Context, tx pgx.Tx, 
 			program.CheckinWaitlistProcess, program.FeeReductionEligibility,
 			program.AdmissionGroup, program.CrossGroup, program.AdmissionCategory, program.PriorityAdmission,
 			program.PortfolioRequired, program.RecommendationLetterType, program.MaxApplicablePrograms,
-			program.ApplicantCount, program.InterviewCount, program.AdmittedCount, program.WaitlistedCount,
+			program.ApplicantCount, program.InterviewCount, program.AdmittedCount, program.WaitlistedCount, program.PromotedCount,
 			program.AdmissionRate, program.FirstStagePassRate, program.CompetitionRatio,
 			program.SchoolOfficialURL, program.DepartmentOfficialURL,
 		); err != nil {
@@ -312,6 +312,60 @@ func (r *PostgresRepository) ReviewProgram(ctx context.Context, adminID uuid.UUI
 	return after, nil
 }
 
+// SetProgramArchived toggles a program between published and archived —
+// for temporarily hiding a program from the public site while its data is
+// still being corrected, without losing the published record or blocking
+// further edits (unlike DeleteProgram, this never touches the row's data).
+func (r *PostgresRepository) SetProgramArchived(ctx context.Context, adminID uuid.UUID, identifier ProgramIdentifier, archived bool, reason string) (AdminProgram, error) {
+	reason = strings.TrimSpace(reason)
+	if reason == "" || len([]rune(reason)) > 2000 {
+		return AdminProgram{}, ErrInvalidProgram
+	}
+	if ok, err := r.IsAdmin(ctx, adminID); err != nil {
+		return AdminProgram{}, err
+	} else if !ok {
+		return AdminProgram{}, ErrAdminRequired
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return AdminProgram{}, fmt.Errorf("begin admission program archive: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	before, err := loadAdminProgram(ctx, tx, identifier, true)
+	if err != nil {
+		return AdminProgram{}, err
+	}
+	expected := ProgramStatusPublished
+	newStatus := ProgramStatusArchived
+	action := "unpublish"
+	if !archived {
+		expected = ProgramStatusArchived
+		newStatus = ProgramStatusPublished
+		action = "republish"
+	}
+	if before.ReviewStatus != expected {
+		return AdminProgram{}, ErrInvalidStatus
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE academic_programs
+		SET review_status = $4, updated_at = CURRENT_TIMESTAMP
+		WHERE academic_year = $1 AND school_code = $2 AND program_code = $3
+	`, identifier.AcademicYear, identifier.SchoolCode, identifier.ProgramCode, newStatus); err != nil {
+		return AdminProgram{}, mapAdmissionRepositoryError(err)
+	}
+	after, err := loadAdminProgram(ctx, tx, identifier, false)
+	if err != nil {
+		return AdminProgram{}, err
+	}
+	if err := insertProgramAudit(ctx, tx, adminID, action, identifier.String(), adminProgramSnapshot(before), adminProgramSnapshot(after), reason); err != nil {
+		return AdminProgram{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return AdminProgram{}, fmt.Errorf("commit admission program archive: %w", err)
+	}
+	return after, nil
+}
+
 // DeleteProgram removes an empty placeholder program (admission_quota == 0) and its
 // exam-item/timeline-event rows; ON DELETE RESTRICT elsewhere guards real applicant data.
 func (r *PostgresRepository) DeleteProgram(ctx context.Context, adminID uuid.UUID, identifier ProgramIdentifier, reason string) error {
@@ -432,7 +486,7 @@ func scanAdminProgram(row interface{ Scan(...any) error }) (AdminProgram, error)
 		&item.CheckinWaitlistProcess, &item.FeeReductionEligibility,
 		&item.AdmissionGroup, &item.CrossGroup, &item.AdmissionCategory, &item.PriorityAdmission,
 		&item.PortfolioRequired, &item.RecommendationLetterType, &item.MaxApplicablePrograms,
-		&item.ApplicantCount, &item.InterviewCount, &item.AdmittedCount, &item.WaitlistedCount,
+		&item.ApplicantCount, &item.InterviewCount, &item.AdmittedCount, &item.WaitlistedCount, &item.PromotedCount,
 		&item.AdmissionRate, &item.FirstStagePassRate, &item.CompetitionRatio,
 		&item.SchoolOfficialURL, &item.DepartmentOfficialURL,
 		&item.CreatedAt, &item.UpdatedAt,
@@ -522,6 +576,7 @@ func adminProgramSnapshot(item AdminProgram) map[string]any {
 		"interview_count":                 item.InterviewCount,
 		"admitted_count":                  item.AdmittedCount,
 		"waitlisted_count":                item.WaitlistedCount,
+		"promoted_count":                  item.PromotedCount,
 		"admission_rate":                  item.AdmissionRate,
 		"first_stage_pass_rate":           item.FirstStagePassRate,
 		"competition_ratio":               item.CompetitionRatio,
@@ -602,7 +657,7 @@ const upsertProgramSQL = `
 		checkin_waitlist_process, fee_reduction_eligibility,
 		admission_group, cross_group, admission_category, priority_admission,
 		portfolio_required, recommendation_letter_type, max_applicable_programs,
-		applicant_count, interview_count, admitted_count, waitlisted_count,
+		applicant_count, interview_count, admitted_count, waitlisted_count, promoted_count,
 		admission_rate, first_stage_pass_rate, competition_ratio,
 		school_official_url, department_official_url
 	)
@@ -610,8 +665,8 @@ const upsertProgramSQL = `
 		$1, $2, $3, $4, $5, $6,
 		$7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
 		$17, $18, NULLIF($19, '-')::date, NULLIF($20, '-')::date, $21, $22,
-		$23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36,
-		$37, $38
+		$23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37,
+		$38, $39
 	)
 	ON CONFLICT (academic_year, school_code, program_code) DO UPDATE SET
 		admission_program_name = EXCLUDED.admission_program_name,
@@ -644,6 +699,7 @@ const upsertProgramSQL = `
 		interview_count = EXCLUDED.interview_count,
 		admitted_count = EXCLUDED.admitted_count,
 		waitlisted_count = EXCLUDED.waitlisted_count,
+		promoted_count = EXCLUDED.promoted_count,
 		admission_rate = EXCLUDED.admission_rate,
 		first_stage_pass_rate = EXCLUDED.first_stage_pass_rate,
 		competition_ratio = EXCLUDED.competition_ratio,

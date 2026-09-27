@@ -1,0 +1,4 @@
+# S.T.A 特殊選才資源網
+User-agent: *
+Allow: /
+Disallow: /admin/

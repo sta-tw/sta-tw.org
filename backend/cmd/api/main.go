@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 	"sta-backend/internal/accountapplications"
 	"sta-backend/internal/accountmail"
 	"sta-backend/internal/admin"
@@ -80,6 +82,7 @@ func run(logger *slog.Logger) error {
 	var blobStore storage.BlobStore
 	var fileScanner storage.Scanner
 	var distributedLimiter security.DistributedLimiter
+	var redisClient *redis.Client
 	var admissionRepository *admissions.PostgresRepository
 	var resultRepository *results.PostgresRepository
 	var discoveryHandler *brochurediscovery.Handler
@@ -116,6 +119,25 @@ func run(logger *slog.Logger) error {
 		}
 	}()
 
+	if cfg.RedisURL != "" {
+		redisOpts, err := redis.ParseURL(cfg.RedisURL)
+		if err != nil {
+			return fmt.Errorf("parse STA_REDIS_URL: %w", err)
+		}
+		redisClient = redis.NewClient(redisOpts)
+		pingCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		err = redisClient.Ping(pingCtx).Err()
+		cancel()
+		if err != nil {
+			return fmt.Errorf("connect to redis: %w", err)
+		}
+		defer redisClient.Close()
+		readinessChecks = append(readinessChecks, httpapi.NamedCheck{
+			Name:  "redis",
+			Check: func(ctx context.Context) error { return redisClient.Ping(ctx).Err() },
+		})
+	}
+
 	if cfg.DatabaseURL != "" {
 		startupContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		databasePool, err = db.OpenPostgres(startupContext, cfg.DatabaseURL)
@@ -146,12 +168,21 @@ func run(logger *slog.Logger) error {
 		if err != nil {
 			return err
 		}
+		if cfg.CookieDomain != "" {
+			authService.SetCookieDomain(cfg.CookieDomain)
+		}
 		authService.ConfigureAdminMFA(cfg.RequireAdminMFA)
 		authService.ConfigureAdminMFAGrant(cfg.AdminMFAGrantTTL)
 		if err := authService.ConfigureLookupKeyRotation(cfg.LookupHMACSecondaryKeys); err != nil {
 			return err
 		}
-		distributedLimiter, err = security.NewPostgresFixedWindowLimiter(databasePool)
+		// Redis is preferred when configured; Postgres stays as the fallback
+		// path for local dev/test without a Redis instance running.
+		if redisClient != nil {
+			distributedLimiter, err = security.NewRedisFixedWindowLimiter(redisClient)
+		} else {
+			distributedLimiter, err = security.NewPostgresFixedWindowLimiter(databasePool)
+		}
 		if err != nil {
 			return err
 		}
@@ -207,6 +238,13 @@ func run(logger *slog.Logger) error {
 		if err != nil {
 			return err
 		}
+		if cfg.Environment == "production" || cfg.TurnstileSecret != "" {
+			verifier, err := auth.NewTurnstileVerifier(cfg.TurnstileSecret, cfg.TurnstileHostname)
+			if err != nil {
+				return fmt.Errorf("configure Turnstile: %w", err)
+			}
+			authHandler.ConfigureTurnstile(verifier)
+		}
 		registrars = append(registrars, authHandler.RegisterRoutes)
 		if providerConfigured(cfg.GoogleOAuth) {
 			calendarEventLinks, err := calendar.NewPostgresEventLinkStore(databasePool)
@@ -227,12 +265,22 @@ func run(logger *slog.Logger) error {
 		if err != nil {
 			return err
 		}
-		admissionHandler, err := admissions.NewHandler(admissionRepository)
+		// Cached only for the public catalogue handler — admin/ingestion/results
+		// consumers below keep using the uncached admissionRepository directly
+		// so they never see stale reads.
+		var publicAdmissionRepository admissions.Repository = admissionRepository
+		var admissionsInvalidator admissions.Invalidator
+		if redisClient != nil {
+			cachedRepo := admissions.NewCachedRepository(admissionRepository, redisClient, 5*time.Minute)
+			publicAdmissionRepository = cachedRepo
+			admissionsInvalidator = cachedRepo
+		}
+		admissionHandler, err := admissions.NewHandler(publicAdmissionRepository)
 		if err != nil {
 			return err
 		}
 		registrars = append(registrars, admissionHandler.RegisterRoutes)
-		admissionAdminHandler, err := admissions.NewAdminHandler(authService, admissionRepository)
+		admissionAdminHandler, err := admissions.NewAdminHandler(authService, admissionRepository, admissionsInvalidator)
 		if err != nil {
 			return err
 		}
@@ -259,7 +307,11 @@ func run(logger *slog.Logger) error {
 		if err != nil {
 			return err
 		}
-		schoolHandler, err := schools.NewHandler(authService, schoolRepository)
+		var publicSchoolRepository schools.Repository = schoolRepository
+		if redisClient != nil {
+			publicSchoolRepository = schools.NewCachedRepository(schoolRepository, redisClient, 10*time.Minute)
+		}
+		schoolHandler, err := schools.NewHandler(authService, publicSchoolRepository)
 		if err != nil {
 			return err
 		}
@@ -272,6 +324,7 @@ func run(logger *slog.Logger) error {
 		if err != nil {
 			return err
 		}
+		applicationHandler.ConfigureDistributedLimiter(distributedLimiter)
 		registrars = append(registrars, applicationHandler.RegisterRoutes)
 		contentRepository, err := content.NewPostgresRepository(databasePool)
 		if err != nil {
@@ -281,6 +334,7 @@ func run(logger *slog.Logger) error {
 		if err != nil {
 			return err
 		}
+		contentHandler.ConfigureDistributedLimiter(distributedLimiter)
 		registrars = append(registrars, contentHandler.RegisterRoutes)
 		resultRepository, err = results.NewPostgresRepository(databasePool, cfg.LookupHMACKey)
 		if err != nil {
@@ -353,6 +407,7 @@ func run(logger *slog.Logger) error {
 		if err != nil {
 			return err
 		}
+		verificationHandler.ConfigureDistributedLimiter(distributedLimiter)
 		registrars = append(registrars, verificationHandler.RegisterRoutes)
 		if authService != nil && blobStore != nil {
 			var accountApplicationMailer email.Sender
@@ -386,6 +441,7 @@ func run(logger *slog.Logger) error {
 			if err != nil {
 				return err
 			}
+			accountApplicationHandler.ConfigureDistributedLimiter(distributedLimiter)
 			registrars = append(registrars, accountApplicationHandler.RegisterRoutes)
 
 			inquiryNotifier := emailinquiries.NewHTTPTelegramNotifier(cfg.TelegramBotToken, cfg.TelegramAccountApplicationChatID)
@@ -431,6 +487,7 @@ func run(logger *slog.Logger) error {
 		if err != nil {
 			return err
 		}
+		portfolioHandler.ConfigureDistributedLimiter(distributedLimiter)
 		registrars = append(registrars, portfolioHandler.RegisterRoutes)
 
 		profileRepository, err := profile.NewPostgresRepository(databasePool)
@@ -441,6 +498,7 @@ func run(logger *slog.Logger) error {
 		if err != nil {
 			return err
 		}
+		profileHandler.ConfigureDistributedLimiter(distributedLimiter)
 		registrars = append(registrars, profileHandler.RegisterRoutes)
 	} else if authService != nil {
 		logger.Warn("object storage is not configured; portfolio and profile file routes are disabled")
@@ -482,6 +540,7 @@ func run(logger *slog.Logger) error {
 			if err != nil {
 				return err
 			}
+			searchHandler.ConfigureDistributedLimiter(distributedLimiter)
 			registrars = append(registrars, searchHandler.RegisterRoutes)
 			logger.Info("Meilisearch search enabled")
 		}
@@ -519,6 +578,7 @@ func run(logger *slog.Logger) error {
 		if err != nil {
 			return err
 		}
+		brochureHandler.ConfigureDistributedLimiter(distributedLimiter)
 		registrars = append(registrars, brochureHandler.RegisterRoutes)
 		externalExtractionHandler, err := ingestion.NewExternalHandler(
 			authService, ingestionRepository, admissionRepository, resultRepository,
@@ -527,12 +587,14 @@ func run(logger *slog.Logger) error {
 		if err != nil {
 			return err
 		}
+		externalExtractionHandler.ConfigureDistributedLimiter(distributedLimiter)
 		registrars = append(registrars, externalExtractionHandler.RegisterRoutes)
 	} else if authService != nil && admissionRepository != nil {
 		brochureHandler, err := admissions.NewBrochureHandlerWithDispatcherAndScanner(authService, admissionRepository, blobStore, nil, fileScanner)
 		if err != nil {
 			return err
 		}
+		brochureHandler.ConfigureDistributedLimiter(distributedLimiter)
 		registrars = append(registrars, brochureHandler.RegisterRoutes)
 	}
 	if discoveryHandler != nil {

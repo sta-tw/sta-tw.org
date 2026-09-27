@@ -6,22 +6,40 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"sta-backend/internal/admissions"
 	"sta-backend/internal/auth"
+	"sta-backend/internal/security"
 )
 
 type Handler struct {
-	authService *auth.Service
-	repository  Repository
+	authService        *auth.Service
+	repository         Repository
+	createLimiter      *security.FixedWindowLimiter
+	ticketLimiter      *security.FixedWindowLimiter
+	distributedLimiter security.DistributedLimiter
 }
 
 func NewHandler(authService *auth.Service, repository Repository) (*Handler, error) {
 	if authService == nil || repository == nil {
 		return nil, errors.New("application handler dependencies are missing")
 	}
-	return &Handler{authService: authService, repository: repository}, nil
+	return &Handler{
+		authService: authService,
+		repository:  repository,
+		// These endpoints previously had no rate limiting at all.
+		createLimiter: security.NewFixedWindowLimiter(10, time.Minute, 10000),
+		ticketLimiter: security.NewFixedWindowLimiter(10, time.Minute, 10000),
+	}, nil
+}
+
+// ConfigureDistributedLimiter wires a cross-replica rate-limit backend on top
+// of the local fast-path limiters, mirroring the pattern already used by
+// auth/chat/support/verification.
+func (h *Handler) ConfigureDistributedLimiter(limiter security.DistributedLimiter) {
+	h.distributedLimiter = limiter
 }
 
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
@@ -45,9 +63,31 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	writeApplicationJSON(w, http.StatusOK, map[string]any{"data": applications})
 }
 
+// checkRateLimit applies a local-then-distributed rate check and writes the
+// appropriate error response on rejection. Callers should `return` when it
+// reports false.
+func (h *Handler) checkRateLimit(w http.ResponseWriter, r *http.Request, limiter *security.FixedWindowLimiter, namespace, key string, limit int, window time.Duration) bool {
+	now := time.Now()
+	rl := limiter.Take(key, now)
+	security.WriteRateLimitHeaders(w, rl, now)
+	allowed, err := security.CheckDistributed(r.Context(), h.distributedLimiter, rl.Allowed, namespace, key, limit, window, now)
+	if err != nil {
+		writeApplicationError(w, http.StatusServiceUnavailable, "rate_limit_unavailable", "rate limiting is temporarily unavailable")
+		return false
+	}
+	if !allowed {
+		writeApplicationError(w, http.StatusTooManyRequests, "rate_limited", "too many requests")
+		return false
+	}
+	return true
+}
+
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	session, ok := h.requireStudent(w, r)
 	if !ok {
+		return
+	}
+	if !h.checkRateLimit(w, r, h.createLimiter, "applications-create", session.Session.Account.ID.String(), 10, time.Minute) {
 		return
 	}
 	var input CreateInput
@@ -81,6 +121,9 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) createTicket(w http.ResponseWriter, r *http.Request) {
 	session, ok := h.requireStudent(w, r)
 	if !ok {
+		return
+	}
+	if !h.checkRateLimit(w, r, h.ticketLimiter, "applications-ticket", session.Session.Account.ID.String(), 10, time.Minute) {
 		return
 	}
 	var input ServiceTicketInput

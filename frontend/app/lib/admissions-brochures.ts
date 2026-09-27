@@ -81,6 +81,7 @@ function registrationTimeline(program: AdmissionProgram): BrochureTimelineItem[]
             id: `timeline-${event.sort_order}`,
             title: event.name,
             date: formatTimelineEventDate(event),
+            notes: hasValue(event.notes) ? event.notes : undefined,
             isoStart: hasValue(event.start_date) ? event.start_date : undefined,
             isoEnd: hasValue(event.end_date)
                 ? event.end_date
@@ -103,15 +104,17 @@ function registrationTimeline(program: AdmissionProgram): BrochureTimelineItem[]
 export function programHistoryFromYears(years: AdmissionProgram[]): BrochureHistory[] {
     return years
         .filter((year) =>
-            [year.applicant_count, year.admitted_count, year.waitlisted_count].some(hasValue)
+            [year.applicant_count, year.admitted_count, year.waitlisted_count, year.promoted_count].some(
+                hasValue
+            )
         )
         .map((year) => ({
             year: `${year.academic_year}`,
+            quota: year.admission_quota > 0 ? `${year.admission_quota}` : "-",
+            applicants: hasValue(year.applicant_count) ? year.applicant_count : "-",
             admitted: hasValue(year.admitted_count) ? year.admitted_count : "-",
-            // waitlisted_count is 大表's 備取人數, not 遞補人數 — maps to candidates below.
-            waitlisted: "-",
-            candidates: hasValue(year.waitlisted_count) ? year.waitlisted_count : "-",
-            applicants: hasValue(year.applicant_count) ? year.applicant_count : "-"
+            waitlisted: hasValue(year.waitlisted_count) ? year.waitlisted_count : "-",
+            promoted: hasValue(year.promoted_count) ? year.promoted_count : "-"
         }));
 }
 
@@ -149,15 +152,17 @@ export function admissionProgramToBrochure(program: AdmissionProgram): Brochure 
             : "請參閱當年度官方招生資料與簡章。",
         facts: [
             { label: "學年度", value: `${program.academic_year} 學年度` },
-            { label: "招生人數", value: `${program.admission_quota} 人` },
-            {
-                label: "考試項目",
-                value: examNames.length > 0 ? examNames.join("、") : "依官方簡章為準"
-            }
+            ...(hasValue(program.admission_group)
+                ? [{ label: "學群", value: program.admission_group }]
+                : []),
+            ...(hasValue(program.admission_category)
+                ? [{ label: "學類", value: program.admission_category }]
+                : []),
+            { label: "招生人數", value: `${program.admission_quota} 人` }
         ],
         eligibility: eligibility || "請參閱當年度官方簡章。",
         examFormat: examNames.length > 0 ? examNames.join("、") : "依官方簡章為準",
-        fee: "依官方簡章公告為準",
+        fee: hasValue(program.registration_fee) ? program.registration_fee : "依官方簡章公告為準",
         timeline:
             scheduleItems
                 .filter((item) => item.id !== "pending")

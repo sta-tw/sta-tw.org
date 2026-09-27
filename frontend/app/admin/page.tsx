@@ -50,6 +50,13 @@ const adminModules = [
         status: "open"
     },
     {
+        href: "/admin/mail-routes",
+        label: "Mail 分類",
+        description: "管理 mail.sta-tw.org 的收件分類，對應 Discord 論壇頻道。",
+        icon: MessageCircle,
+        status: "open"
+    },
+    {
         label: "申請管理",
         description: "查看與處理學生的特殊選才申請。",
         icon: FileText,

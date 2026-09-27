@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/google/uuid"
+
 	"sta-backend/internal/auth"
 )
 
@@ -17,6 +19,10 @@ import (
 //   - "service": create a 'service'-role (bot) account and issue it one API
 //     token, for machine-to-machine access. No email involved; the token
 //     is returned once, in this response, and never recoverable afterward.
+//   - "password": create an active, human-usable account with an
+//     admin-chosen password instead of an emailed link — for a throwaway
+//     reviewer account with no real mailbox behind it. The caller must hand
+//     the password off out of band; it is never stored anywhere in plaintext.
 type createUserInput struct {
 	Mode string `json:"mode"`
 
@@ -27,10 +33,15 @@ type createUserInput struct {
 	// service
 	Label      string `json:"label"`
 	GrantAdmin bool   `json:"grant_admin"`
+
+	// password
+	Password                 string `json:"password"`
+	GrantAdmissionsModerator bool   `json:"grant_admissions_moderator"`
 }
 
 func (h *Handler) createUser(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.requireAdminMutation(w, r); !ok {
+	session, ok := h.requireAdminMutation(w, r)
+	if !ok {
 		return
 	}
 	var body createUserInput
@@ -43,8 +54,10 @@ func (h *Handler) createUser(w http.ResponseWriter, r *http.Request) {
 		h.createInvitedUser(w, r, body)
 	case "service":
 		h.createServiceUser(w, r, body)
+	case "password":
+		h.createPasswordUser(w, r, body, session.Session.Account.ID)
 	default:
-		writeError(w, http.StatusBadRequest, "invalid_mode", "mode must be \"invite\" or \"service\"")
+		writeError(w, http.StatusBadRequest, "invalid_mode", "mode must be \"invite\", \"service\", or \"password\"")
 	}
 }
 
@@ -96,5 +109,29 @@ func (h *Handler) createServiceUser(w http.ResponseWriter, r *http.Request, body
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"data": map[string]any{
 		"account": account, "token": token, "granted_admin": body.GrantAdmin,
+	}})
+}
+
+func (h *Handler) createPasswordUser(w http.ResponseWriter, r *http.Request, body createUserInput, actorID uuid.UUID) {
+	account, err := h.auth.CreateAccountWithPassword(r.Context(), body.Username, body.Password)
+	if err != nil {
+		switch {
+		case errors.Is(err, auth.ErrConflict):
+			writeError(w, http.StatusConflict, "account_conflict", "username is already in use")
+		case errors.Is(err, auth.ErrInvalidInput):
+			writeError(w, http.StatusBadRequest, "invalid_input", "username or password is invalid")
+		default:
+			writeError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+		}
+		return
+	}
+	if body.GrantAdmissionsModerator {
+		if err := setAdmissionsModeratorRole(r.Context(), h.pool, account.ID, actorID, true, "建立於後台"); err != nil {
+			writeError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+			return
+		}
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"data": map[string]any{
+		"account": account, "admissions_moderator": body.GrantAdmissionsModerator,
 	}})
 }

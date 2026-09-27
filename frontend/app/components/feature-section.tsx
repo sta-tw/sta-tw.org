@@ -7,7 +7,7 @@ import Button from "./button";
 type Feature = {
     title: string;
     body: string;
-    href: string;
+    href?: string;
     image: string;
     imageAlt: string;
     imagePosition: "left" | "right";
@@ -15,10 +15,9 @@ type Feature = {
 
 const features: Feature[] = [
     {
-        title: "只要有才華，\n不必擔心資訊差",
-        body: "特殊選才資源網致力於透過線上資源匯集，減少特選資源分布不均等情況，並輔以論壇功能，讓大家有問題都能即時發問。",
-        href: "/forum",
-        image: publicPath("/features/feature-community.png"),
+        title: "交流社群，\n即將開放",
+        body: "論壇功能目前施工中，暫未開放。",
+        image: publicPath("/features/feature-community.webp"),
         imageAlt: "柔和色塊交疊的抽象社群圖像",
         imagePosition: "left"
     }
@@ -71,9 +70,15 @@ function FeatureCopy({ feature, className }: { feature: Feature; className?: str
                 </p>
             </div>
 
-            <Button asChild className="h-14 w-fit min-w-40 px-4 text-2xl leading-snug">
-                <Link href={feature.href}>更多資訊</Link>
-            </Button>
+            {feature.href ? (
+                <Button asChild className="h-14 w-fit min-w-40 px-4 text-2xl leading-snug">
+                    <Link href={feature.href}>更多資訊</Link>
+                </Button>
+            ) : (
+                <span className="inline-flex h-14 w-fit min-w-40 cursor-not-allowed items-center justify-center rounded-[var(--radius-control)] bg-ink/10 px-4 font-sans text-2xl leading-snug text-ink/50">
+                    施工中
+                </span>
+            )}
         </div>
     );
 }

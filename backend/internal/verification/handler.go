@@ -15,12 +15,21 @@ import (
 )
 
 type Handler struct {
-	authService   *auth.Service
-	service       *Service
-	repository    Repository
-	blobStore     storage.BlobStore
-	scanner       storage.Scanner
-	uploadLimiter *security.FixedWindowLimiter
+	authService        *auth.Service
+	service            *Service
+	repository         Repository
+	blobStore          storage.BlobStore
+	scanner            storage.Scanner
+	uploadLimiter      *security.FixedWindowLimiter
+	distributedLimiter security.DistributedLimiter
+}
+
+// ConfigureDistributedLimiter wires a cross-replica rate-limit backend on top
+// of the local fast-path limiter, mirroring the pattern already used by
+// auth/chat/support/verification's own email-send limiter (a distinct
+// namespace: "verification-upload" here vs. "verification-email" there).
+func (h *Handler) ConfigureDistributedLimiter(limiter security.DistributedLimiter) {
+	h.distributedLimiter = limiter
 }
 
 func NewHandler(authService *auth.Service, service *Service, repository Repository, blobStore storage.BlobStore) (*Handler, error) {
@@ -142,7 +151,12 @@ func (h *Handler) uploadDocument(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	rl := h.uploadLimiter.Take(session.Session.Account.ID.String(), now)
 	security.WriteRateLimitHeaders(w, rl, now)
-	if !rl.Allowed {
+	allowed, err := security.CheckDistributed(r.Context(), h.distributedLimiter, rl.Allowed, "verification-upload", session.Session.Account.ID.String(), 20, time.Minute, now)
+	if err != nil {
+		writeVerificationError(w, http.StatusServiceUnavailable, "rate_limit_unavailable", "rate limiting is temporarily unavailable")
+		return
+	}
+	if !allowed {
 		writeVerificationError(w, http.StatusTooManyRequests, "rate_limited", "too many uploads")
 		return
 	}

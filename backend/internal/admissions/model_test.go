@@ -86,6 +86,7 @@ func TestProgramValidationAllowsMissingSourceLocatorOnly(t *testing.T) {
 		InterviewCount:                MissingValue,
 		AdmittedCount:                 MissingValue,
 		WaitlistedCount:               MissingValue,
+		PromotedCount:                 MissingValue,
 		AdmissionRate:                 MissingValue,
 		FirstStagePassRate:            MissingValue,
 		CompetitionRatio:              MissingValue,
@@ -223,7 +224,7 @@ func TestTimelineEventsAllowEmptyList(t *testing.T) {
 	}
 }
 
-func TestTimelineEventsMaterializeNormalizesAndOrders(t *testing.T) {
+func TestTimelineEventsMaterializeNormalizes(t *testing.T) {
 	input := minimalProgramInput()
 	input.TimelineEvents = []TimelineEvent{
 		{Name: "  網路登錄報名  ", StartDate: "-", StartTime: "09:00", EndTime: "17:00", SortOrder: 1, Notes: ""},
@@ -238,23 +239,33 @@ func TestTimelineEventsMaterializeNormalizesAndOrders(t *testing.T) {
 		t.Fatalf("TimelineEvents = %#v, want 2 events", program.TimelineEvents)
 	}
 	first := program.TimelineEvents[0]
-	if first.Name != "網路登錄報名" || first.StartDate != MissingValue || first.StartTime != "09:00" || first.EndTime != "17:00" || first.Notes != MissingValue {
-		t.Fatalf("first event = %#v, want trimmed name, missing-value date, preserved times, missing-value notes", first)
+	if first.Name != "網路登錄報名" || first.StartDate != MissingValue || first.StartTime != "09:00" || first.EndTime != "17:00" || first.Notes != MissingValue || first.SortOrder != 1 {
+		t.Fatalf("first event = %#v, want normalized, order kept as given", first)
 	}
 	second := program.TimelineEvents[1]
-	if second.StartDate != "2026-11-24" || second.EndDate != MissingValue {
-		t.Fatalf("second event = %#v, want start date 2026-11-24 and missing-value end date", second)
+	if second.Name != "榜單公告" || second.StartDate != "2026-11-24" || second.EndDate != MissingValue || second.SortOrder != 2 {
+		t.Fatalf("second event = %#v, want order kept as given", second)
 	}
 }
 
-func TestTimelineEventsRejectDuplicateSortOrder(t *testing.T) {
+// Order is caller-controlled (the admin UI drags cards into place) — not
+// recomputed from start_date/start_time. Materialize should keep whatever
+// order the input arrived in, just re-numbering sort_order to match it.
+func TestTimelineEventsKeepInputOrder(t *testing.T) {
 	input := minimalProgramInput()
 	input.TimelineEvents = []TimelineEvent{
-		{Name: "初試結果公告", StartDate: MissingValue, SortOrder: 1},
-		{Name: "複試繳費期限", StartDate: MissingValue, SortOrder: 1},
+		{Name: "較晚", StartDate: "2026-12-01", StartTime: "09:00", SortOrder: 1},
+		{Name: "同日較晚", StartDate: "2026-11-01", StartTime: "13:00", SortOrder: 1},
+		{Name: "同日較早", StartDate: "2026-11-01", StartTime: "09:00"},
 	}
-	if err := input.Validate(); !errors.Is(err, ErrInvalidProgram) {
-		t.Fatalf("Validate() with duplicate sort_order error = %v, want ErrInvalidProgram", err)
+	program, err := input.Materialize()
+	if err != nil {
+		t.Fatalf("Materialize() with duplicate or missing sort_order error = %v", err)
+	}
+	for index, want := range []string{"較晚", "同日較晚", "同日較早"} {
+		if got := program.TimelineEvents[index]; got.Name != want || got.SortOrder != index+1 {
+			t.Fatalf("event %d = %#v, want %q with sort_order %d", index, got, want, index+1)
+		}
 	}
 }
 

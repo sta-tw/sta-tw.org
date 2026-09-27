@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { useState } from "react";
 import { Label } from "radix-ui";
-import { ShieldCheck } from "lucide-react";
 import Button from "../components/button";
+import TurnstileWidget from "../components/turnstile-widget";
 import { registerAccount } from "../lib/api/auth";
 import { ApiError } from "../lib/api/types";
 
@@ -22,6 +22,10 @@ function registerErrorMessage(error: unknown): string {
                 return "帳號、Email 或學校信箱格式不正確，學校信箱必須是 *.edu.tw。";
             case "rate_limited":
                 return "嘗試次數過多，請稍後再試。";
+            case "turnstile_invalid":
+                return "驗證未通過，請重新完成驗證。";
+            case "turnstile_unavailable":
+                return "驗證服務暫時無法使用，請稍後再試。";
             case "network_error":
                 return error.message;
             default:
@@ -35,6 +39,8 @@ export default function RegisterForm() {
     const [notice, setNotice] = useState("");
     const [submitting, setSubmitting] = useState(false);
     const [submitted, setSubmitted] = useState(false);
+    const [turnstileToken, setTurnstileToken] = useState("");
+    const [resetSignal, setResetSignal] = useState(0);
 
     if (submitted) {
         return (
@@ -69,15 +75,22 @@ export default function RegisterForm() {
                 onSubmit={(event) => {
                     event.preventDefault();
                     if (submitting) return;
+                    if (!turnstileToken) {
+                        setNotice("請先完成 Cloudflare 驗證。");
+                        return;
+                    }
                     const form = event.currentTarget;
                     const email = (form.elements.namedItem("email") as HTMLInputElement).value;
                     const schoolEmail = (form.elements.namedItem("school_email") as HTMLInputElement).value;
                     const username = (form.elements.namedItem("nickname") as HTMLInputElement).value;
                     setNotice("");
                     setSubmitting(true);
-                    registerAccount({ username, email, school_email: schoolEmail })
+                    registerAccount({ username, email, school_email: schoolEmail, turnstile_token: turnstileToken })
                         .then(() => setSubmitted(true))
-                        .catch((error: unknown) => setNotice(registerErrorMessage(error)))
+                        .catch((error: unknown) => {
+                            setNotice(registerErrorMessage(error));
+                            setResetSignal((value) => value + 1);
+                        })
                         .finally(() => setSubmitting(false));
                 }}
             >
@@ -148,20 +161,18 @@ export default function RegisterForm() {
                         </p>
                     </div>
                 </div>
+                <TurnstileWidget
+                    action="signup"
+                    onTokenChange={setTurnstileToken}
+                    resetSignal={resetSignal}
+                />
                 <Button
                     type="submit"
-                    disabled={submitting}
+                    disabled={submitting || !turnstileToken}
                     className={`mt-6 h-12 w-full rounded-xl bg-accent-green font-sans text-lg text-ink hover:bg-accent-green-strong active:bg-accent-green-strong disabled:cursor-not-allowed disabled:opacity-60 ${focusStyle}`}
                 >
                     {submitting ? "送出中…" : "註冊"}
                 </Button>
-                <div className="mt-4 flex min-h-16 items-center justify-center gap-3 rounded-xl border border-ink/10 bg-ink/5 px-4 py-3 text-copy-muted">
-                    <ShieldCheck size={22} aria-hidden="true" className="shrink-0" />
-                    <div>
-                        <p className="text-sm font-medium">Cloudflare 驗證</p>
-                        <p className="mt-0.5 text-xs">驗證區塊預留・尚未啟用</p>
-                    </div>
-                </div>
                 <p className="mt-4 text-center text-sm leading-relaxed text-copy-muted">
                     註冊即表示您同意{" "}
                     <button
