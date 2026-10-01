@@ -48,3 +48,17 @@ Start DMARC at `p=none` if you want to only monitor before enforcing.
 
 Delete the `postfix-dkim` volume and restart the service — a new key is
 generated and printed the same way. Update the DNS TXT record afterwards.
+
+## Inbound: admin-managed mail categories
+
+Port 25 also accepts mail addressed to any local part registered in the
+`mail_routes` table (managed from `/admin/mail-routes` in the app, e.g.
+`brochure@mail.sta-tw.org`, `account@mail.sta-tw.org`) — every other address
+at this domain is rejected, this isn't a general mail sink. Acceptance is a
+live `pgsql:` lookup against the app's own database (see
+`pgsql-local-recipients.cf.template`/`pgsql-transport.cf.template`), so a
+newly-created category works immediately with no restart. Every accepted
+message is piped to the API (`POST /api/v1/internal/mail-intake`), which
+creates or continues a threaded conversation posted as a Discord forum
+thread in that category's channel — see `internal/mailroutes`,
+`internal/emailinquiries`, `internal/discordmail`.

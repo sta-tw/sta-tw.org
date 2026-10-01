@@ -1,5 +1,6 @@
 import { apiFetch } from "./client";
 import type { Page } from "./forum";
+import type { SitePolicyDocuments, SitePolicyKey } from "./site-policies";
 
 /** GET /api/v1/admin/stats — one snapshot of platform counters + outbox health. */
 export interface OutboxHealth {
@@ -47,7 +48,7 @@ export function getStats(mfaCode?: string) {
 
 // --- users --------------------------------------------------------------
 
-export type AccountStatus = "active" | "suspended" | "deleted";
+export type AccountStatus = "active" | "pending_verification" | "suspended" | "deleted";
 export type IdentityStatus = "temporary" | "student" | "senior";
 
 export interface AdminUser {
@@ -69,6 +70,12 @@ export interface AdminUserDetail extends AdminUser {
     active_sessions: number;
     applications: number;
     experiences: number;
+    /** Decrypted only in this single-account detail view, never in the list. */
+    email: string;
+    /** "" when the account has no school email on file (see backend
+     * auth.AdminContactStore.GetAccountContact) — pre-dates the column, or
+     * never went through school-email registration. */
+    school_email: string;
 }
 
 export interface ListUsersFilter {
@@ -90,6 +97,43 @@ export function getUser(accountId: string, mfaCode?: string) {
     return apiFetch<AdminUserDetail>(`/api/v1/admin/users/${accountId}`, {
         headers: mfaHeader(mfaCode)
     });
+}
+
+export interface UpdateUserInput {
+    username?: string;
+    identity_status?: IdentityStatus;
+    email?: string;
+    school_email?: string;
+}
+
+/** Edits the fields the admin panel lets an operator change directly.
+ * Password is deliberately never settable here — see resetUserPassword. */
+export function updateUser(accountId: string, input: UpdateUserInput, mfaCode?: string) {
+    return apiFetch<{ status: string }>(`/api/v1/admin/users/${accountId}`, {
+        method: "PUT",
+        body: input,
+        headers: mfaHeader(mfaCode)
+    });
+}
+
+/** Re-sends the school-email activation link for an account stuck
+ * 'pending_verification' — typically after correcting a mistyped school
+ * email via updateUser first. */
+export function resendActivation(accountId: string, mfaCode?: string) {
+    return apiFetch<{ status: string; expires_at: string }>(
+        `/api/v1/admin/users/${accountId}/resend-activation`,
+        { method: "POST", headers: mfaHeader(mfaCode) }
+    );
+}
+
+/** Re-sends the contact-email verification link for an active account whose
+ * email is still unverified — separate from resendActivation, which is for
+ * the pre-activation school-email link. */
+export function resendEmailVerification(accountId: string, mfaCode?: string) {
+    return apiFetch<{ status: string; expires_at: string }>(
+        `/api/v1/admin/users/${accountId}/resend-email-verification`,
+        { method: "POST", headers: mfaHeader(mfaCode) }
+    );
 }
 
 export function suspendUser(accountId: string, reason: string, mfaCode?: string) {
@@ -194,14 +238,11 @@ export async function createUser(
 ) {
     const response = await apiFetch<{
         data: CreatedInvitedUser | CreatedServiceUser | CreatedPasswordUser;
-    }>(
-        "/api/v1/admin/users",
-        {
-            method: "POST",
-            body: input,
-            headers: mfaHeader(mfaCode)
-        }
-    );
+    }>("/api/v1/admin/users", {
+        method: "POST",
+        body: input,
+        headers: mfaHeader(mfaCode)
+    });
     return response.data;
 }
 
@@ -256,6 +297,132 @@ export function setRequireAdminMfa(value: boolean, mfaCode?: string) {
     return apiFetch<RequireAdminMfaSetting>("/api/v1/admin/settings/require-admin-mfa", {
         method: "POST",
         body: { value },
+        headers: mfaHeader(mfaCode)
+    });
+}
+
+/** GET /api/v1/admin/settings/mail-reply-template */
+export function getMailReplyTemplate(mfaCode?: string) {
+    return apiFetch<{ value: string }>("/api/v1/admin/settings/mail-reply-template", {
+        headers: mfaHeader(mfaCode)
+    });
+}
+
+/** POST /api/v1/admin/settings/mail-reply-template — value must contain both [內容] and [簽名]. */
+export function setMailReplyTemplate(value: string, mfaCode?: string) {
+    return apiFetch<{ value: string }>("/api/v1/admin/settings/mail-reply-template", {
+        method: "POST",
+        body: { value },
+        headers: mfaHeader(mfaCode)
+    });
+}
+
+/** GET /api/v1/admin/settings/site-policies */
+export function getAdminSitePolicies(mfaCode?: string) {
+    return apiFetch<{ data: SitePolicyDocuments }>("/api/v1/admin/settings/site-policies", {
+        headers: mfaHeader(mfaCode)
+    });
+}
+
+/** POST /api/v1/admin/settings/site-policies/{policy} */
+export function setAdminSitePolicy(policy: SitePolicyKey, value: string, mfaCode?: string) {
+    return apiFetch<{ value: string }>("/api/v1/admin/settings/site-policies/" + policy, {
+        method: "POST",
+        body: { value },
+        headers: mfaHeader(mfaCode)
+    });
+}
+
+// --- forum moderation -----------------------------------------------------
+
+export type ForumThreadStatus = "published" | "hidden" | "locked" | "removed" | "archived";
+export type ForumPostStatus = "published" | "hidden" | "removed" | "archived";
+
+/** Moderation view of a thread — includes the poster's account id/username,
+ * which the public forum API never exposes. */
+export interface AdminForumThread {
+    id: string;
+    space_id: string;
+    title: string;
+    status: ForumThreadStatus;
+    account_id: string;
+    author_username: string;
+    created_at: string;
+    updated_at: string;
+}
+
+export interface AdminForumPost {
+    id: string;
+    thread_id: string;
+    body: string;
+    quoted_experience_id?: string;
+    status: ForumPostStatus;
+    account_id: string;
+    author_username: string;
+    created_at: string;
+}
+
+/** GET /api/v1/admin/forum/threads — every thread across every space, newest first. */
+export function adminListForumThreads(cursor?: string, mfaCode?: string) {
+    return apiFetch<Page<AdminForumThread>>("/api/v1/admin/forum/threads", {
+        query: { limit: 50, cursor },
+        headers: mfaHeader(mfaCode)
+    });
+}
+
+/** GET /api/v1/admin/forum/threads/{id}/posts — every post in a thread, including removed ones. */
+export function adminListForumPosts(threadId: string, mfaCode?: string) {
+    return apiFetch<{ data: AdminForumPost[] }>(`/api/v1/admin/forum/threads/${threadId}/posts`, {
+        headers: mfaHeader(mfaCode)
+    });
+}
+
+/** POST .../lock — blocks new replies; the thread and its posts stay visible. */
+export function lockForumThread(threadId: string, mfaCode?: string) {
+    return apiFetch<void>(`/api/v1/admin/forum/threads/${threadId}/lock`, {
+        method: "POST",
+        headers: mfaHeader(mfaCode)
+    });
+}
+
+export function unlockForumThread(threadId: string, mfaCode?: string) {
+    return apiFetch<void>(`/api/v1/admin/forum/threads/${threadId}/unlock`, {
+        method: "POST",
+        headers: mfaHeader(mfaCode)
+    });
+}
+
+/** DELETE .../threads/{id} — soft delete (status becomes 'removed'); hides it from the public forum. */
+export function deleteForumThread(threadId: string, mfaCode?: string) {
+    return apiFetch<void>(`/api/v1/admin/forum/threads/${threadId}`, {
+        method: "DELETE",
+        headers: mfaHeader(mfaCode)
+    });
+}
+
+/** POST .../threads/{id}/archive — keeps a thread as evidence (e.g. a possible
+ * legal matter) rather than ordinary moderation; hidden from the public forum
+ * like a delete, but tagged separately for admins. Deliberately one-way —
+ * there is no unarchive endpoint. */
+export function archiveForumThread(threadId: string, mfaCode?: string) {
+    return apiFetch<void>(`/api/v1/admin/forum/threads/${threadId}/archive`, {
+        method: "POST",
+        headers: mfaHeader(mfaCode)
+    });
+}
+
+/** DELETE .../posts/{id} — soft delete a single reply. */
+export function deleteForumPost(postId: string, mfaCode?: string) {
+    return apiFetch<void>(`/api/v1/admin/forum/posts/${postId}`, {
+        method: "DELETE",
+        headers: mfaHeader(mfaCode)
+    });
+}
+
+/** POST .../posts/{id}/archive — see archiveForumThread. */
+export function archiveForumPost(postId: string, mfaCode?: string) {
+    return apiFetch<void>(`/api/v1/admin/forum/posts/${postId}/archive`, {
+        method: "POST",
         headers: mfaHeader(mfaCode)
     });
 }

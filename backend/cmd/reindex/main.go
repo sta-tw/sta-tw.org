@@ -40,7 +40,7 @@ func run(logger *slog.Logger) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	pool, err := db.OpenPostgres(ctx, cfg.DatabaseURL)
+	pool, err := db.OpenPostgres(ctx, cfg.DatabaseURL, 5)
 	if err != nil {
 		return err
 	}

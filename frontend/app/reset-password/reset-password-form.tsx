@@ -18,7 +18,7 @@ function errorMessage(error: unknown): string {
             case "invalid_token":
                 return "這個連結已失效或過期，請重新註冊或重新申請重設密碼。";
             case "invalid_request":
-                return "密碼格式不正確，請確認至少 12 位。";
+                return "密碼格式不正確，請確認至少 8 位。";
             case "network_error":
                 return error.message;
             default:
@@ -99,11 +99,11 @@ export default function ResetPasswordForm() {
                             name="password"
                             type="password"
                             autoComplete="new-password"
-                            placeholder="12 位以上英數組合"
+                            placeholder="8 位以上英數組合"
                             required
-                            minLength={12}
+                            minLength={8}
                             maxLength={128}
-                            title="請輸入至少 12 位的密碼"
+                            title="請輸入至少 8 位的密碼"
                             value={password}
                             onChange={(event) => {
                                 setPassword(event.target.value);

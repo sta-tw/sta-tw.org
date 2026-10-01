@@ -8,6 +8,7 @@ import {
     BookOpen,
     CircleHelp,
     FileText,
+    Megaphone,
     MessageCircle,
     ScrollText,
     ShieldCheck,
@@ -23,9 +24,13 @@ import {
 } from "../lib/api/admin";
 import { ApiError } from "../lib/api/types";
 import { useAdmin } from "./admin-context";
-
-const panelClass =
-    "rounded-[var(--radius-panel)] border border-ink/10 bg-surface/80 p-5 shadow-sm sm:p-6";
+import {
+    AdminPanel,
+    Badge,
+    ErrorText,
+    formatDate as formatDateTime,
+    LoadingState
+} from "./admin-ui";
 
 const adminModules = [
     {
@@ -57,6 +62,20 @@ const adminModules = [
         status: "open"
     },
     {
+        href: "/admin/policies",
+        label: "條款維護",
+        description: "編輯服務條款與隱私權政策，維持平台規範內容。",
+        icon: ScrollText,
+        status: "open"
+    },
+    {
+        href: "/admin/advertising",
+        label: "廣告中心",
+        description: "管理文章總覽主視覺，未來可擴充廣告版位與素材。",
+        icon: Megaphone,
+        status: "open"
+    },
+    {
         label: "申請管理",
         description: "查看與處理學生的特殊選才申請。",
         icon: FileText,
@@ -69,10 +88,11 @@ const adminModules = [
         status: "planned"
     },
     {
-        label: "論壇與聊天室",
-        description: "管理討論內容、社群空間與訊息。",
+        href: "/admin/forum",
+        label: "論壇管理",
+        description: "查看發文者紀錄，關閉回覆或刪除不當討論串／回覆。",
         icon: MessageCircle,
-        status: "planned"
+        status: "open"
     },
     {
         label: "身份驗證",
@@ -178,15 +198,11 @@ export default function AdminDashboardPage() {
                                         >
                                             <Icon aria-hidden className="h-5 w-5" />
                                         </span>
-                                        <span
-                                            className={
-                                                module.status === "open"
-                                                    ? "rounded-full bg-accent-green/70 px-3 py-1 font-sans text-xs font-bold text-ink"
-                                                    : "rounded-full bg-ink/5 px-3 py-1 font-sans text-xs text-copy-muted"
-                                            }
+                                        <Badge
+                                            tone={module.status === "open" ? "positive" : "neutral"}
                                         >
                                             {module.status === "open" ? "已開放" : "規劃中"}
-                                        </span>
+                                        </Badge>
                                     </div>
                                     <div className="mt-6 flex items-end justify-between gap-3">
                                         <div>
@@ -227,13 +243,14 @@ export default function AdminDashboardPage() {
                     </div>
                 </section>
 
-                <section className={panelClass}>
+                <AdminPanel className="sm:p-6">
                     <div className="flex flex-wrap items-start justify-between gap-4">
                         <div>
                             <h2 className="font-serif text-xl text-ink">系統設定</h2>
                             <p className="mt-2 max-w-xl font-sans text-sm leading-6 text-copy-muted">
                                 管理員雙重驗證（MFA）。目前前台還沒有綁定驗證器的畫面，開啟後會讓
-                                所有 admin 帳號卡在無法通過的驗證步驟——建議在那個流程做好之前保持關閉。
+                                所有 admin
+                                帳號卡在無法通過的驗證步驟——建議在那個流程做好之前保持關閉。
                             </p>
                         </div>
                         <button
@@ -255,15 +272,13 @@ export default function AdminDashboardPage() {
                                     : "已關閉（點擊啟用）"}
                         </button>
                     </div>
-                    {mfaToggleError ? (
-                        <p className="mt-3 font-sans text-sm text-red-600">{mfaToggleError}</p>
-                    ) : null}
-                </section>
+                    {mfaToggleError ? <ErrorText>{mfaToggleError}</ErrorText> : null}
+                </AdminPanel>
 
-                {error ? <p className="font-sans text-sm text-red-600">{error}</p> : null}
+                {error ? <ErrorText>{error}</ErrorText> : null}
 
                 {!stats ? (
-                    <p className="font-sans text-copy-muted">載入系統概況中…</p>
+                    <LoadingState label="載入系統概況中…" />
                 ) : (
                     <>
                         <section className="flex flex-col gap-4">
@@ -349,7 +364,7 @@ export default function AdminDashboardPage() {
 
                         <section className="flex flex-col gap-4">
                             <h2 className="font-serif text-xl text-ink">背景佇列健康度</h2>
-                            <div className={panelClass}>
+                            <AdminPanel className="sm:p-6">
                                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                                     <OutboxCard label="Email" health={stats.outbox.email} />
                                     <OutboxCard
@@ -365,7 +380,7 @@ export default function AdminDashboardPage() {
                                         health={stats.outbox.willingness_notifications}
                                     />
                                 </div>
-                            </div>
+                            </AdminPanel>
                         </section>
                     </>
                 )}
@@ -376,7 +391,7 @@ export default function AdminDashboardPage() {
 
 function StatGroup({ title, entries }: { title: string; entries: Array<[string, number]> }) {
     return (
-        <div className={panelClass}>
+        <AdminPanel className="sm:p-6">
             <p className="font-serif text-lg text-ink">{title}</p>
             <dl className="mt-4 flex flex-col gap-2">
                 {entries.map(([label, value]) => (
@@ -388,7 +403,7 @@ function StatGroup({ title, entries }: { title: string; entries: Array<[string, 
                     </div>
                 ))}
             </dl>
-        </div>
+        </AdminPanel>
     );
 }
 
@@ -415,12 +430,4 @@ function OutboxCard({ label, health }: { label: string; health: OutboxHealth }) 
             </div>
         </div>
     );
-}
-
-function formatDateTime(iso: string): string {
-    try {
-        return new Date(iso).toLocaleString("zh-TW", { dateStyle: "medium", timeStyle: "short" });
-    } catch {
-        return iso;
-    }
 }

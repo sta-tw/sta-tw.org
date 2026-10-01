@@ -113,7 +113,7 @@ export default function BrochureSearch() {
                             type="search"
                             autoComplete="off"
                             defaultValue={filters.q}
-                            placeholder="試著搜尋「國立複雜大學超級複雜系」"
+                            placeholder="試著搜尋「國立複雜大學 超級複雜系」"
                             className="min-w-0 flex-1 bg-transparent font-sans text-base text-ink placeholder:text-ink/50 focus:outline-none sm:text-xl"
                         />
                         <button

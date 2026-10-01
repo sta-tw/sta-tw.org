@@ -68,9 +68,8 @@ import {
 } from "../../lib/api/admissions";
 import { ApiError } from "../../lib/api/types";
 import { useAdmin } from "../admin-context";
+import { badgePillClass, badgeToneClasses, describeError, inputClass, Th } from "../admin-ui";
 
-const inputClass =
-    "rounded-[var(--radius-small)] border border-ink/15 bg-surface px-3 py-2 font-sans text-sm text-ink outline-none focus:border-ink/40";
 const textareaClass =
     "min-h-28 w-full resize-y rounded-[var(--radius-small)] border border-ink/15 bg-surface px-3 py-2 font-mono text-xs leading-5 text-ink outline-none focus:border-ink/40";
 const panelClass =
@@ -201,11 +200,6 @@ const syncTemplate: AdmissionProgramInput = {
     school_official_url: "-",
     department_official_url: "-"
 };
-
-function describeError(cause: unknown): string {
-    if (cause instanceof ApiError) return cause.message || `發生錯誤（${cause.code}）`;
-    return "發生未知錯誤，請稍後再試。";
-}
 
 export default function AdmissionsView() {
     const { mfaCode } = useAdmin();
@@ -3848,15 +3842,15 @@ function TextBlock({
 }
 
 function statusBadgeClasses(status: string): string {
-    return twMerge(
-        "inline-flex rounded-full px-3 py-1 font-sans text-xs font-bold",
-        (status === "published" || status === "approved") && "bg-accent-green-strong text-ink",
-        (status === "pending" || status === "pending_review") && "bg-accent-yellow text-ink",
-        (status === "queued" || status === "processing") && "bg-ink/10 text-copy-muted",
-        (status === "rejected" || status === "failed") && "bg-red-100 text-red-700",
-        status === "archived" && "bg-ink/10 text-copy-muted",
-        status === "draft" && "bg-ink/10 text-copy-muted"
-    );
+    const tone =
+        status === "published" || status === "approved"
+            ? "positive"
+            : status === "pending" || status === "pending_review"
+              ? "warning"
+              : status === "rejected" || status === "failed"
+                ? "negative"
+                : "neutral";
+    return twMerge(badgePillClass, badgeToneClasses[tone]);
 }
 
 function StatusBadge({ label, status }: { label: string; status: string }) {
@@ -3992,14 +3986,6 @@ function UploadReportDialog({ upload }: { upload: BrochureUpload }) {
                 </Dialog.Content>
             </Dialog.Portal>
         </Dialog.Root>
-    );
-}
-
-function Th({ children }: { children?: React.ReactNode }) {
-    return (
-        <th className="px-4 py-3 font-sans text-xs font-bold tracking-wide uppercase">
-            {children}
-        </th>
     );
 }
 

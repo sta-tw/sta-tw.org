@@ -178,10 +178,10 @@ export default function BrochureProgramView() {
                 <aside className="mt-10 w-fit max-w-full rounded-[var(--radius-small)] bg-accent-green/45 px-4 py-2 font-sans text-sm leading-relaxed text-ink/75 sm:mt-12 sm:text-base">
                     有想要查找的資訊沒有公布在 S.T.A 嗎？或者手邊有資料想提供？歡迎來信到
                     <a
-                        href="mailto:sta.bochures@googlegroups.com"
+                        href="mailto:brochure@mail.sta-tw.org"
                         className="ml-1 underline decoration-ink/35 underline-offset-2 hover:text-ink"
                     >
-                        sta.bochures@googlegroups.com
+                        brochure@mail.sta-tw.org
                     </a>
                 </aside>
             </article>

@@ -49,7 +49,7 @@ func run(logger *slog.Logger, username, label string) error {
 		return errors.New("STA_DATABASE_URL is required for ai_system bootstrap")
 	}
 	startupContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	pool, err := db.OpenPostgres(startupContext, cfg.DatabaseURL)
+	pool, err := db.OpenPostgres(startupContext, cfg.DatabaseURL, 5)
 	cancel()
 	if err != nil {
 		return err

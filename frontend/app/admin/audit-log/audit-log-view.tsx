@@ -4,16 +4,8 @@ import { Fragment, useEffect, useState } from "react";
 import { ChevronDown, ChevronUp, Search } from "lucide-react";
 import Button from "../../components/button";
 import { listAuditLog, type AuditRow } from "../../lib/api/admin";
-import { ApiError } from "../../lib/api/types";
 import { useAdmin } from "../admin-context";
-
-const inputClass =
-    "rounded-[var(--radius-small)] border border-ink/15 bg-surface px-3 py-2 font-sans text-sm text-ink outline-none focus:border-ink/40";
-
-function describeError(cause: unknown): string {
-    if (cause instanceof ApiError) return cause.message || `發生錯誤（${cause.code}）`;
-    return "發生未知錯誤，請稍後再試。";
-}
+import { describeError, EmptyState, ErrorText, formatDate, inputClass, Th } from "../admin-ui";
 
 export default function AuditLogView() {
     const { mfaCode } = useAdmin();
@@ -106,9 +98,9 @@ export default function AuditLogView() {
                 </Button>
             </form>
 
-            {error ? <p className="font-sans text-sm text-red-600">{error}</p> : null}
+            {error ? <ErrorText>{error}</ErrorText> : null}
 
-            <div className="overflow-x-auto rounded-[var(--radius-panel)] bg-surface shadow-[var(--shadow-card)]">
+            <div className="overflow-x-auto rounded-[var(--radius-panel)] border border-ink/10 bg-surface shadow-[var(--shadow-card)]">
                 <table className="w-full min-w-[760px] font-sans text-sm">
                     <thead>
                         <tr className="border-b border-ink/10 text-left text-copy-muted">
@@ -190,18 +182,15 @@ export default function AuditLogView() {
                         ))}
                     </tbody>
                 </table>
-                {rows !== null && rows.length === 0 ? (
-                    <p className="p-6 text-center font-sans text-copy-muted">
-                        沒有符合條件的紀錄。
-                    </p>
-                ) : null}
+                {rows !== null && rows.length === 0 ? <EmptyState label="沒有符合條件的紀錄。" /> : null}
             </div>
 
             {nextCursor ? (
                 <Button
+                    variant="secondary"
                     onClick={() => void load(nextCursor)}
                     disabled={loading}
-                    className="w-fit self-center border border-ink/15 bg-surface px-6 text-ink hover:bg-ink/5"
+                    className="w-fit self-center px-6"
                 >
                     {loading ? "載入中…" : "載入更多"}
                 </Button>
@@ -219,14 +208,6 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
     );
 }
 
-function Th({ children }: { children?: React.ReactNode }) {
-    return (
-        <th className="px-4 py-3 font-sans text-xs font-bold tracking-wide uppercase">
-            {children}
-        </th>
-    );
-}
-
 function JsonBlock({ title, value }: { title: string; value: unknown }) {
     return (
         <div className="rounded-[var(--radius-small)] border border-ink/10 bg-surface p-3">
@@ -236,12 +217,4 @@ function JsonBlock({ title, value }: { title: string; value: unknown }) {
             </pre>
         </div>
     );
-}
-
-function formatDate(iso: string): string {
-    try {
-        return new Date(iso).toLocaleString("zh-TW", { dateStyle: "medium", timeStyle: "short" });
-    } catch {
-        return iso;
-    }
 }

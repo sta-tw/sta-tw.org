@@ -78,7 +78,7 @@ func run(logger *slog.Logger, mode string, year int, schoolsRaw, admin, reason s
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
-		pool, err := db.OpenPostgres(ctx, cfg.DatabaseURL)
+		pool, err := db.OpenPostgres(ctx, cfg.DatabaseURL, 5)
 		if err != nil {
 			return err
 		}
@@ -117,7 +117,7 @@ func run(logger *slog.Logger, mode string, year int, schoolsRaw, admin, reason s
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	pool, err := db.OpenPostgres(ctx, cfg.DatabaseURL)
+	pool, err := db.OpenPostgres(ctx, cfg.DatabaseURL, 5)
 	if err != nil {
 		return err
 	}

@@ -1,0 +1,195 @@
+{
+  "id": null,
+  "uid": "80e56fff-3a03-4258-9852-f1e18cf76fc7",
+  "title": "Docker and system monitoring",
+  "description": "主機總量以 cAdvisor root cgroup 指標呈現。此主機使用 Docker containerd image store，現行 cAdvisor 無法解析個別 Docker 容器，因此不提供逐容器資料。",
+  "tags": ["sta", "monitoring", "cadvisor"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 4,
+  "editable": false,
+  "refresh": "30s",
+  "time": { "from": "now-24h", "to": "now" },
+  "panels": [
+    {
+      "id": 24,
+      "title": "Host uptime",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": { "defaults": { "unit": "s", "decimals": 0 }, "overrides": [] },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "time() - container_start_time_seconds{id=\"/\",job=\"cadvisor\"}",
+          "instant": true,
+          "range": false,
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 25,
+      "title": "Host CPU usage",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": {
+        "defaults": { "unit": "percent", "decimals": 1, "min": 0, "max": 100 },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "100 * rate(container_cpu_usage_seconds_total{id=\"/\",job=\"cadvisor\"}[5m]) / on(instance) machine_cpu_cores{job=\"cadvisor\"}",
+          "instant": true,
+          "range": false,
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 26,
+      "title": "Host memory usage",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": {
+        "defaults": { "unit": "percent", "decimals": 1, "min": 0, "max": 100 },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "100 * container_memory_working_set_bytes{id=\"/\",job=\"cadvisor\"} / on(instance) machine_memory_bytes{job=\"cadvisor\"}",
+          "instant": true,
+          "range": false,
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 27,
+      "title": "Host filesystem usage",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": {
+        "defaults": { "unit": "percent", "decimals": 1, "min": 0, "max": 100 },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "100 * container_fs_usage_bytes{id=\"/\",job=\"cadvisor\",device=~\"/dev/(sd|vd|xvd|nvme|mmcblk|mapper).*\"} / on(instance,device) container_fs_limit_bytes{id=\"/\",job=\"cadvisor\",device=~\"/dev/(sd|vd|xvd|nvme|mmcblk|mapper).*\"}",
+          "legendFormat": "{{device}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 28,
+      "title": "Host network traffic",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": { "defaults": { "unit": "Bps" }, "overrides": [] },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "sum by (interface) (rate(container_network_receive_bytes_total{id=\"/\",job=\"cadvisor\",interface!=\"lo\"}[5m]))",
+          "legendFormat": "Receive {{interface}}",
+          "refId": "A"
+        },
+        {
+          "editorMode": "code",
+          "expr": "sum by (interface) (rate(container_network_transmit_bytes_total{id=\"/\",job=\"cadvisor\",interface!=\"lo\"}[5m]))",
+          "legendFormat": "Transmit {{interface}}",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 29,
+      "title": "cAdvisor root cgroup CPU load",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 2 }, "overrides": [] },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": false },
+        "tooltip": { "mode": "single", "sort": "none" }
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "container_cpu_load_average_10s{id=\"/\",job=\"cadvisor\"}",
+          "legendFormat": "Host load average (10s)",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 30,
+      "title": "Monitoring target health",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0, "max": 1 }, "overrides": [] },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "up{job=~\"api|cadvisor|postgres|redis\"}",
+          "legendFormat": "{{job}} / {{instance}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 31,
+      "title": "容器指標說明",
+      "type": "text",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "options": {
+        "mode": "markdown",
+        "content": "### 目前顯示範圍\n\nCPU、記憶體、檔案系統、網路與正常運作時間使用 cAdvisor 的主機 root cgroup 指標。\n\n主機啟用了 Docker containerd image store；目前 cAdvisor 無法解析個別 Docker 容器，因此無法提供可靠的逐容器指標。"
+      }
+    }
+  ]
+}

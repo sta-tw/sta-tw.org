@@ -13,6 +13,7 @@ import { listAdminAdmissionPrograms } from "../lib/api/admissions";
 import { ApiError, type Account } from "../lib/api/types";
 import { publicPath } from "../lib/public-path";
 import { AdminContextProvider } from "./admin-context";
+import { ErrorText, inputClass } from "./admin-ui";
 
 type Scope = "full" | "admissions";
 
@@ -30,6 +31,8 @@ const ADMISSIONS_ONLY_PATH = "/admin/admissions";
 const fullNavItems = [
     { href: "/admin", label: "總覽" },
     { href: "/admin/admissions", label: "簡章管理" },
+    { href: "/admin/policies", label: "條款維護" },
+    { href: "/admin/advertising", label: "廣告中心" },
     { href: "/admin/users", label: "使用者" },
     { href: "/admin/audit-log", label: "稽核紀錄" }
 ];
@@ -170,10 +173,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
             <CenteredMessage icon={<ShieldAlert aria-hidden className="h-10 w-10 text-ink/40" />}>
                 <p className="font-serif text-2xl text-ink">沒有管理員權限</p>
                 <p className="mt-2 font-sans text-copy-muted">這個帳號沒有管理後台的存取權限。</p>
-                <Button
-                    asChild
-                    className="mt-6 border border-ink/15 bg-surface text-ink hover:bg-ink/5"
-                >
+                <Button asChild variant="secondary" className="mt-6">
                     <Link href="/">回到首頁</Link>
                 </Button>
             </CenteredMessage>
@@ -212,7 +212,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
                 </p>
                 <form onSubmit={handleMfaSubmit} className="mt-6 flex flex-col items-center gap-3">
                     <input
-                        className="w-40 rounded-[var(--radius-small)] border border-ink/15 bg-surface px-4 py-3 text-center font-sans text-lg tracking-[0.3em] text-ink outline-none focus:border-ink/40"
+                        className={`${inputClass} w-40 py-3 text-center text-lg tracking-[0.3em]`}
                         inputMode="numeric"
                         pattern="[0-9]{6}"
                         maxLength={6}
@@ -221,7 +221,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
                         onChange={(e) => setMfaInput(e.target.value.replace(/\D/g, ""))}
                         required
                     />
-                    {mfaError ? <p className="font-sans text-sm text-red-600">{mfaError}</p> : null}
+                    {mfaError ? <ErrorText>{mfaError}</ErrorText> : null}
                     <Button type="submit" disabled={mfaSubmitting || mfaInput.length !== 6}>
                         {mfaSubmitting ? "驗證中…" : "驗證"}
                     </Button>

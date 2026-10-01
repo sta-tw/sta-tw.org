@@ -36,6 +36,53 @@ type Thread struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+// AdminThread is a moderation-only view of a thread: every public Thread
+// field plus the poster's identity and current status, neither of which the
+// public API exposes (forum_threads.account_id is recorded on every row
+// precisely so moderators can trace authorship; ordinary readers never see
+// it). Returned only from the admin forum endpoints, behind requireAdmin.
+type AdminThread struct {
+	ID             uuid.UUID `json:"id"`
+	SpaceID        uuid.UUID `json:"space_id"`
+	Title          string    `json:"title"`
+	Status         string    `json:"status"`
+	AccountID      uuid.UUID `json:"account_id"`
+	AuthorUsername string    `json:"author_username"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
+}
+
+// AdminPost mirrors AdminThread for a single post/reply.
+type AdminPost struct {
+	ID                 uuid.UUID  `json:"id"`
+	ThreadID           uuid.UUID  `json:"thread_id"`
+	Body               string     `json:"body"`
+	QuotedExperienceID *uuid.UUID `json:"quoted_experience_id,omitempty"`
+	Status             string     `json:"status"`
+	AccountID          uuid.UUID  `json:"account_id"`
+	AuthorUsername     string     `json:"author_username"`
+	CreatedAt          time.Time  `json:"created_at"`
+}
+
+// Thread status values a moderator may set via SetThreadStatus.
+// ThreadStatusArchived is for content kept as evidence (e.g. a possible
+// legal matter) rather than ordinary moderation — same public invisibility
+// as ThreadStatusRemoved, just a different admin-facing intent/label.
+const (
+	ThreadStatusPublished = "published"
+	ThreadStatusLocked    = "locked"
+	ThreadStatusRemoved   = "removed"
+	ThreadStatusArchived  = "archived"
+)
+
+// Post status values a moderator may set via SetPostStatus. See
+// ThreadStatusArchived for what PostStatusArchived means.
+const (
+	PostStatusPublished = "published"
+	PostStatusRemoved   = "removed"
+	PostStatusArchived  = "archived"
+)
+
 type Post struct {
 	ID                 uuid.UUID       `json:"id"`
 	ThreadID           uuid.UUID       `json:"thread_id"`
@@ -127,6 +174,10 @@ type Repository interface {
 	SetReaction(ctx context.Context, targetType string, targetID, accountID uuid.UUID, emoji string) error
 	RemoveReaction(ctx context.Context, targetType string, targetID, accountID uuid.UUID, emoji string) error
 	IsAdmin(context.Context, uuid.UUID) (bool, error)
+	AdminListThreads(ctx context.Context, limit int, after pagination.Cursor) ([]AdminThread, string, error)
+	AdminListPosts(ctx context.Context, threadID uuid.UUID) ([]AdminPost, error)
+	SetThreadStatus(ctx context.Context, threadID uuid.UUID, status string) error
+	SetPostStatus(ctx context.Context, postID uuid.UUID, status string) error
 }
 
 func ValidateText(title, body string) error {

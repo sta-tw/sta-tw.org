@@ -393,6 +393,40 @@ func (s *Service) RequireAdminMFA(ctx context.Context, accountID uuid.UUID, code
 	return nil
 }
 
+// HasValidAdminMFAGrant reports whether accountID can be let through a gate
+// that (unlike RequireAdminMFA) has no way to prompt for or forward an
+// X-MFA-Code — e.g. Caddy's forward_auth in front of Grafana, a plain
+// top-level page load. It never accepts a code; it only checks whether the
+// account already opened a fresh TOTP grant window elsewhere (the admin SPA)
+// within AdminMFAGrantTTL. When admin MFA isn't required at all, or the
+// caller is a service account, it returns true the same way RequireAdminMFA
+// would let the request through with no code.
+func (s *Service) HasValidAdminMFAGrant(ctx context.Context, accountID uuid.UUID) (bool, error) {
+	if roleStore, ok := s.store.(AdminRoleStore); ok {
+		if isService, err := roleStore.IsServiceAccount(ctx, accountID); err == nil && isService {
+			return true, nil
+		}
+	}
+	if !s.effectiveRequireAdminMFA(ctx) {
+		return true, nil
+	}
+	store, ok := s.store.(AdminMFAStore)
+	if !ok || s.emailCipher == nil {
+		return false, nil
+	}
+	record, err := store.GetAdminMFA(ctx, accountID)
+	if errors.Is(err, ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if record.EnabledAt == nil {
+		return false, nil
+	}
+	return s.adminMFAGrantValid(record), nil
+}
+
 func (s *Service) requireAdminAccount(ctx context.Context, accountID uuid.UUID) error {
 	if _, ok := s.store.(AdminRoleStore); !ok {
 		return ErrNotConfigured

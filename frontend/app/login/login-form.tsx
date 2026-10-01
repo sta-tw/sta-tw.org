@@ -108,7 +108,6 @@ export default function LoginForm() {
                         autoComplete="current-password"
                         placeholder="請輸入密碼"
                         required
-                        minLength={12}
                         className={inputStyle}
                     />
                 </div>

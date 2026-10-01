@@ -1,100 +1,102 @@
 package emailinquiries
 
 import (
-	"crypto/sha256"
-	"crypto/subtle"
+	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
-	"strings"
+
+	"github.com/google/uuid"
+
+	"sta-backend/internal/auth"
 )
 
+// IsAdminFunc lets the caller (cmd/api/main.go) supply whichever
+// repository's role check it already has wired up (e.g. mailroutes.Repository.IsAdmin)
+// instead of this package needing its own database dependency just for that
+// one query.
+type IsAdminFunc func(ctx context.Context, accountID uuid.UUID) (bool, error)
+
+// Handler is the admin-only read surface over inquiries — "which emails has
+// this mail route received" (see internal/mailroutes' /admin/mail-routes
+// page). Nothing here is mutating; replies go out via the Discord /re
+// command (internal/discordmail), not through this API.
 type Handler struct {
-	service          *Service
-	telegramBotToken string
+	authService *auth.Service
+	service     *Service
+	isAdmin     IsAdminFunc
 }
 
-func NewHandler(service *Service, telegramBotToken string) (*Handler, error) {
-	if service == nil {
+func NewHandler(authService *auth.Service, service *Service, isAdmin IsAdminFunc) (*Handler, error) {
+	if authService == nil || service == nil || isAdmin == nil {
 		return nil, errors.New("email-inquiries handler dependencies are missing")
 	}
-	return &Handler{service: service, telegramBotToken: strings.TrimSpace(telegramBotToken)}, nil
+	return &Handler{authService: authService, service: service, isAdmin: isAdmin}, nil
 }
 
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("POST /api/v1/internal/email-inquiries/reply-by-telegram", h.replyByTelegram)
+	mux.HandleFunc("GET /api/v1/admin/mail-routes/{id}/inquiries", h.listByRoute)
+	mux.HandleFunc("GET /api/v1/admin/inquiries/{id}", h.getDetail)
 }
 
-type replyByTelegramInput struct {
-	ChatID    int64 `json:"chat_id"`
-	MessageID int64 `json:"message_id"`
-	// StaffMessageID/StaffName identify the staff member's own typed
-	// reply — see Service.ReplyByTelegram for why they're needed.
-	StaffMessageID int64  `json:"staff_message_id"`
-	StaffName      string `json:"staff_name"`
-	Body           string `json:"body"`
-}
-
-// replyByTelegram lets a staff member answer an inquiry by simply typing a
-// Telegram reply to its notification message — the bot forwards
-// chat_id/message_id/text here, we resolve which inquiry that message
-// belongs to, and email the reply. Returns 404 for a reply to a message
-// that isn't one of ours, which the bot treats as "not for me" (it may also
-// belong to an account-application thread) and tries elsewhere.
-func (h *Handler) replyByTelegram(w http.ResponseWriter, r *http.Request) {
-	if !h.requireServiceToken(w, r) {
-		return
-	}
-	var input replyByTelegramInput
-	if err := json.NewDecoder(io.LimitReader(r.Body, 8192)).Decode(&input); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_body", "request body is invalid")
-		return
-	}
-	inquiry, err := h.service.ReplyByTelegram(r.Context(), input.ChatID, input.MessageID, input.StaffMessageID, input.StaffName, input.Body)
+func (h *Handler) listByRoute(w http.ResponseWriter, r *http.Request) {
+	session, err := h.authService.Authenticate(r.Context(), r)
 	if err != nil {
-		switch {
-		case errors.Is(err, ErrNotFound):
-			writeError(w, http.StatusNotFound, "not_found", "no inquiry matches this message")
-		case errors.Is(err, ErrInvalidInput):
-			writeError(w, http.StatusBadRequest, "invalid_input", "reply body is empty")
-		default:
-			writeError(w, http.StatusInternalServerError, "internal_error", "internal server error")
-		}
+		writeError(w, http.StatusUnauthorized, "unauthorized", "authentication is required")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"data": inquiry})
+	isAdmin, err := h.isAdmin(r.Context(), session.Session.Account.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	if !isAdmin {
+		writeError(w, http.StatusForbidden, "admin_required", "administrator permission is required")
+		return
+	}
+	mailRouteID, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_id", "id is invalid")
+		return
+	}
+	summaries, err := h.service.ListInquiriesByRoute(r.Context(), mailRouteID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": summaries})
 }
 
-func (h *Handler) requireServiceToken(w http.ResponseWriter, r *http.Request) bool {
-	if h.telegramBotToken == "" {
-		writeError(w, http.StatusServiceUnavailable, "service_unavailable", "this endpoint is not configured")
-		return false
+func (h *Handler) getDetail(w http.ResponseWriter, r *http.Request) {
+	session, err := h.authService.Authenticate(r.Context(), r)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized", "authentication is required")
+		return
 	}
-	provided := bearerToken(r.Header.Get("Authorization"))
-	expectedHash := sha256.Sum256([]byte(h.telegramBotToken))
-	providedHash := sha256.Sum256([]byte(provided))
-	if provided == "" || subtle.ConstantTimeCompare(expectedHash[:], providedHash[:]) != 1 {
-		writeError(w, http.StatusUnauthorized, "invalid_service_token", "service authentication failed")
-		return false
+	isAdmin, err := h.isAdmin(r.Context(), session.Session.Account.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
 	}
-	return true
-}
-
-func bearerToken(header string) string {
-	const prefix = "Bearer "
-	if !strings.HasPrefix(header, prefix) {
-		return ""
+	if !isAdmin {
+		writeError(w, http.StatusForbidden, "admin_required", "administrator permission is required")
+		return
 	}
-	return strings.TrimSpace(header[len(prefix):])
-}
-
-type errorBody struct {
-	Error errorPayload `json:"error"`
-}
-type errorPayload struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
+	inquiryID, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_id", "id is invalid")
+		return
+	}
+	detail, err := h.service.GetInquiryDetail(r.Context(), inquiryID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			writeError(w, http.StatusNotFound, "not_found", "inquiry not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": detail})
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {
@@ -106,5 +108,5 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 }
 
 func writeError(w http.ResponseWriter, status int, code, message string) {
-	writeJSON(w, status, errorBody{Error: errorPayload{Code: code, Message: message}})
+	writeJSON(w, status, map[string]any{"error": map[string]string{"code": code, "message": message}})
 }

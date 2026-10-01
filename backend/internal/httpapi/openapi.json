@@ -387,6 +387,48 @@
           }
         }
       },
+      "SitePolicyDocument": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "SitePolicyDocuments": {
+        "type": "object",
+        "properties": {
+          "terms": {
+            "$ref": "#/components/schemas/SitePolicyDocument"
+          },
+          "privacy": {
+            "$ref": "#/components/schemas/SitePolicyDocument"
+          }
+        }
+      },
+      "SiteAssetMetadata": {
+        "type": "object",
+        "properties": {
+          "exists": {
+            "type": "boolean"
+          },
+          "content_type": {
+            "type": "string"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "AuditRow": {
         "type": "object",
         "properties": {
@@ -4468,6 +4510,67 @@
         }
       }
     },
+    "/api/v1/admin/admissions/programs/{identifier}/archive": {
+      "post": {
+        "operationId": "post_api_v1_admin_admissions_programs_identifier_archive",
+        "summary": "Create admin admissions programs identifier archive",
+        "tags": [
+          "admin-admissions"
+        ],
+        "parameters": [
+          {
+            "name": "identifier",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "adminMFA": [],
+            "csrf": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/admin/admissions/programs/{identifier}/history": {
       "get": {
         "operationId": "get_api_v1_admin_admissions_programs_identifier_history",
@@ -4991,6 +5094,487 @@
         }
       }
     },
+    "/api/v1/admin/forum/posts/{postID}": {
+      "delete": {
+        "operationId": "delete_api_v1_admin_forum_posts_postID",
+        "summary": "Delete admin forum posts postID",
+        "tags": [
+          "admin-forum"
+        ],
+        "parameters": [
+          {
+            "name": "postID",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "adminMFA": [],
+            "csrf": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/forum/posts/{postID}/archive": {
+      "post": {
+        "operationId": "post_api_v1_admin_forum_posts_postID_archive",
+        "summary": "Create admin forum posts postID archive",
+        "tags": [
+          "admin-forum"
+        ],
+        "parameters": [
+          {
+            "name": "postID",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "adminMFA": [],
+            "csrf": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/forum/threads": {
+      "get": {
+        "operationId": "get_api_v1_admin_forum_threads",
+        "summary": "Get admin forum threads",
+        "tags": [
+          "admin-forum"
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "adminMFA": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/forum/threads/{threadID}": {
+      "delete": {
+        "operationId": "delete_api_v1_admin_forum_threads_threadID",
+        "summary": "Delete admin forum threads threadID",
+        "tags": [
+          "admin-forum"
+        ],
+        "parameters": [
+          {
+            "name": "threadID",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "adminMFA": [],
+            "csrf": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/forum/threads/{threadID}/archive": {
+      "post": {
+        "operationId": "post_api_v1_admin_forum_threads_threadID_archive",
+        "summary": "Create admin forum threads threadID archive",
+        "tags": [
+          "admin-forum"
+        ],
+        "parameters": [
+          {
+            "name": "threadID",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "adminMFA": [],
+            "csrf": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/forum/threads/{threadID}/lock": {
+      "post": {
+        "operationId": "post_api_v1_admin_forum_threads_threadID_lock",
+        "summary": "Create admin forum threads threadID lock",
+        "tags": [
+          "admin-forum"
+        ],
+        "parameters": [
+          {
+            "name": "threadID",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "adminMFA": [],
+            "csrf": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/forum/threads/{threadID}/posts": {
+      "get": {
+        "operationId": "get_api_v1_admin_forum_threads_threadID_posts",
+        "summary": "Get admin forum threads threadID posts",
+        "tags": [
+          "admin-forum"
+        ],
+        "parameters": [
+          {
+            "name": "threadID",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "adminMFA": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/forum/threads/{threadID}/unlock": {
+      "post": {
+        "operationId": "post_api_v1_admin_forum_threads_threadID_unlock",
+        "summary": "Create admin forum threads threadID unlock",
+        "tags": [
+          "admin-forum"
+        ],
+        "parameters": [
+          {
+            "name": "threadID",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "adminMFA": [],
+            "csrf": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/grafana-auth": {
+      "get": {
+        "operationId": "get_api_v1_admin_grafana_auth",
+        "summary": "Get admin grafana auth",
+        "tags": [
+          "admin-grafana-auth"
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "adminMFA": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/admin/ingestion/brochure-candidates/{candidateID}/review": {
       "post": {
         "operationId": "post_api_v1_admin_ingestion_brochure_candidates_candidateID_review",
@@ -5402,6 +5986,350 @@
                       "$ref": "#/components/schemas/IngestionJobStatus"
                     }
                   }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/inquiries/{id}": {
+      "get": {
+        "operationId": "get_api_v1_admin_inquiries_id",
+        "summary": "Get admin inquiries id",
+        "tags": [
+          "admin-inquiries"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "adminMFA": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/mail-routes": {
+      "get": {
+        "operationId": "get_api_v1_admin_mail_routes",
+        "summary": "Get admin mail routes",
+        "tags": [
+          "admin-mail-routes"
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "adminMFA": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "post_api_v1_admin_mail_routes",
+        "summary": "Create admin mail routes",
+        "tags": [
+          "admin-mail-routes"
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "adminMFA": [],
+            "csrf": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/mail-routes/discord-roles": {
+      "get": {
+        "operationId": "get_api_v1_admin_mail_routes_discord_roles",
+        "summary": "Get admin mail routes discord roles",
+        "tags": [
+          "admin-mail-routes"
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "adminMFA": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/mail-routes/{id}": {
+      "delete": {
+        "operationId": "delete_api_v1_admin_mail_routes_id",
+        "summary": "Delete admin mail routes id",
+        "tags": [
+          "admin-mail-routes"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "adminMFA": [],
+            "csrf": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "put_api_v1_admin_mail_routes_id",
+        "summary": "Replace admin mail routes id",
+        "tags": [
+          "admin-mail-routes"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "adminMFA": [],
+            "csrf": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/mail-routes/{id}/inquiries": {
+      "get": {
+        "operationId": "get_api_v1_admin_mail_routes_id_inquiries",
+        "summary": "Get admin mail routes id inquiries",
+        "tags": [
+          "admin-mail-routes"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "adminMFA": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
                 }
               }
             }
@@ -6428,6 +7356,96 @@
         }
       }
     },
+    "/api/v1/admin/settings/mail-reply-template": {
+      "get": {
+        "operationId": "get_api_v1_admin_settings_mail_reply_template",
+        "summary": "Get admin settings mail reply template",
+        "tags": [
+          "admin-settings"
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "adminMFA": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "post_api_v1_admin_settings_mail_reply_template",
+        "summary": "Create admin settings mail reply template",
+        "tags": [
+          "admin-settings"
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "adminMFA": [],
+            "csrf": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/admin/settings/require-admin-mfa": {
       "get": {
         "operationId": "get_api_v1_admin_settings_require_admin_mfa",
@@ -6501,6 +7519,277 @@
               "application/json": {
                 "schema": {
                   "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/settings/site-policies": {
+      "get": {
+        "operationId": "get_api_v1_admin_settings_site_policies",
+        "summary": "Get editable site policy content",
+        "tags": [
+          "admin-settings"
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "adminMFA": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/SitePolicyDocuments"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/settings/site-policies/{policy}": {
+      "post": {
+        "operationId": "post_api_v1_admin_settings_site_policies_policy",
+        "summary": "Update one site policy",
+        "tags": [
+          "admin-settings"
+        ],
+        "parameters": [
+          {
+            "name": "policy",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "adminMFA": [],
+            "csrf": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500000
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "value": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/site-assets/article-overview": {
+      "delete": {
+        "operationId": "delete_api_v1_admin_site_assets_article_overview",
+        "summary": "Reset the article overview image to the static default",
+        "tags": [
+          "admin-site-assets"
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "adminMFA": [],
+            "csrf": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "operationId": "get_api_v1_admin_site_assets_article_overview",
+        "summary": "Get article overview image metadata",
+        "tags": [
+          "admin-site-assets"
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "adminMFA": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/SiteAssetMetadata"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "post_api_v1_admin_site_assets_article_overview",
+        "summary": "Upload the article overview image",
+        "tags": [
+          "admin-site-assets"
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "adminMFA": [],
+            "csrf": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "file"
+                ],
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/SiteAssetMetadata"
+                    }
+                  }
                 }
               }
             }
@@ -7335,6 +8624,65 @@
             }
           }
         }
+      },
+      "put": {
+        "operationId": "put_api_v1_admin_users_accountID",
+        "summary": "Replace admin users accountID",
+        "tags": [
+          "admin-users"
+        ],
+        "parameters": [
+          {
+            "name": "accountID",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "adminMFA": [],
+            "csrf": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/admin/users/{accountID}/admissions-moderator": {
@@ -7523,6 +8871,189 @@
                       "type": "string"
                     }
                   }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/users/{accountID}/resend-activation": {
+      "post": {
+        "operationId": "post_api_v1_admin_users_accountID_resend_activation",
+        "summary": "Create admin users accountID resend activation",
+        "tags": [
+          "admin-users"
+        ],
+        "parameters": [
+          {
+            "name": "accountID",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "adminMFA": [],
+            "csrf": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/users/{accountID}/resend-email-verification": {
+      "post": {
+        "operationId": "post_api_v1_admin_users_accountID_resend_email_verification",
+        "summary": "Create admin users accountID resend email verification",
+        "tags": [
+          "admin-users"
+        ],
+        "parameters": [
+          {
+            "name": "accountID",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "adminMFA": [],
+            "csrf": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/users/{accountID}/reset-password": {
+      "post": {
+        "operationId": "post_api_v1_admin_users_accountID_reset_password",
+        "summary": "Create admin users accountID reset password",
+        "tags": [
+          "admin-users"
+        ],
+        "parameters": [
+          {
+            "name": "accountID",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "adminMFA": [],
+            "csrf": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
                 }
               }
             }
@@ -12206,51 +13737,6 @@
         }
       }
     },
-    "/api/v1/internal/account-applications/mail-intake": {
-      "post": {
-        "operationId": "post_api_v1_internal_account_applications_mail_intake",
-        "summary": "Create internal account applications mail intake",
-        "tags": [
-          "internal-account-applications"
-        ],
-        "security": [
-          {
-            "serviceToken": []
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object"
-                }
-              }
-            }
-          },
-          "4XX": {
-            "description": "Client error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/internal/account-applications/reply-by-telegram": {
       "post": {
         "operationId": "post_api_v1_internal_account_applications_reply_by_telegram",
@@ -12645,12 +14131,12 @@
         }
       }
     },
-    "/api/v1/internal/email-inquiries/reply-by-telegram": {
+    "/api/v1/internal/discord/interactions": {
       "post": {
-        "operationId": "post_api_v1_internal_email_inquiries_reply_by_telegram",
-        "summary": "Create internal email inquiries reply by telegram",
+        "operationId": "post_api_v1_internal_discord_interactions",
+        "summary": "Create internal discord interactions",
         "tags": [
-          "internal-email-inquiries"
+          "internal-discord"
         ],
         "security": [
           {
@@ -13041,6 +14527,51 @@
                       }
                     }
                   }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/internal/mail-intake": {
+      "post": {
+        "operationId": "post_api_v1_internal_mail_intake",
+        "summary": "Create internal mail intake",
+        "tags": [
+          "internal-mail-intake"
+        ],
+        "security": [
+          {
+            "serviceToken": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
                 }
               }
             }
@@ -14696,6 +16227,122 @@
                           "type": "object"
                         }
                       }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/site-assets/article-overview": {
+      "get": {
+        "operationId": "get_api_v1_site_assets_article_overview",
+        "summary": "Get the public article overview image",
+        "tags": [
+          "site-assets"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "image/png": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/jpeg": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/site-assets/article-overview/meta": {
+      "get": {
+        "operationId": "get_api_v1_site_assets_article_overview_meta",
+        "summary": "Get article overview image metadata",
+        "tags": [
+          "site-assets"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/SiteAssetMetadata"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/site-policies": {
+      "get": {
+        "operationId": "get_api_v1_site_policies",
+        "summary": "Get the public service terms and privacy policy",
+        "tags": [
+          "site-policies"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/SitePolicyDocuments"
                     }
                   }
                 }

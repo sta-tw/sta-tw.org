@@ -50,13 +50,57 @@ var schoolAbbreviations = map[string][]string{
 	"亞大": {"亞洲大學"},
 }
 
+// departmentAbbreviations covers common short forms of a department name
+// that aren't a contiguous substring of the full name (e.g. "資工" doesn't
+// appear in "資訊工程學系" — the sequence there is 資-訊-工, not 資-工). Used
+// together with departmentSuffixStripped so "資工系" / "資訊工程系" /
+// "資訊工程學系" all resolve to the same "資訊工程" search candidate.
+var departmentAbbreviations = map[string][]string{
+	"資工": {"資訊工程"}, "資管": {"資訊管理"}, "電機": {"電機工程"},
+	"機械": {"機械工程"}, "企管": {"企業管理"}, "財金": {"財務金融"},
+	"會資": {"會計資訊"}, "外文": {"外國語文"}, "應外": {"應用外語"},
+	"資傳": {"資訊傳播"}, "土木": {"土木工程"}, "化工": {"化學工程"},
+	"環工": {"環境工程"}, "生科": {"生命科學"}, "生技": {"生物技術"},
+	"餐旅": {"餐旅管理"}, "休運": {"休閒運動"}, "特教": {"特殊教育"},
+	"幼教": {"幼兒教育"}, "社工": {"社會工作"}, "地政": {"地政學"},
+	"心輔": {"心理輔導"}, "統計": {"統計學"}, "數學": {"數學系"},
+	"物理": {"物理學"}, "化學": {"化學系"}, "光電": {"光電工程"},
+	"通訊": {"通訊工程"}, "材料": {"材料科學"}, "工管": {"工業管理"},
+	"國企": {"國際企業"}, "運管": {"運輸管理"}, "森林": {"森林學"},
+}
+
+// departmentSuffixStripped drops a trailing department-name suffix ("學系"
+// checked before "系" so it isn't left with a stray "學") — "資訊工程學系"
+// and "資訊工程系" both strip down to "資訊工程", so either form of a
+// query matches either form of a stored name via plain substring ILIKE.
+func departmentSuffixStripped(term string) (string, bool) {
+	for _, suffix := range []string{"學系", "系所", "系"} {
+		if stripped, ok := strings.CutSuffix(term, suffix); ok && stripped != "" {
+			return stripped, true
+		}
+	}
+	return "", false
+}
+
 // searchTermCandidates expands one whitespace-split search term into every
 // string it should be ILIKE-matched against: itself, plus any school full
-// names it's a known abbreviation for.
+// name or department full name it's a known/derivable short form of. This
+// is deliberately a curated normalization (suffix-stripping + a fixed
+// abbreviation dictionary), not general fuzzy/typo matching — it lets
+// "資工系"/"資訊工程系"/"資訊工程學系" all match each other without also
+// matching on loose similarity the way trigram distance would.
 func searchTermCandidates(term string) []string {
 	normalized := normalizeTaiVariant(term)
 	candidates := []string{normalized}
 	if expansions, ok := schoolAbbreviations[normalized]; ok {
+		candidates = append(candidates, expansions...)
+	}
+	stripped := normalized
+	if s, ok := departmentSuffixStripped(normalized); ok {
+		stripped = s
+		candidates = append(candidates, stripped)
+	}
+	if expansions, ok := departmentAbbreviations[stripped]; ok {
 		candidates = append(candidates, expansions...)
 	}
 	return candidates

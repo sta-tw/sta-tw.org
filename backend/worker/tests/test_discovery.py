@@ -9,7 +9,6 @@ from unittest.mock import patch
 from worker.sta_worker.discovery import (
     DiscoveryError,
     NoCandidate,
-    SearchResult,
     SearxngSearch,
     _candidate_links,
     _classify_local,

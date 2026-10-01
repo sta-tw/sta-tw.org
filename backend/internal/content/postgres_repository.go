@@ -108,7 +108,7 @@ func (r *PostgresRepository) ListThreads(ctx context.Context, accountID *uuid.UU
 		SELECT t.id::text, t.space_id, t.title, t.created_at, t.updated_at
 		FROM forum_threads t
 		JOIN forum_spaces f ON f.id = t.space_id AND f.is_active = TRUE
-		WHERE t.space_id = $1 AND t.status = 'published'
+		WHERE t.space_id = $1 AND t.status IN ('published', 'locked')
 		  AND ($3::timestamptz IS NULL OR (t.updated_at, t.id) < ($3::timestamptz, $4::uuid))
 		  AND (
 			f.space_type = 'global'
@@ -165,7 +165,7 @@ func (r *PostgresRepository) ListPosts(ctx context.Context, accountID *uuid.UUID
 	rows, err := r.pool.Query(ctx, `
 		SELECT p.id::text, p.thread_id, p.body, p.quoted_experience_id, p.created_at
 		FROM forum_posts p
-		JOIN forum_threads t ON t.id = p.thread_id AND t.status = 'published'
+		JOIN forum_threads t ON t.id = p.thread_id AND t.status IN ('published', 'locked')
 		JOIN forum_spaces f ON f.id = t.space_id AND f.is_active = TRUE
 		WHERE p.thread_id = $1 AND p.status = 'published'
 		  AND ($3::timestamptz IS NULL OR (p.created_at, p.id) > ($3::timestamptz, $4::uuid))
@@ -229,18 +229,27 @@ func (r *PostgresRepository) CreateThread(ctx context.Context, accountID, spaceI
 		SELECT $1, $2, $3
 		WHERE EXISTS (
 			SELECT 1
-			FROM forum_memberships m
-			JOIN forum_spaces f ON f.id = m.space_id AND f.is_active = TRUE
-			WHERE m.account_id = $2 AND m.space_id = $1 AND m.status = 'active'
+			FROM forum_spaces f
+			WHERE f.id = $1 AND f.is_active = TRUE
 			  AND (
+				-- The global space has no join step: any authenticated account
+				-- can post. annual/school_program still gate on an active
+				-- forum_memberships row (via the explicit join/leave endpoints)
+				-- plus a confirmed application for that scope.
 				f.space_type = 'global'
 				OR (f.space_type = 'annual' AND EXISTS (
+					SELECT 1 FROM forum_memberships m
+					WHERE m.account_id = $2 AND m.space_id = f.id AND m.status = 'active'
+				) AND EXISTS (
 					SELECT 1 FROM applications a
 					JOIN accounts ac ON ac.id = a.account_id
 					WHERE a.account_id = $2 AND ac.identity_status = 'student'
 					  AND a.academic_year = f.academic_year AND a.status = 'confirmed'
 				))
 				OR (f.space_type = 'school_program' AND EXISTS (
+					SELECT 1 FROM forum_memberships m
+					WHERE m.account_id = $2 AND m.space_id = f.id AND m.status = 'active'
+				) AND EXISTS (
 					SELECT 1 FROM applications a
 					WHERE a.account_id = $2 AND a.academic_year = f.academic_year
 					  AND a.school_code = f.school_code AND a.program_code = f.program_code
@@ -283,17 +292,23 @@ func (r *PostgresRepository) CreatePost(ctx context.Context, accountID, threadID
 		WHERE EXISTS (
 			SELECT 1 FROM forum_threads t
 			JOIN forum_spaces f ON f.id = t.space_id AND f.is_active = TRUE
-			JOIN forum_memberships m ON m.space_id = t.space_id AND m.account_id = $2 AND m.status = 'active'
 			WHERE t.id = $1 AND t.status = 'published'
 			  AND (
+				-- See CreateThread: the global space needs no join step.
 				f.space_type = 'global'
 				OR (f.space_type = 'annual' AND EXISTS (
+					SELECT 1 FROM forum_memberships m
+					WHERE m.account_id = $2 AND m.space_id = f.id AND m.status = 'active'
+				) AND EXISTS (
 					SELECT 1 FROM applications a
 					JOIN accounts ac ON ac.id = a.account_id
 					WHERE a.account_id = $2 AND ac.identity_status = 'student'
 					  AND a.academic_year = f.academic_year AND a.status = 'confirmed'
 				))
 				OR (f.space_type = 'school_program' AND EXISTS (
+					SELECT 1 FROM forum_memberships m
+					WHERE m.account_id = $2 AND m.space_id = f.id AND m.status = 'active'
+				) AND EXISTS (
 					SELECT 1 FROM applications a
 					WHERE a.account_id = $2 AND a.academic_year = f.academic_year
 					  AND a.school_code = f.school_code AND a.program_code = f.program_code
@@ -312,6 +327,122 @@ func (r *PostgresRepository) CreatePost(ctx context.Context, accountID, threadID
 	}
 	post.ID, err = uuid.Parse(idText)
 	return post, err
+}
+
+// AdminListThreads returns every thread across every space — including
+// locked/removed ones, which the public ListThreads hides — newest first,
+// with the poster's account id and username attached for moderation.
+func (r *PostgresRepository) AdminListThreads(ctx context.Context, limit int, after pagination.Cursor) ([]AdminThread, string, error) {
+	limit = pagination.ClampLimit(limit, 50, 100)
+	var afterTime *time.Time
+	var afterID *uuid.UUID
+	if !after.Zero() {
+		t := after.Time
+		id := after.UUID()
+		afterTime, afterID = &t, &id
+	}
+	rows, err := r.pool.Query(ctx, `
+		SELECT t.id::text, t.space_id, t.title, t.status, t.account_id, a.username, t.created_at, t.updated_at
+		FROM forum_threads t
+		JOIN accounts a ON a.id = t.account_id
+		WHERE ($1::timestamptz IS NULL OR (t.created_at, t.id) < ($1::timestamptz, $2::uuid))
+		ORDER BY t.created_at DESC, t.id DESC
+		LIMIT $3
+	`, afterTime, afterID, limit)
+	if err != nil {
+		return nil, "", fmt.Errorf("admin list forum threads: %w", err)
+	}
+	defer rows.Close()
+	result := make([]AdminThread, 0)
+	for rows.Next() {
+		var thread AdminThread
+		var idText string
+		if err := rows.Scan(&idText, &thread.SpaceID, &thread.Title, &thread.Status, &thread.AccountID, &thread.AuthorUsername, &thread.CreatedAt, &thread.UpdatedAt); err != nil {
+			return nil, "", fmt.Errorf("scan admin forum thread: %w", err)
+		}
+		thread.ID, err = uuid.Parse(idText)
+		if err != nil {
+			return nil, "", err
+		}
+		result = append(result, thread)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", err
+	}
+	var next string
+	if n := len(result); n > 0 {
+		last := result[n-1]
+		next = pagination.Next(n, limit, last.CreatedAt, last.ID)
+	}
+	return result, next, nil
+}
+
+// AdminListPosts returns every post in a thread — including removed ones —
+// oldest first, with the poster's account id and username attached.
+func (r *PostgresRepository) AdminListPosts(ctx context.Context, threadID uuid.UUID) ([]AdminPost, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT p.id::text, p.thread_id, p.body, p.quoted_experience_id, p.status, p.account_id, a.username, p.created_at
+		FROM forum_posts p
+		JOIN accounts a ON a.id = p.account_id
+		WHERE p.thread_id = $1
+		ORDER BY p.created_at ASC, p.id ASC
+	`, threadID)
+	if err != nil {
+		return nil, fmt.Errorf("admin list forum posts: %w", err)
+	}
+	defer rows.Close()
+	result := make([]AdminPost, 0)
+	for rows.Next() {
+		var post AdminPost
+		var idText string
+		if err := rows.Scan(&idText, &post.ThreadID, &post.Body, &post.QuotedExperienceID, &post.Status, &post.AccountID, &post.AuthorUsername, &post.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan admin forum post: %w", err)
+		}
+		post.ID, err = uuid.Parse(idText)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, post)
+	}
+	return result, rows.Err()
+}
+
+// SetThreadStatus is the moderation entry point for locking/unlocking or
+// soft-deleting a thread. status must be one of the ThreadStatus* constants;
+// handler callers pass a fixed literal, never raw client input, so there is
+// no injection surface here — the check only guards against programmer error.
+func (r *PostgresRepository) SetThreadStatus(ctx context.Context, threadID uuid.UUID, status string) error {
+	switch status {
+	case ThreadStatusPublished, ThreadStatusLocked, ThreadStatusRemoved, ThreadStatusArchived:
+	default:
+		return ErrInvalidStatus
+	}
+	tag, err := r.pool.Exec(ctx, `UPDATE forum_threads SET status = $2 WHERE id = $1`, threadID, status)
+	if err != nil {
+		return fmt.Errorf("set forum thread status: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// SetPostStatus is the moderation entry point for soft-deleting (or
+// restoring) a single post. See SetThreadStatus for the status-value note.
+func (r *PostgresRepository) SetPostStatus(ctx context.Context, postID uuid.UUID, status string) error {
+	switch status {
+	case PostStatusPublished, PostStatusRemoved, PostStatusArchived:
+	default:
+		return ErrInvalidStatus
+	}
+	tag, err := r.pool.Exec(ctx, `UPDATE forum_posts SET status = $2 WHERE id = $1`, postID, status)
+	if err != nil {
+		return fmt.Errorf("set forum post status: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 func (r *PostgresRepository) CreateExperience(ctx context.Context, accountID uuid.UUID, input CreateExperienceInput) (Experience, error) {

@@ -45,7 +45,10 @@ export default function RegisterForm() {
     if (submitted) {
         return (
             <div className="w-full max-w-md text-center">
-                <h1 id="register-title" className="mb-4 text-3xl leading-tight font-medium text-ink sm:text-4xl">
+                <h1
+                    id="register-title"
+                    className="mb-4 text-3xl leading-tight font-medium text-ink sm:text-4xl"
+                >
                     請完成信箱驗證
                 </h1>
                 <p className="text-base leading-relaxed text-copy-muted">
@@ -56,7 +59,10 @@ export default function RegisterForm() {
                 <p className="mt-3 text-sm leading-relaxed text-copy-muted">
                     連結 24 小時內有效。沒收到信可以檢查垃圾信匣，或重新註冊一次。
                 </p>
-                <Link href="/" className={`mt-6 inline-block font-bold text-ink underline underline-offset-4 ${focusStyle}`}>
+                <Link
+                    href="/"
+                    className={`mt-6 inline-block font-bold text-ink underline underline-offset-4 ${focusStyle}`}
+                >
                     回首頁
                 </Link>
             </div>
@@ -81,11 +87,19 @@ export default function RegisterForm() {
                     }
                     const form = event.currentTarget;
                     const email = (form.elements.namedItem("email") as HTMLInputElement).value;
-                    const schoolEmail = (form.elements.namedItem("school_email") as HTMLInputElement).value;
-                    const username = (form.elements.namedItem("nickname") as HTMLInputElement).value;
+                    const schoolEmail = (
+                        form.elements.namedItem("school_email") as HTMLInputElement
+                    ).value;
+                    const username = (form.elements.namedItem("nickname") as HTMLInputElement)
+                        .value;
                     setNotice("");
                     setSubmitting(true);
-                    registerAccount({ username, email, school_email: schoolEmail, turnstile_token: turnstileToken })
+                    registerAccount({
+                        username,
+                        email,
+                        school_email: schoolEmail,
+                        turnstile_token: turnstileToken
+                    })
                         .then(() => setSubmitted(true))
                         .catch((error: unknown) => {
                             setNotice(registerErrorMessage(error));
@@ -175,21 +189,19 @@ export default function RegisterForm() {
                 </Button>
                 <p className="mt-4 text-center text-sm leading-relaxed text-copy-muted">
                     註冊即表示您同意{" "}
-                    <button
-                        type="button"
-                        onClick={() => setNotice("服務條款尚未公布。")}
+                    <Link
+                        href="/terms"
                         className={`cursor-pointer font-bold text-ink underline underline-offset-4 ${focusStyle}`}
                     >
                         服務條款
-                    </button>
+                    </Link>
                     {" 與 "}
-                    <button
-                        type="button"
-                        onClick={() => setNotice("隱私權政策尚未公布。")}
+                    <Link
+                        href="/privacy"
                         className={`cursor-pointer font-bold text-ink underline underline-offset-4 ${focusStyle}`}
                     >
                         隱私權政策
-                    </button>
+                    </Link>
                 </p>
             </form>
             <p className="mt-4 text-center text-sm text-ink">

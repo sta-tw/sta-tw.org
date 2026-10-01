@@ -3,20 +3,34 @@ mydomain = __MAIL_DOMAIN__
 myorigin = $mydomain
 mydestination = $myhostname, localhost
 
-# Inbound: only account@__MAIL_HOSTNAME__ is accepted, and routed to the
-# `intake` pipe transport (see master.cf) instead of local mailbox delivery.
-# Every other address at this domain is rejected — this is not a general
-# mail sink.
+# Inbound: only a local part registered in mail_routes (internal/mailroutes,
+# managed from /admin/mail-routes) is accepted at __MAIL_HOSTNAME__, and
+# routed to the `intake` pipe transport (see master.cf) instead of local
+# mailbox delivery. Every other address at this domain is rejected — this is
+# not a general mail sink. These are pgsql lookup maps (queried live against
+# the app's own database — see pgsql-local-recipients.cf.template /
+# pgsql-transport.cf.template) rather than static files, so a new category
+# added from the admin panel is accepted with no container restart.
 #
 # Deliberately NOT virtual_alias_domains/virtual_alias_maps: that mechanism
 # is for aliasing to a *different* final address. Mapping an address to
-# itself (which is what "only accept this one address" needs) makes cleanup(8)
-# treat the alias as a no-op expansion and bounce with "User unknown in
-# virtual alias table" — confirmed by reproducing it against this exact
-# config. mydestination + local_recipient_maps (existence check) +
+# itself (which is what "only accept registered addresses" needs) makes
+# cleanup(8) treat the alias as a no-op expansion and bounce with "User
+# unknown in virtual alias table" — confirmed by reproducing it against this
+# exact config. mydestination + local_recipient_maps (existence check) +
 # transport_maps (routing to the intake pipe) is the correct combination.
-local_recipient_maps = hash:/etc/postfix/virtual
-transport_maps = hash:/etc/postfix/transport
+# noreply@__MAIL_HOSTNAME__ is the From/Return-Path our own outbound system
+# mail (password resets, /re replies, etc.) uses — not a mail_routes row, so
+# without this it isn't a valid recipient. That only bites back when one of
+# those outbound sends itself hard-bounces (e.g. the original recipient's
+# domain has broken DNS): the resulting non-delivery notification tries to
+# reach noreply@ as ITS recipient, finds no such mailbox, and double-bounces
+# with "unknown user: noreply" — logged noise, but pointless since there was
+# never anywhere for that notification to go. This static map accepts (and
+# see transport_extra below) discards mail to noreply@ specifically, without
+# turning it into a full mail_routes category.
+local_recipient_maps = pgsql:/etc/postfix/pgsql-local-recipients.cf, hash:/etc/postfix/local-recipients-extra
+transport_maps = pgsql:/etc/postfix/pgsql-transport.cf, hash:/etc/postfix/transport-extra
 
 # Port 25 is published to the host (see docker-compose.yml) — real senders
 # on the internet connect here, not just the compose network. mynetworks
@@ -39,8 +53,8 @@ smtpd_tls_auth_only = yes
 smtp_tls_security_level = may
 smtp_tls_CApath = /etc/ssl/certs
 
-smtpd_milters = inet:localhost:8891
-non_smtpd_milters = inet:localhost:8891
+smtpd_milters = inet:127.0.0.1:8891
+non_smtpd_milters = inet:127.0.0.1:8891
 milter_default_action = accept
 milter_protocol = 6
 

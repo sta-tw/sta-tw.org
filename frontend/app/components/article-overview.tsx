@@ -6,38 +6,59 @@ import { ChevronLeft, ChevronRight, Search } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { twMerge } from "tailwind-merge";
 import { listExperiences, type Experience } from "../lib/api/content";
+import {
+    articleOverviewFallbackPath,
+    getArticleOverviewImageMeta,
+    getArticleOverviewImageUrl
+} from "../lib/api/site-assets";
 import { ApiError } from "../lib/api/types";
 import { publicPath } from "../lib/public-path";
 import { normalizeSearchText } from "../lib/text-normalize";
 import FaqAccordion from "./faq-accordion";
 
-const slides = [
-    {
-        image: publicPath("/articlemain/sta-coming-soon.webp"),
-        alt: "S.T.A 網站即將上線施工告示"
-    },
-    {
-        image: publicPath("/articlemain/sta-coming-soon.webp"),
-        alt: "S.T.A 網站即將上線施工告示"
-    },
-    {
-        image: publicPath("/articlemain/sta-coming-soon.webp"),
-        alt: "S.T.A 網站即將上線施工告示"
-    }
+const fallbackArticleOverviewImage = publicPath(articleOverviewFallbackPath);
+
+// tagSizes/tagPositions give the hand-tuned "scattered word cloud" look
+// without needing real per-tag metadata — cycled by index over whatever
+// real tags deriveTags() finds, instead of a fixed hardcoded list.
+const tagSizes = [
+    "text-xl sm:text-2xl",
+    "text-2xl sm:text-3xl",
+    "text-4xl sm:text-5xl",
+    "text-3xl sm:text-4xl"
+];
+const tagPositions = [
+    "self-start ml-[22%]",
+    "self-end mr-[28%] -mt-2",
+    "self-center -mt-2",
+    "self-start ml-[12%] -mt-1",
+    "self-end mr-[15%] -mt-5",
+    "self-center -mt-1",
+    "self-end mr-[13%] -mt-3",
+    "self-center -mt-1",
+    "self-end mr-[18%] -mt-5"
 ];
 
-const tagCloud = [
-    { label: "成大", size: "text-xl sm:text-2xl", position: "self-start ml-[22%]" },
-    { label: "作品集", size: "text-xl sm:text-2xl", position: "self-end mr-[28%] -mt-2" },
-    { label: "輔導", size: "text-2xl sm:text-3xl", position: "self-center -mt-2" },
-    { label: "特選心得", size: "text-xl sm:text-2xl", position: "self-start ml-[12%] -mt-1" },
-    { label: "面試", size: "text-2xl sm:text-3xl", position: "self-end mr-[15%] -mt-5" },
-    { label: "資工", size: "text-2xl sm:text-3xl", position: "self-center -mt-1" },
-    { label: "備審", size: "text-4xl sm:text-5xl", position: "self-center -mt-2" },
-    { label: "美術", size: "text-xl sm:text-2xl", position: "self-end mr-[13%] -mt-3" },
-    { label: "中文系", size: "text-xl sm:text-2xl", position: "self-center -mt-1" },
-    { label: "不分系", size: "text-3xl sm:text-4xl", position: "self-end mr-[18%] -mt-5" }
-];
+// deriveTags pulls real words out of real published experience titles —
+// there's no dedicated tags/hashtags concept in the content backend yet, so
+// this is the only genuine signal available right now. Naturally returns
+// nothing (and the whole Hashtags section stays hidden) while there are no
+// real articles to derive anything from.
+function deriveTags(titles: string[]): string[] {
+    const counts = new Map<string, number>();
+    for (const title of titles) {
+        for (const token of title.split(/[\s、,，/|\-—]+/)) {
+            const trimmed = token.trim();
+            if (trimmed.length >= 2 && trimmed.length <= 6) {
+                counts.set(trimmed, (counts.get(trimmed) ?? 0) + 1);
+            }
+        }
+    }
+    return Array.from(counts.entries())
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 10)
+        .map(([label]) => label);
+}
 
 type ExperienceArticle = {
     id: string;
@@ -55,6 +76,23 @@ export default function ArticleOverview() {
     const [articles, setArticles] = useState<ExperienceArticle[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [featuredImage, setFeaturedImage] = useState(fallbackArticleOverviewImage);
+
+    useEffect(() => {
+        let ignore = false;
+        getArticleOverviewImageMeta()
+            .then(({ data }) => {
+                if (!ignore && data.exists) {
+                    setFeaturedImage(getArticleOverviewImageUrl(data.updated_at));
+                }
+            })
+            .catch(() => {
+                // The bundled PNG remains the fallback while the API is unavailable.
+            });
+        return () => {
+            ignore = true;
+        };
+    }, []);
 
     useEffect(() => {
         const controller = new AbortController();
@@ -88,15 +126,27 @@ export default function ArticleOverview() {
         );
     }, [articles, query]);
 
+    const tags = useMemo(() => deriveTags(articles.map((article) => article.title)), [articles]);
+
+    const slides = useMemo(
+        () => [
+            {
+                image: featuredImage,
+                alt: "S.T.A 特殊選才資源網文章總覽主視覺"
+            }
+        ],
+        [featuredImage]
+    );
+
     const changeSlide = (direction: -1 | 1) => {
         setActiveSlide((current) => (current + direction + slides.length) % slides.length);
     };
 
     return (
-        <main className="flex-1 bg-surface">
-            <div className="mx-auto w-full max-w-screen-xl px-5 pt-7 pb-16 sm:px-6 sm:pt-10 sm:pb-20 lg:px-16 lg:pt-16 lg:pb-24">
-                <section aria-label="精選文章" className="overflow-hidden">
-                    <div className="relative aspect-[16/8] min-h-72 overflow-hidden bg-ink sm:aspect-[16/7]">
+        <main className="max-w-full min-w-0 flex-1 overflow-x-clip bg-surface">
+            <div className="mx-auto w-full max-w-screen-xl min-w-0 px-5 pt-7 pb-16 sm:px-6 sm:pt-10 sm:pb-20 lg:px-16 lg:pt-16 lg:pb-24">
+                <section aria-label="精選文章" className="w-full max-w-full overflow-hidden">
+                    <div className="relative aspect-[1891/831] w-full max-w-full overflow-hidden rounded-[15%] bg-surface">
                         {slides.map((slide, index) => (
                             <Image
                                 key={index}
@@ -104,51 +154,58 @@ export default function ArticleOverview() {
                                 alt={slide.alt}
                                 fill
                                 priority={index === 0}
+                                unoptimized={slide.image !== fallbackArticleOverviewImage}
                                 sizes="(min-width: 1280px) 1152px, (min-width: 640px) calc(100vw - 48px), calc(100vw - 40px)"
                                 className={twMerge(
-                                    "object-cover transition-opacity duration-500",
+                                    "object-contain transition-opacity duration-500",
                                     index === activeSlide ? "opacity-100" : "opacity-0"
                                 )}
                             />
                         ))}
 
-                        <button
-                            type="button"
-                            onClick={() => changeSlide(-1)}
-                            className="absolute top-1/2 left-4 inline-flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-accent-yellow text-ink shadow-sm transition-transform hover:scale-105 focus-visible:ring-2 focus-visible:ring-surface focus-visible:ring-offset-2 focus-visible:outline-none sm:left-6 sm:h-14 sm:w-14"
-                            aria-label="上一張精選文章"
-                        >
-                            <ChevronLeft aria-hidden className="h-7 w-7 stroke-[3]" />
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => changeSlide(1)}
-                            className="absolute top-1/2 right-4 inline-flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-accent-yellow text-ink shadow-sm transition-transform hover:scale-105 focus-visible:ring-2 focus-visible:ring-surface focus-visible:ring-offset-2 focus-visible:outline-none sm:right-6 sm:h-14 sm:w-14"
-                            aria-label="下一張精選文章"
-                        >
-                            <ChevronRight aria-hidden className="h-7 w-7 stroke-[3]" />
-                        </button>
-
-                        <div
-                            className="absolute right-0 bottom-4 left-0 flex justify-center gap-2"
-                            aria-label="精選文章頁數"
-                        >
-                            {slides.map((_, index) => (
+                        {slides.length > 1 ? (
+                            <>
                                 <button
-                                    key={index}
                                     type="button"
-                                    onClick={() => setActiveSlide(index)}
-                                    aria-label={`前往第 ${index + 1} 張精選文章`}
-                                    aria-current={index === activeSlide ? "true" : undefined}
-                                    className={twMerge(
-                                        "h-3 w-3 rounded-full border border-surface/50 transition-colors",
-                                        index === activeSlide
-                                            ? "bg-accent-yellow"
-                                            : "bg-surface/80 hover:bg-surface"
-                                    )}
-                                />
-                            ))}
-                        </div>
+                                    onClick={() => changeSlide(-1)}
+                                    className="absolute top-1/2 left-4 inline-flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-accent-yellow text-ink shadow-sm transition-transform hover:scale-105 focus-visible:ring-2 focus-visible:ring-surface focus-visible:ring-offset-2 focus-visible:outline-none sm:left-6 sm:h-14 sm:w-14"
+                                    aria-label="上一張精選文章"
+                                >
+                                    <ChevronLeft aria-hidden className="h-7 w-7 stroke-[3]" />
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => changeSlide(1)}
+                                    className="absolute top-1/2 right-4 inline-flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-accent-yellow text-ink shadow-sm transition-transform hover:scale-105 focus-visible:ring-2 focus-visible:ring-surface focus-visible:ring-offset-2 focus-visible:outline-none sm:right-6 sm:h-14 sm:w-14"
+                                    aria-label="下一張精選文章"
+                                >
+                                    <ChevronRight aria-hidden className="h-7 w-7 stroke-[3]" />
+                                </button>
+
+                                <div
+                                    className="absolute right-0 bottom-4 left-0 flex justify-center gap-2"
+                                    aria-label="精選文章頁數"
+                                >
+                                    {slides.map((_, index) => (
+                                        <button
+                                            key={index}
+                                            type="button"
+                                            onClick={() => setActiveSlide(index)}
+                                            aria-label={`前往第 ${index + 1} 張精選文章`}
+                                            aria-current={
+                                                index === activeSlide ? "true" : undefined
+                                            }
+                                            className={twMerge(
+                                                "h-3 w-3 rounded-full border border-surface/50 transition-colors",
+                                                index === activeSlide
+                                                    ? "bg-accent-yellow"
+                                                    : "bg-surface/80 hover:bg-surface"
+                                            )}
+                                        />
+                                    ))}
+                                </div>
+                            </>
+                        ) : null}
                     </div>
                 </section>
 
@@ -193,31 +250,32 @@ export default function ArticleOverview() {
                         )}
                     </section>
 
-                    <section aria-labelledby="hashtags-title" className="mt-16 sm:mt-20">
-                        <h2
-                            id="hashtags-title"
-                            className="font-serif text-3xl text-ink sm:text-4xl"
-                        >
-                            Hashtags
-                        </h2>
-                        <div className="mx-auto mt-5 flex max-w-2xl flex-col items-center gap-1 text-center sm:mt-7">
-                            {tagCloud.map((tag) => (
-                                <button
-                                    key={tag.label}
-                                    type="button"
-                                    onClick={() => setQuery(tag.label)}
-                                    className={twMerge(
-                                        "rounded-[var(--radius-small)] bg-accent-yellow/80 px-2 py-0.5 font-sans leading-tight text-ink transition-transform hover:scale-105 focus-visible:ring-2 focus-visible:ring-ink focus-visible:outline-none",
-                                        tag.size,
-                                        tag.position,
-                                        tag.label === "備審" && "bg-[#ffc34e] px-3 py-1"
-                                    )}
-                                >
-                                    #{tag.label}
-                                </button>
-                            ))}
-                        </div>
-                    </section>
+                    {tags.length > 0 && (
+                        <section aria-labelledby="hashtags-title" className="mt-16 sm:mt-20">
+                            <h2
+                                id="hashtags-title"
+                                className="font-serif text-3xl text-ink sm:text-4xl"
+                            >
+                                Hashtags
+                            </h2>
+                            <div className="mx-auto mt-5 flex max-w-2xl flex-col items-center gap-1 text-center sm:mt-7">
+                                {tags.map((label, index) => (
+                                    <button
+                                        key={label}
+                                        type="button"
+                                        onClick={() => setQuery(label)}
+                                        className={twMerge(
+                                            "rounded-[var(--radius-small)] bg-accent-yellow/80 px-2 py-0.5 font-sans leading-tight text-ink transition-transform hover:scale-105 focus-visible:ring-2 focus-visible:ring-ink focus-visible:outline-none",
+                                            tagSizes[index % tagSizes.length],
+                                            tagPositions[index % tagPositions.length]
+                                        )}
+                                    >
+                                        #{label}
+                                    </button>
+                                ))}
+                            </div>
+                        </section>
+                    )}
 
                     <section aria-labelledby="article-faq-title" className="mt-20 sm:mt-24">
                         <h2

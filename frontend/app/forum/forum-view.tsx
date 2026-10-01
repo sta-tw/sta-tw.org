@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ArrowLeft, MessageCircle, Users } from "lucide-react";
+import { AlertCircle, ArrowLeft, Loader2, MessageCircle } from "lucide-react";
 import { twMerge } from "tailwind-merge";
 import Button from "../components/button";
 import { getCurrentAccount } from "../lib/api/auth";
@@ -9,8 +9,6 @@ import {
     addPostReaction,
     createPost,
     createThread,
-    joinSpace,
-    leaveSpace,
     listPosts,
     listSpaces,
     listThreads,
@@ -21,31 +19,46 @@ import {
 } from "../lib/api/forum";
 import { ApiError, type Account } from "../lib/api/types";
 
-type View =
-    | { name: "spaces" }
-    | { name: "threads"; space: ForumSpace }
-    | { name: "posts"; space: ForumSpace; thread: ForumThread };
+type View = { name: "threads" } | { name: "posts"; thread: ForumThread };
 
 const panelClass =
-    "rounded-[var(--radius-panel)] bg-surface p-6 shadow-[var(--shadow-card)] sm:p-8";
+    "rounded-[var(--radius-panel)] border border-ink/10 bg-surface p-6 shadow-[var(--shadow-card)] sm:p-8";
 const inputClass =
     "w-full rounded-[var(--radius-small)] border border-ink/15 bg-surface px-4 py-3 font-sans text-base text-ink outline-none transition-colors placeholder:text-copy-muted focus:border-ink/40";
 const reactionOptions = ["👍", "❤️", "🎉"];
-
-function spaceLabel(space: ForumSpace): string {
-    if (space.space_type === "global") return "全站";
-    if (space.space_type === "annual") return `${space.academic_year} 學年度`;
-    return `${space.academic_year} 學年度 · ${space.school_code} ${space.program_code}`;
-}
 
 function describeError(cause: unknown): string {
     if (cause instanceof ApiError) return cause.message || `發生錯誤（${cause.code}）`;
     return "發生未知錯誤，請稍後再試。";
 }
 
+function LoadingState({ label = "載入中…" }: { label?: string }) {
+    return (
+        <div className="flex items-center justify-center gap-2 p-6 font-sans text-sm text-copy-muted">
+            <Loader2 aria-hidden className="h-4 w-4 animate-spin" />
+            {label}
+        </div>
+    );
+}
+
+function EmptyState({ label }: { label: string }) {
+    return <p className="p-6 text-center font-sans text-sm text-copy-muted">{label}</p>;
+}
+
+function ErrorText({ children }: { children: React.ReactNode }) {
+    return (
+        <p className="flex items-start gap-1.5 font-sans text-sm text-red-600">
+            <AlertCircle aria-hidden className="mt-0.5 h-4 w-4 shrink-0" />
+            {children}
+        </p>
+    );
+}
+
 export default function ForumView() {
     const [account, setAccount] = useState<Account | null>(null);
-    const [view, setView] = useState<View>({ name: "spaces" });
+    const [space, setSpace] = useState<ForumSpace | null>(null);
+    const [spaceError, setSpaceError] = useState<string | null>(null);
+    const [view, setView] = useState<View>({ name: "threads" });
 
     useEffect(() => {
         let ignore = false;
@@ -57,136 +70,60 @@ export default function ForumView() {
         };
     }, []);
 
-    if (view.name === "spaces") {
-        return (
-            <SpaceList
-                account={account}
-                onOpenSpace={(space) => setView({ name: "threads", space })}
-            />
-        );
-    }
-    if (view.name === "threads") {
-        return (
-            <ThreadList
-                account={account}
-                space={view.space}
-                onBack={() => setView({ name: "spaces" })}
-                onOpenThread={(thread) => setView({ name: "posts", space: view.space, thread })}
-            />
-        );
-    }
-    return (
-        <PostList
-            account={account}
-            space={view.space}
-            thread={view.thread}
-            onBack={() => setView({ name: "threads", space: view.space })}
-        />
-    );
-}
-
-function SpaceList({
-    account,
-    onOpenSpace
-}: {
-    account: Account | null;
-    onOpenSpace: (space: ForumSpace) => void;
-}) {
-    const [spaces, setSpaces] = useState<ForumSpace[] | null>(null);
-    const [error, setError] = useState<string | null>(null);
-    const [pending, setPending] = useState<string | null>(null);
-
     useEffect(() => {
         let ignore = false;
         listSpaces()
-            .then(({ data }) => !ignore && setSpaces(data))
-            .catch((cause) => !ignore && setError(describeError(cause)));
+            .then(({ data }) => {
+                if (ignore) return;
+                // Exactly one `global` space is guaranteed to exist (seeded by
+                // migration 000013); that's the only entry point this page
+                // exposes today, so jump straight into it instead of making
+                // people pick from a list of one.
+                const globalSpace = data.find((candidate) => candidate.space_type === "global") ?? null;
+                setSpace(globalSpace);
+                if (!globalSpace) setSpaceError("目前沒有可用的討論空間。");
+            })
+            .catch((cause) => !ignore && setSpaceError(describeError(cause)));
         return () => {
             ignore = true;
         };
     }, []);
 
-    async function toggleMembership(space: ForumSpace) {
-        setPending(space.id);
-        setError(null);
-        try {
-            if (space.joined) {
-                await leaveSpace(space.id);
-            } else {
-                await joinSpace(space.id);
-            }
-            setSpaces((prev) =>
-                prev ? prev.map((s) => (s.id === space.id ? { ...s, joined: !s.joined } : s)) : prev
-            );
-        } catch (cause) {
-            setError(describeError(cause));
-        } finally {
-            setPending(null);
-        }
-    }
-
-    return (
-        <div className="flex flex-col gap-6">
-            <div>
-                <h1 className="font-serif text-hero-subtitle text-ink">討論區</h1>
-                <p className="mt-2 font-sans text-copy-muted">
-                    依學年度與校系分開的討論空間，全站空間所有人都能瀏覽與發文。
-                </p>
+    if (spaceError) {
+        return (
+            <div className={panelClass}>
+                <ErrorText>{spaceError}</ErrorText>
             </div>
-            {error ? <p className="font-sans text-sm text-red-600">{error}</p> : null}
-            {spaces === null ? (
-                <p className="font-sans text-copy-muted">載入中…</p>
-            ) : spaces.length === 0 ? (
-                <p className="font-sans text-copy-muted">目前還沒有討論空間。</p>
-            ) : (
-                <div className="grid gap-4 sm:grid-cols-2">
-                    {spaces.map((space) => (
-                        <div key={space.id} className={panelClass}>
-                            <div className="flex items-start justify-between gap-3">
-                                <div>
-                                    <p className="font-serif text-xl text-ink">
-                                        {space.display_name}
-                                    </p>
-                                    <p className="mt-1 font-sans text-sm text-copy-muted">
-                                        {spaceLabel(space)}
-                                    </p>
-                                </div>
-                                <Users aria-hidden className="h-6 w-6 shrink-0 text-ink/40" />
-                            </div>
-                            <div className="mt-5 flex gap-2">
-                                <Button
-                                    className="h-10 flex-1 px-4 text-base"
-                                    onClick={() => onOpenSpace(space)}
-                                >
-                                    瀏覽討論串
-                                </Button>
-                                {account ? (
-                                    <Button
-                                        className="h-10 border border-ink/15 bg-surface px-4 text-base text-ink hover:bg-ink/5"
-                                        disabled={pending === space.id}
-                                        onClick={() => toggleMembership(space)}
-                                    >
-                                        {space.joined ? "已加入" : "加入"}
-                                    </Button>
-                                ) : null}
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            )}
-        </div>
+        );
+    }
+    if (!space) {
+        return <LoadingState label="討論區載入中…" />;
+    }
+    if (view.name === "posts") {
+        return (
+            <PostList
+                account={account}
+                thread={view.thread}
+                onBack={() => setView({ name: "threads" })}
+            />
+        );
+    }
+    return (
+        <ThreadList
+            account={account}
+            space={space}
+            onOpenThread={(thread) => setView({ name: "posts", thread })}
+        />
     );
 }
 
 function ThreadList({
     account,
     space,
-    onBack,
     onOpenThread
 }: {
     account: Account | null;
     space: ForumSpace;
-    onBack: () => void;
     onOpenThread: (thread: ForumThread) => void;
 }) {
     const [threads, setThreads] = useState<ForumThread[] | null>(null);
@@ -221,32 +158,34 @@ function ThreadList({
         }
     }
 
+    const canPost = account !== null && account.identity_status !== "temporary";
+
     return (
         <div className="flex flex-col gap-6">
-            <button
-                type="button"
-                onClick={onBack}
-                className="flex w-fit items-center gap-2 font-sans text-sm text-copy-muted hover:text-ink"
-            >
-                <ArrowLeft aria-hidden className="h-4 w-4" />
-                回到討論區列表
-            </button>
-            <div className="flex items-center justify-between gap-4">
-                <h1 className="font-serif text-hero-subtitle text-ink">{space.display_name}</h1>
-                {account ? (
+            <div className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                    <h1 className="font-serif text-hero-subtitle text-ink">討論區</h1>
+                    <p className="mt-2 font-sans text-copy-muted">
+                        全站公開的討論空間，所有人都能瀏覽；需要通過學校信箱或畢業生身份驗證才能發文與回覆。
+                    </p>
+                </div>
+                {canPost ? (
                     <Button className="h-11 px-5 text-base" onClick={() => setShowForm((v) => !v)}>
                         {showForm ? "取消" : "發起討論"}
                     </Button>
                 ) : null}
             </div>
 
-            {error ? <p className="font-sans text-sm text-red-600">{error}</p> : null}
+            {account && !canPost ? (
+                <p className="font-sans text-sm text-copy-muted">
+                    你的帳號尚未完成身份驗證，暫時無法發文或回覆，僅能瀏覽。
+                </p>
+            ) : null}
+
+            {error ? <ErrorText>{error}</ErrorText> : null}
 
             {showForm ? (
-                <form
-                    className={twMerge(panelClass, "flex flex-col gap-4")}
-                    onSubmit={handleCreate}
-                >
+                <form className={twMerge(panelClass, "flex flex-col gap-4")} onSubmit={handleCreate}>
                     <input
                         className={inputClass}
                         placeholder="標題"
@@ -269,11 +208,9 @@ function ThreadList({
             ) : null}
 
             {threads === null ? (
-                <p className="font-sans text-copy-muted">載入中…</p>
+                <LoadingState />
             ) : threads.length === 0 ? (
-                <p className="font-sans text-copy-muted">
-                    這個空間還沒有討論串，當第一個發文的人吧！
-                </p>
+                <EmptyState label="這裡還沒有討論串，當第一個發文的人吧！" />
             ) : (
                 <div className="flex flex-col gap-3">
                     {threads.map((thread) => (
@@ -303,12 +240,10 @@ function ThreadList({
 
 function PostList({
     account,
-    space,
     thread,
     onBack
 }: {
     account: Account | null;
-    space: ForumSpace;
     thread: ForumThread;
     onBack: () => void;
 }) {
@@ -377,14 +312,14 @@ function PostList({
                 className="flex w-fit items-center gap-2 font-sans text-sm text-copy-muted hover:text-ink"
             >
                 <ArrowLeft aria-hidden className="h-4 w-4" />
-                回到 {space.display_name}
+                回到討論串列表
             </button>
             <h1 className="font-serif text-hero-subtitle text-ink">{thread.title}</h1>
 
-            {error ? <p className="font-sans text-sm text-red-600">{error}</p> : null}
+            {error ? <ErrorText>{error}</ErrorText> : null}
 
             {posts === null ? (
-                <p className="font-sans text-copy-muted">載入中…</p>
+                <LoadingState />
             ) : (
                 <div className="flex flex-col gap-3">
                     {posts.map((post) => (
@@ -440,7 +375,7 @@ function PostList({
                 </div>
             )}
 
-            {account ? (
+            {account && account.identity_status !== "temporary" ? (
                 <form className="flex flex-col gap-3" onSubmit={handleReply}>
                     <textarea
                         className={twMerge(inputClass, "min-h-24 resize-y")}
@@ -453,6 +388,10 @@ function PostList({
                         {submitting ? "送出中…" : "回覆"}
                     </Button>
                 </form>
+            ) : account ? (
+                <p className="font-sans text-sm text-copy-muted">
+                    你的帳號尚未完成身份驗證，暫時無法回覆討論。
+                </p>
             ) : (
                 <p className="font-sans text-sm text-copy-muted">
                     <a href="/login" className="underline">

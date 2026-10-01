@@ -27,12 +27,14 @@ import (
 	"sta-backend/internal/config"
 	"sta-backend/internal/content"
 	"sta-backend/internal/db"
+	"sta-backend/internal/discordmail"
 	"sta-backend/internal/email"
 	"sta-backend/internal/emailinquiries"
 	"sta-backend/internal/events"
 	"sta-backend/internal/httpapi"
 	"sta-backend/internal/ingestion"
 	"sta-backend/internal/jobs"
+	"sta-backend/internal/mailroutes"
 	"sta-backend/internal/notifications"
 	"sta-backend/internal/obs"
 	"sta-backend/internal/portfolio"
@@ -140,7 +142,7 @@ func run(logger *slog.Logger) error {
 
 	if cfg.DatabaseURL != "" {
 		startupContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		databasePool, err = db.OpenPostgres(startupContext, cfg.DatabaseURL)
+		databasePool, err = db.OpenPostgres(startupContext, cfg.DatabaseURL, 40)
 		cancel()
 		if err != nil {
 			return err
@@ -423,14 +425,15 @@ func run(logger *slog.Logger) error {
 				}
 				accountApplicationMailer = mailer
 			}
-			telegramNotifier := accountapplications.NewHTTPTelegramNotifier(cfg.TelegramBotToken, cfg.TelegramAccountApplicationChatID)
+			// Telegram notification is retired (moving to Discord); nil is a
+			// supported "no notifier configured" state throughout this service.
 			accountApplicationRepository, err := accountapplications.NewPostgresRepository(databasePool)
 			if err != nil {
 				return err
 			}
 			accountApplicationService, err := accountapplications.NewService(
 				accountApplicationRepository, blobStore, fileScanner, fieldCipher, cfg.LookupHMACKey,
-				authService, telegramNotifier, accountApplicationMailer, cfg.MailDomain, logger,
+				authService, nil, accountApplicationMailer, cfg.MailDomain, logger,
 			)
 			if err != nil {
 				return err
@@ -444,25 +447,72 @@ func run(logger *slog.Logger) error {
 			accountApplicationHandler.ConfigureDistributedLimiter(distributedLimiter)
 			registrars = append(registrars, accountApplicationHandler.RegisterRoutes)
 
-			inquiryNotifier := emailinquiries.NewHTTPTelegramNotifier(cfg.TelegramBotToken, cfg.TelegramAccountApplicationChatID)
+			mailRoutesRepository, err := mailroutes.NewPostgresRepository(databasePool)
+			if err != nil {
+				return err
+			}
+			var mailPermissions mailroutes.PermissionsClient
+			if cfg.DiscordMailBotToken != "" && cfg.DiscordMailGuildID != "" && cfg.DiscordMailForumCategoryID != "" {
+				mailPermissions, err = mailroutes.NewHTTPPermissionsClient(cfg.DiscordMailBotToken, cfg.DiscordMailGuildID, cfg.DiscordMailForumCategoryID)
+				if err != nil {
+					return err
+				}
+			} else {
+				logger.Warn("STA_DISCORD_MAIL_BOT_TOKEN/STA_DISCORD_MAIL_GUILD_ID/STA_DISCORD_MAIL_FORUM_CATEGORY_ID are not all set; creating new mail routes is disabled")
+			}
+			mailRoutesHandler, err := mailroutes.NewHandler(authService, mailRoutesRepository, mailPermissions, logger)
+			if err != nil {
+				return err
+			}
+			registrars = append(registrars, mailRoutesHandler.RegisterRoutes)
+
+			var forumNotifier emailinquiries.ForumNotifier
+			if cfg.DiscordMailBotToken != "" {
+				forumNotifier, err = emailinquiries.NewHTTPDiscordNotifier(cfg.DiscordMailBotToken)
+				if err != nil {
+					return err
+				}
+			} else {
+				logger.Warn("STA_DISCORD_MAIL_BOT_TOKEN is not set; inbound mail inquiries will not be posted to Discord")
+			}
+
 			inquiryRepository, err := emailinquiries.NewPostgresRepository(databasePool)
 			if err != nil {
 				return err
 			}
 			inquiryService, err := emailinquiries.NewService(
 				inquiryRepository, blobStore, fileScanner, fieldCipher, cfg.LookupHMACKey,
-				inquiryNotifier, accountApplicationMailer, cfg.MailDomain, logger,
+				forumNotifier, mailRoutesRepository, accountApplicationMailer, cfg.MailDomain, logger,
 			)
 			if err != nil {
 				return err
 			}
-			inquiryHandler, err := emailinquiries.NewHandler(inquiryService, cfg.AccountApplicationReviewToken)
+			inquiryAdminHandler, err := emailinquiries.NewHandler(authService, inquiryService, mailRoutesRepository.IsAdmin)
 			if err != nil {
 				return err
 			}
-			registrars = append(registrars, inquiryHandler.RegisterRoutes)
+			registrars = append(registrars, inquiryAdminHandler.RegisterRoutes)
 
-			mailIntakeHandler, err := accountmail.NewHandler(cfg.AccountApplicationMailToken, accountApplicationService, inquiryService)
+			if cfg.DiscordMailApplicationPublicKey != "" {
+				discordMailHandler, err := discordmail.NewHandler(cfg.DiscordMailApplicationPublicKey, inquiryService)
+				if err != nil {
+					return err
+				}
+				registrars = append(registrars, discordMailHandler.RegisterRoutes)
+			} else {
+				logger.Warn("STA_DISCORD_MAIL_APPLICATION_PUBLIC_KEY is not set; the /re slash command endpoint is disabled")
+			}
+
+			if cfg.DiscordMailBotToken != "" {
+				// Purely cosmetic: keeps the bot showing "online" in Discord
+				// so a human has a quick at-a-glance health signal. Every
+				// actual feature is plain HTTPS and doesn't depend on this
+				// connection at all — see discordmail.RunPresence's doc
+				// comment.
+				go discordmail.RunPresence(hubCtx, cfg.DiscordMailBotToken, logger)
+			}
+
+			mailIntakeHandler, err := accountmail.NewHandler(cfg.AccountApplicationMailToken, accountApplicationService, inquiryService, mailRoutesRepository)
 			if err != nil {
 				return err
 			}

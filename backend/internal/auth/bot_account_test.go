@@ -71,7 +71,7 @@ func (f *fakeBotStore) FindAccountByServiceToken(_ context.Context, tokenHash []
 }
 
 // The rest of Store is unused by these tests but must compile.
-func (f *fakeBotStore) CreatePendingAccount(context.Context, string, []byte, []byte, string) (Account, error) {
+func (f *fakeBotStore) CreatePendingAccount(context.Context, string, []byte, []byte, []byte, []byte, string) (Account, error) {
 	return Account{}, ErrNotConfigured
 }
 func (f *fakeBotStore) FindAccountByUsername(context.Context, string) (Account, string, error) {

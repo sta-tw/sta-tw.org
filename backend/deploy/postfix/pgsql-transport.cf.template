@@ -1,0 +1,9 @@
+# Used as transport_maps (main.cf.template): every mail_routes row routes
+# to the same `intake` pipe transport (see master.cf) regardless of which
+# category matched — the intake webhook itself looks the recipient back up
+# to decide which Discord forum channel it belongs to.
+hosts = postgres
+user = __STA_POSTGRES_USER__
+password = __STA_POSTGRES_PASSWORD__
+dbname = __STA_POSTGRES_DB__
+query = SELECT 'intake:' FROM mail_routes WHERE local_part = '%u' AND '%d' = '__MAIL_HOSTNAME__' LIMIT 1

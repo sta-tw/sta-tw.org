@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/mail"
@@ -272,7 +273,7 @@ func (s *Service) IssueEmailVerification(ctx context.Context, accountID uuid.UUI
 	// must also change for every challenge; minute-level keys could suppress a
 	// resend while leaving the user with a token that was never delivered.
 	dedupKey := "email-verification:" + accountID.String() + ":" + hex.EncodeToString(HashOpaqueToken(token))
-	if err := s.emailNotifier.EnqueueEmailForAccount(ctx, accountID, dedupKey, "STA Email 驗證", textBody, htmlBody, "email_verification"); err != nil {
+	if err := s.emailNotifier.EnqueueEmailForAccount(ctx, accountID, dedupKey, "[特殊選才資源網] Email 驗證信", textBody, htmlBody, "email_verification"); err != nil {
 		return time.Time{}, err
 	}
 	return expiresAt, nil
@@ -379,7 +380,7 @@ func (s *Service) sendPasswordResetEmail(ctx context.Context, store PasswordRese
 		ResetURL: link,
 	})
 	dedupKey := "password-reset:" + accountID.String() + ":" + hex.EncodeToString(HashOpaqueToken(token))
-	return s.emailNotifier.EnqueueEmailForAccount(ctx, accountID, dedupKey, "重設你的 STA 密碼", textBody, htmlBody, "password_reset")
+	return s.emailNotifier.EnqueueEmailForAccount(ctx, accountID, dedupKey, "[特殊選才資源網] 密碼重設信", textBody, htmlBody, "password_reset")
 }
 
 // ConfirmPasswordReset sets a new password from a reset token. On success every
@@ -612,6 +613,16 @@ func (s *Service) OAuthCallback(ctx context.Context, provider, stateValue, code 
 	subjectHash := s.lookupHasher.Hash(subject)
 	if state.AccountID != nil {
 		if err := s.store.CreateOAuthBinding(ctx, *state.AccountID, provider, subjectHash); err != nil {
+			if errors.Is(err, ErrConflict) {
+				// Diagnostic only (see cmd/account-tool's find-oauth-conflict):
+				// a conflict here means this exact provider identity is
+				// already bound to some *other* account — log which one so
+				// support can trace it without needing the user to somehow
+				// prove which Google account they used.
+				if holder, _, findErr := s.store.FindAccountByOAuthSubjectHashes(ctx, provider, [][]byte{subjectHash}); findErr == nil {
+					slog.Warn("oauth bind conflict", "provider", provider, "attempted_account_id", *state.AccountID, "already_bound_to_account_id", holder.ID, "already_bound_to_username", holder.Username)
+				}
+			}
 			return OAuthResult{}, err
 		}
 		if err := s.saveCalendarGrantIfPresent(ctx, *state.AccountID, provider, token); err != nil {
@@ -796,7 +807,8 @@ func (s *Service) Register(ctx context.Context, input RegisterInput, request *ht
 	if err != nil {
 		return Account{}, fmt.Errorf("protect email: %w", err)
 	}
-	account, err := s.store.CreatePendingAccount(ctx, username, emailCiphertext, s.lookupHasher.Hash(contactEmail), passwordHash)
+	account, err := s.store.CreatePendingAccount(ctx, username, emailCiphertext, s.lookupHasher.Hash(contactEmail),
+		schoolEmailCiphertext, s.lookupHasher.Hash(schoolEmail), passwordHash)
 	if err != nil {
 		return Account{}, err
 	}
@@ -820,7 +832,7 @@ func (s *Service) Register(ctx context.Context, input RegisterInput, request *ht
 		SetURL:  link,
 	})
 	dedupKey := "register-school-email:" + account.ID.String() + ":" + hex.EncodeToString(HashOpaqueToken(token))
-	if err := s.emailNotifier.EnqueueEmailTo(ctx, account.ID, schoolEmailCiphertext, dedupKey, "STA 帳號啟用", textBody, htmlBody); err != nil {
+	if err := s.emailNotifier.EnqueueEmailTo(ctx, account.ID, schoolEmailCiphertext, dedupKey, "[特殊選才資源網] 帳號啟用信", textBody, htmlBody); err != nil {
 		return account, err
 	}
 	return account, nil
@@ -1126,12 +1138,35 @@ func (s *Service) SetSessionCookiesForRequest(writer http.ResponseWriter, result
 	s.setSessionCookies(writer, result, s.cookieDomainForRequest(request))
 }
 
+// SameSite=Lax is deliberately used even in production (never None): the
+// Domain attribute already makes the cookie same-site across subdomains
+// (e.g. grafana.{domain}'s forward_auth gate — SameSite only restricts
+// cross-SITE requests, and a subdomain of the same registrable domain is
+// same-site), and the OAuth callback redirect is a top-level GET navigation,
+// which Lax always allows. SameSite=None gained nothing here and cost a
+// real user their login: several browsers — most infamously Safari on
+// iOS12/macOS Mojave-Big Sur, but also older Chromium forks like Samsung
+// Internet before it rebased onto a newer Chromium — have a well-documented
+// bug (https://www.chromium.org/updates/same-site/incompatible-clients)
+// where SameSite=None is misinterpreted and the cookie is dropped entirely:
+// login would succeed (200, session row created) but the browser never
+// stored the cookie, so every following request looked logged-out.
 func (s *Service) setSessionCookies(writer http.ResponseWriter, result SessionResult, domain string) {
 	secure := s.cookieSecure
 	sameSite := http.SameSiteLaxMode
-	if secure {
-		sameSite = http.SameSiteNoneMode
-	}
+	// One-time migration cleanup: every account that logged in before this
+	// SameSite=None -> Lax switch has a SameSite=None cookie of the same
+	// name/domain/path still sitting in their browser. RFC 6265 says a new
+	// Set-Cookie for the same (name, domain, path) should just replace it —
+	// SameSite isn't part of a cookie's identity — but not every browser
+	// gets this right (older Chromium forks in particular), so some users
+	// end up with BOTH cookies coexisting and the browser sends both back,
+	// with no guarantee the new one wins. Explicitly expiring the old
+	// SameSite=None variant alongside setting the new one clears that stale
+	// copy the moment the affected user next logs in, with no client-side
+	// action needed from them.
+	clearLegacySameSiteNoneCookie(writer, sessionCookieName, domain, secure)
+	clearLegacySameSiteNoneCookie(writer, csrfCookieName, domain, secure)
 	http.SetCookie(writer, &http.Cookie{
 		Name:     sessionCookieName,
 		Value:    result.Token,
@@ -1156,6 +1191,28 @@ func (s *Service) setSessionCookies(writer http.ResponseWriter, result SessionRe
 	})
 }
 
+// clearLegacySameSiteNoneCookie expires the SameSite=None variant of name
+// that older browsers may still be holding onto from before the SameSite=Lax
+// migration (see setSessionCookies) — HttpOnly matches the session cookie
+// but is harmless to set on the CSRF cookie too, since it only affects
+// whether JS can read the cookie being deleted, not the deletion itself.
+func clearLegacySameSiteNoneCookie(writer http.ResponseWriter, name, domain string, secure bool) {
+	if !secure {
+		// SameSite=None requires Secure; non-production never set one.
+		return
+	}
+	http.SetCookie(writer, &http.Cookie{
+		Name:     name,
+		Value:    "",
+		Domain:   domain,
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: name == sessionCookieName,
+		Secure:   secure,
+		SameSite: http.SameSiteNoneMode,
+	})
+}
+
 func (s *Service) ClearSessionCookies(writer http.ResponseWriter) {
 	s.clearSessionCookies(writer, s.cookieDomain)
 }
@@ -1167,6 +1224,7 @@ func (s *Service) ClearSessionCookiesForRequest(writer http.ResponseWriter, requ
 func (s *Service) clearSessionCookies(writer http.ResponseWriter, domain string) {
 	for _, name := range []string{sessionCookieName, csrfCookieName} {
 		http.SetCookie(writer, &http.Cookie{Name: name, Value: "", Domain: domain, Path: "/", MaxAge: -1, HttpOnly: name == sessionCookieName, Secure: s.cookieSecure})
+		clearLegacySameSiteNoneCookie(writer, name, domain, s.cookieSecure)
 	}
 }
 
@@ -1244,7 +1302,7 @@ func normalizeAndValidateEmail(raw string) (string, error) {
 
 func validatePassword(password string) error {
 	length := utf8.RuneCountInString(password)
-	if !utf8.ValidString(password) || length < 12 || length > 128 {
+	if !utf8.ValidString(password) || length < 8 || length > 128 {
 		return ErrInvalidInput
 	}
 	return nil

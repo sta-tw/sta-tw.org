@@ -15,7 +15,6 @@ from io import BytesIO
 import ipaddress
 import json
 import logging
-import mimetypes
 import os
 import socket
 import ssl

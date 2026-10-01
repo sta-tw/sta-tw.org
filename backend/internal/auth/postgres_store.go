@@ -43,14 +43,14 @@ func (s *PostgresStore) CreateAccount(ctx context.Context, username string, emai
 	return account, nil
 }
 
-func (s *PostgresStore) CreatePendingAccount(ctx context.Context, username string, emailCiphertext, emailLookupHash []byte, passwordHash string) (Account, error) {
+func (s *PostgresStore) CreatePendingAccount(ctx context.Context, username string, emailCiphertext, emailLookupHash, schoolEmailCiphertext, schoolEmailLookupHash []byte, passwordHash string) (Account, error) {
 	var idText string
 	var account Account
 	err := s.pool.QueryRow(ctx, `
-		INSERT INTO accounts (username, email_ciphertext, email_lookup_hash, password_hash, account_status)
-		VALUES ($1, $2, $3, $4, 'pending_verification')
+		INSERT INTO accounts (username, email_ciphertext, email_lookup_hash, school_email_ciphertext, school_email_lookup_hash, password_hash, account_status)
+		VALUES ($1, $2, $3, $4, $5, $6, 'pending_verification')
 		RETURNING id::text, username, identity_status, account_status, email_verified_at IS NOT NULL
-	`, username, emailCiphertext, emailLookupHash, passwordHash).Scan(
+	`, username, emailCiphertext, emailLookupHash, schoolEmailCiphertext, schoolEmailLookupHash, passwordHash).Scan(
 		&idText, &account.Username, &account.IdentityStatus, &account.AccountStatus, &account.EmailVerified,
 	)
 	if err != nil {
@@ -789,6 +789,49 @@ func (s *PostgresStore) DeleteCalendarGrant(ctx context.Context, accountID uuid.
 		DELETE FROM oauth_calendar_grants WHERE account_id = $1 AND provider = $2
 	`, accountID, provider); err != nil {
 		return fmt.Errorf("delete calendar grant: %w", err)
+	}
+	return nil
+}
+
+func (s *PostgresStore) GetAccountContact(ctx context.Context, accountID uuid.UUID) ([]byte, []byte, string, error) {
+	var emailCiphertext, schoolEmailCiphertext []byte
+	var accountStatus string
+	err := s.pool.QueryRow(ctx, `
+		SELECT email_ciphertext, school_email_ciphertext, account_status FROM accounts WHERE id = $1
+	`, accountID).Scan(&emailCiphertext, &schoolEmailCiphertext, &accountStatus)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil, "", ErrNotFound
+	}
+	if err != nil {
+		return nil, nil, "", err
+	}
+	return emailCiphertext, schoolEmailCiphertext, accountStatus, nil
+}
+
+func (s *PostgresStore) UpdateAccountEmail(ctx context.Context, accountID uuid.UUID, emailCiphertext, emailLookupHash []byte) error {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE accounts SET email_ciphertext = $2, email_lookup_hash = $3, updated_at = CURRENT_TIMESTAMP
+		WHERE id = $1
+	`, accountID, emailCiphertext, emailLookupHash)
+	if err != nil {
+		return mapStoreError(err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (s *PostgresStore) UpdateAccountSchoolEmail(ctx context.Context, accountID uuid.UUID, schoolEmailCiphertext, schoolEmailLookupHash []byte) error {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE accounts SET school_email_ciphertext = $2, school_email_lookup_hash = $3, updated_at = CURRENT_TIMESTAMP
+		WHERE id = $1
+	`, accountID, schoolEmailCiphertext, schoolEmailLookupHash)
+	if err != nil {
+		return mapStoreError(err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
 	}
 	return nil
 }

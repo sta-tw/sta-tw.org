@@ -1,27 +1,41 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Dialog } from "radix-ui";
 import { twMerge } from "tailwind-merge";
-import { BookOpen, Search, ShieldCheck, X } from "lucide-react";
+import { BookOpen, Search, ShieldCheck } from "lucide-react";
 import Button from "../../components/button";
 import {
     createUser,
     forceLogoutUser,
-    listUsers,
+    getUser,
     reinstateUser,
+    resendActivation,
+    resendEmailVerification,
     resetUserPassword,
     setAdmissionsModerator,
     suspendUser,
+    updateUser,
+    listUsers,
     type AccountStatus,
     type AdminUser,
+    type AdminUserDetail,
     type IdentityStatus
 } from "../../lib/api/admin";
-import { ApiError } from "../../lib/api/types";
 import { useAdmin } from "../admin-context";
-
-const inputClass =
-    "rounded-[var(--radius-small)] border border-ink/15 bg-surface px-3 py-2 font-sans text-sm text-ink outline-none focus:border-ink/40";
+import {
+    AdminDialog,
+    AdminTable,
+    Badge,
+    describeError,
+    EmptyState,
+    ErrorText,
+    formatDate,
+    inputClass,
+    LoadingState,
+    Td,
+    textareaClass,
+    Th
+} from "../admin-ui";
 
 const identityLabel: Record<IdentityStatus, string> = {
     temporary: "未驗證",
@@ -40,14 +54,17 @@ function describeIdentity(
 
 const statusLabel: Record<AccountStatus, string> = {
     active: "啟用中",
+    pending_verification: "未啟用",
     suspended: "已停權",
     deleted: "已刪除"
 };
 
-function describeError(cause: unknown): string {
-    if (cause instanceof ApiError) return cause.message || `發生錯誤（${cause.code}）`;
-    return "發生未知錯誤，請稍後再試。";
-}
+const statusTone: Record<AccountStatus, "positive" | "warning" | "negative" | "neutral"> = {
+    active: "positive",
+    pending_verification: "warning",
+    suspended: "negative",
+    deleted: "neutral"
+};
 
 export default function UsersView() {
     const { mfaCode } = useAdmin();
@@ -133,6 +150,7 @@ export default function UsersView() {
                     >
                         <option value="">全部</option>
                         <option value="active">啟用中</option>
+                        <option value="pending_verification">未啟用</option>
                         <option value="suspended">已停權</option>
                         <option value="deleted">已刪除</option>
                     </select>
@@ -175,9 +193,9 @@ export default function UsersView() {
                 </Button>
             </form>
 
-            {error ? <p className="font-sans text-sm text-red-600">{error}</p> : null}
+            {error ? <ErrorText>{error}</ErrorText> : null}
 
-            <div className="overflow-x-auto rounded-[var(--radius-panel)] bg-surface shadow-[var(--shadow-card)]">
+            <div className="overflow-x-auto rounded-[var(--radius-panel)] border border-ink/10 bg-surface shadow-[var(--shadow-card)]">
                 <table className="w-full min-w-[720px] font-sans text-sm">
                     <thead>
                         <tr className="border-b border-ink/10 text-left text-copy-muted">
@@ -190,10 +208,10 @@ export default function UsersView() {
                             <Th>操作</Th>
                         </tr>
                     </thead>
-                    <tbody>
+                    <tbody className="[&>tr]:border-b [&>tr]:border-ink/5 [&>tr:last-child]:border-0">
                         {users?.map((user) => (
-                            <tr key={user.id} className="border-b border-ink/5 last:border-0">
-                                <td className="px-4 py-3 text-ink">
+                            <tr key={user.id}>
+                                <Td>
                                     <span className="flex items-center gap-2">
                                         {user.username}
                                         {user.is_admin ? (
@@ -208,23 +226,19 @@ export default function UsersView() {
                                             />
                                         ) : null}
                                     </span>
-                                </td>
-                                <td className="px-4 py-3 text-copy-muted">
-                                    {describeIdentity(user)}
-                                </td>
-                                <td className="px-4 py-3">
-                                    <StatusBadge status={user.account_status} />
-                                </td>
-                                <td className="px-4 py-3 text-copy-muted">
+                                </Td>
+                                <Td className="text-copy-muted">{describeIdentity(user)}</Td>
+                                <Td>
+                                    <Badge tone={statusTone[user.account_status]}>
+                                        {statusLabel[user.account_status]}
+                                    </Badge>
+                                </Td>
+                                <Td className="text-copy-muted">
                                     {user.email_verified ? "已驗證" : "未驗證"}
-                                </td>
-                                <td className="px-4 py-3 text-copy-muted">
-                                    {formatDate(user.last_login_at)}
-                                </td>
-                                <td className="px-4 py-3 text-copy-muted">
-                                    {formatDate(user.created_at)}
-                                </td>
-                                <td className="px-4 py-3">
+                                </Td>
+                                <Td className="text-copy-muted">{formatDate(user.last_login_at)}</Td>
+                                <Td className="text-copy-muted">{formatDate(user.created_at)}</Td>
+                                <Td>
                                     <button
                                         type="button"
                                         onClick={() => setActionTarget(user)}
@@ -232,23 +246,20 @@ export default function UsersView() {
                                     >
                                         管理
                                     </button>
-                                </td>
+                                </Td>
                             </tr>
                         ))}
                     </tbody>
                 </table>
-                {users !== null && users.length === 0 ? (
-                    <p className="p-6 text-center font-sans text-copy-muted">
-                        沒有符合條件的使用者。
-                    </p>
-                ) : null}
+                {users !== null && users.length === 0 ? <EmptyState label="沒有符合條件的使用者。" /> : null}
             </div>
 
             {nextCursor ? (
                 <Button
+                    variant="secondary"
                     onClick={() => void load(nextCursor)}
                     disabled={loading}
-                    className="w-fit self-center border border-ink/15 bg-surface px-6 text-ink hover:bg-ink/5"
+                    className="w-fit self-center px-6"
                 >
                     {loading ? "載入中…" : "載入更多"}
                 </Button>
@@ -271,29 +282,6 @@ export default function UsersView() {
     );
 }
 
-function Th({ children }: { children: React.ReactNode }) {
-    return (
-        <th className="px-4 py-3 font-sans text-xs font-bold tracking-wide uppercase">
-            {children}
-        </th>
-    );
-}
-
-function StatusBadge({ status }: { status: AccountStatus }) {
-    return (
-        <span
-            className={twMerge(
-                "inline-flex rounded-full px-3 py-1 font-sans text-xs font-bold",
-                status === "active" && "bg-accent-green-strong text-ink",
-                status === "suspended" && "bg-red-100 text-red-700",
-                status === "deleted" && "bg-ink/10 text-copy-muted"
-            )}
-        >
-            {statusLabel[status]}
-        </span>
-    );
-}
-
 function UserActionDialog({
     user,
     mfaCode,
@@ -313,14 +301,77 @@ function UserActionDialog({
         | "grant-admissions"
         | "revoke-admissions"
         | "reset-password"
+        | "resend-activation"
+        | "resend-verification"
         | null
     >(null);
     const [error, setError] = useState<string | null>(null);
     const [notice, setNotice] = useState<string | null>(null);
 
+    const [detail, setDetail] = useState<AdminUserDetail | null>(null);
+    const [detailError, setDetailError] = useState<string | null>(null);
+    const [editUsername, setEditUsername] = useState("");
+    const [editIdentity, setEditIdentity] = useState<IdentityStatus>("temporary");
+    const [editEmail, setEditEmail] = useState("");
+    const [editSchoolEmail, setEditSchoolEmail] = useState("");
+    const [editSaving, setEditSaving] = useState(false);
+    const [editError, setEditError] = useState<string | null>(null);
+
     // No reset-on-prop-change effect needed: the parent remounts this
     // component (via `key={actionTarget?.id}`) whenever the dialog target
     // changes, so local state naturally starts fresh.
+    useEffect(() => {
+        if (!user) return;
+        let cancelled = false;
+        void (async () => {
+            try {
+                const full = await getUser(user.id, mfaCode || undefined);
+                if (cancelled) return;
+                setDetail(full);
+                setEditUsername(full.username);
+                setEditIdentity(full.identity_status);
+                setEditEmail(full.email);
+                setEditSchoolEmail(full.school_email);
+            } catch (cause) {
+                if (!cancelled) setDetailError(describeError(cause));
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [user?.id]);
+
+    async function saveEdits() {
+        if (!user) return;
+        setEditSaving(true);
+        setEditError(null);
+        try {
+            const input: Parameters<typeof updateUser>[1] = {};
+            if (detail && editUsername.trim() !== detail.username) input.username = editUsername.trim();
+            if (detail && editIdentity !== detail.identity_status) input.identity_status = editIdentity;
+            if (detail && editEmail.trim() !== detail.email) input.email = editEmail.trim();
+            if (detail && editSchoolEmail.trim() !== detail.school_email)
+                input.school_email = editSchoolEmail.trim();
+            if (Object.keys(input).length === 0) {
+                setEditSaving(false);
+                return;
+            }
+            await updateUser(user.id, input, mfaCode || undefined);
+            const refreshed = await getUser(user.id, mfaCode || undefined);
+            setDetail(refreshed);
+            onChanged({
+                id: user.id,
+                username: refreshed.username,
+                identity_status: refreshed.identity_status
+            });
+            setNotice("已儲存變更。");
+        } catch (cause) {
+            setEditError(describeError(cause));
+        } finally {
+            setEditSaving(false);
+        }
+    }
 
     async function run(
         action:
@@ -330,6 +381,8 @@ function UserActionDialog({
             | "grant-admissions"
             | "revoke-admissions"
             | "reset-password"
+            | "resend-activation"
+            | "resend-verification"
     ) {
         if (!user) return;
         if (action === "suspend" && reason.trim().length === 0) {
@@ -361,6 +414,12 @@ function UserActionDialog({
             } else if (action === "reset-password") {
                 await resetUserPassword(user.id, mfaCode || undefined);
                 setNotice("已寄出密碼重置信。");
+            } else if (action === "resend-activation") {
+                await resendActivation(user.id, mfaCode || undefined);
+                setNotice("已重寄啟用信到目前登記的學校信箱。");
+            } else if (action === "resend-verification") {
+                await resendEmailVerification(user.id, mfaCode || undefined);
+                setNotice("已重寄驗證信。");
             } else {
                 const grant = action === "grant-admissions";
                 await setAdmissionsModerator(user.id, grant, reason.trim(), mfaCode || undefined);
@@ -375,110 +434,185 @@ function UserActionDialog({
     }
 
     return (
-        <Dialog.Root open={user !== null} onOpenChange={(open) => !open && onClose()}>
-            <Dialog.Portal>
-                <Dialog.Overlay className="fixed inset-0 z-[80] bg-ink/40" />
-                <Dialog.Content className="fixed top-1/2 left-1/2 z-[90] w-[calc(100vw-2.5rem)] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-[var(--radius-panel)] bg-surface p-6 shadow-[var(--shadow-card)]">
-                    <div className="flex items-start justify-between gap-4">
-                        <div>
-                            <Dialog.Title className="font-serif text-xl text-ink">
-                                管理 {user?.username}
-                            </Dialog.Title>
-                            {user ? (
-                                <p className="mt-1 font-sans text-sm text-copy-muted">
-                                    目前狀態：{statusLabel[user.account_status]}
-                                    ・身份／角色：{describeIdentity(user)}
-                                </p>
-                            ) : null}
-                        </div>
-                        <Dialog.Close asChild>
-                            <button
-                                type="button"
-                                aria-label="關閉"
-                                className="rounded-[var(--radius-small)] p-1.5 text-copy-muted hover:bg-ink/5 hover:text-ink"
-                            >
-                                <X aria-hidden className="h-5 w-5" />
-                            </button>
-                        </Dialog.Close>
-                    </div>
-
-                    <div className="mt-5 flex flex-col gap-3">
+        <AdminDialog
+            open={user !== null}
+            onOpenChange={(open) => !open && onClose()}
+            title={`管理 ${user?.username ?? ""}`}
+            description={
+                user ? (
+                    <>
+                        目前狀態：{statusLabel[user.account_status]}・身份／角色：{describeIdentity(user)}
+                    </>
+                ) : undefined
+            }
+            maxWidth="max-w-md"
+        >
+            <div className="flex flex-col gap-3 border-b border-ink/10 pb-5">
+                <p className="font-sans text-xs font-bold text-copy-muted">帳號資料</p>
+                {detailError ? (
+                    <ErrorText>{detailError}</ErrorText>
+                ) : !detail ? (
+                    <LoadingState />
+                ) : (
+                    <>
                         <label className="flex flex-col gap-1">
-                            <span className="font-sans text-xs text-copy-muted">
-                                原因（停權必填，恢復 / 強制登出選填）
-                            </span>
-                            <textarea
-                                className="min-h-20 w-full resize-y rounded-[var(--radius-small)] border border-ink/15 bg-surface px-3 py-2 font-sans text-sm text-ink outline-none focus:border-ink/40"
-                                maxLength={500}
-                                value={reason}
-                                onChange={(e) => setReason(e.target.value)}
+                            <span className="font-sans text-xs text-copy-muted">使用者名稱</span>
+                            <input
+                                className={inputClass}
+                                value={editUsername}
+                                onChange={(e) => setEditUsername(e.target.value)}
                             />
                         </label>
-
-                        {error ? <p className="font-sans text-sm text-red-600">{error}</p> : null}
-                        {notice ? <p className="font-sans text-sm text-ink/80">{notice}</p> : null}
-
-                        <div className="flex flex-wrap gap-2 pt-2">
-                            {user?.account_status === "active" ? (
-                                <Button
-                                    onClick={() => void run("suspend")}
-                                    disabled={pending !== null}
-                                    className="h-10 px-4 font-sans text-sm bg-red-600 hover:bg-red-700 active:bg-red-800"
-                                >
-                                    {pending === "suspend" ? "處理中…" : "停權"}
-                                </Button>
-                            ) : null}
-                            {user?.account_status === "suspended" ? (
-                                <Button
-                                    onClick={() => void run("reinstate")}
-                                    disabled={pending !== null}
-                                    className="h-10 px-4 font-sans text-sm"
-                                >
-                                    {pending === "reinstate" ? "處理中…" : "恢復"}
-                                </Button>
-                            ) : null}
-                            <Button
-                                onClick={() => void run("force-logout")}
-                                disabled={pending !== null}
-                                className="h-10 px-4 font-sans text-sm border border-ink/15 bg-surface text-ink hover:bg-ink/5"
+                        <label className="flex flex-col gap-1">
+                            <span className="font-sans text-xs text-copy-muted">身份狀態</span>
+                            <select
+                                className={inputClass}
+                                value={editIdentity}
+                                onChange={(e) => setEditIdentity(e.target.value as IdentityStatus)}
                             >
-                                {pending === "force-logout" ? "處理中…" : "強制登出所有裝置"}
+                                <option value="temporary">未驗證</option>
+                                <option value="student">學生</option>
+                                <option value="senior">應屆考生</option>
+                            </select>
+                        </label>
+                        <label className="flex flex-col gap-1">
+                            <span className="font-sans text-xs text-copy-muted">
+                                常用 Email（登入通知 / 密碼重置信收件地址）
+                            </span>
+                            <input
+                                type="email"
+                                className={inputClass}
+                                value={editEmail}
+                                onChange={(e) => setEditEmail(e.target.value)}
+                            />
+                        </label>
+                        <label className="flex flex-col gap-1">
+                            <span className="font-sans text-xs text-copy-muted">
+                                學校信箱（*.edu.tw，未啟用帳號的啟用信會寄到這裡）
+                            </span>
+                            <input
+                                type="email"
+                                className={inputClass}
+                                placeholder={detail.school_email ? undefined : "此帳號沒有登記學校信箱"}
+                                value={editSchoolEmail}
+                                onChange={(e) => setEditSchoolEmail(e.target.value)}
+                            />
+                        </label>
+                        {editError ? <ErrorText>{editError}</ErrorText> : null}
+                        <Button
+                            type="button"
+                            variant="secondary"
+                            onClick={() => void saveEdits()}
+                            disabled={editSaving}
+                            className="h-10 w-fit px-4 text-sm"
+                        >
+                            {editSaving ? "儲存中…" : "儲存資料"}
+                        </Button>
+                        {detail.account_status === "pending_verification" ? (
+                            <Button
+                                type="button"
+                                variant="secondary"
+                                onClick={() => void run("resend-activation")}
+                                disabled={pending !== null}
+                                className="h-10 w-fit px-4 text-sm"
+                            >
+                                {pending === "resend-activation" ? "處理中…" : "重寄啟用信到學校信箱"}
                             </Button>
-                            {user?.account_status === "active" ? (
-                                <Button
-                                    onClick={() => void run("reset-password")}
-                                    disabled={pending !== null}
-                                    className="h-10 px-4 font-sans text-sm border border-ink/15 bg-surface text-ink hover:bg-ink/5"
-                                >
-                                    {pending === "reset-password" ? "處理中…" : "重置密碼"}
-                                </Button>
-                            ) : null}
-                            {!user?.is_admin && user?.is_admissions_moderator ? (
-                                <Button
-                                    onClick={() => void run("revoke-admissions")}
-                                    disabled={pending !== null}
-                                    className="h-10 px-4 font-sans text-sm border border-ink/15 bg-surface text-ink hover:bg-ink/5"
-                                >
-                                    {pending === "revoke-admissions" ? "處理中…" : "收回簡章管理權限"}
-                                </Button>
-                            ) : null}
-                            {!user?.is_admin && !user?.is_admissions_moderator ? (
-                                <Button
-                                    onClick={() => void run("grant-admissions")}
-                                    disabled={pending !== null}
-                                    className="h-10 px-4 font-sans text-sm border border-ink/15 bg-surface text-ink hover:bg-ink/5"
-                                >
-                                    {pending === "grant-admissions" ? "處理中…" : "授予簡章管理權限"}
-                                </Button>
-                            ) : null}
-                        </div>
-                        <p className="font-sans text-xs leading-5 text-copy-muted">
-                            版主只能進入「簡章管理」頁面，看不到其他後台頁面或資料。
-                        </p>
-                    </div>
-                </Dialog.Content>
-            </Dialog.Portal>
-        </Dialog.Root>
+                        ) : !detail.email_verified ? (
+                            <Button
+                                type="button"
+                                variant="secondary"
+                                onClick={() => void run("resend-verification")}
+                                disabled={pending !== null}
+                                className="h-10 w-fit px-4 text-sm"
+                            >
+                                {pending === "resend-verification" ? "處理中…" : "重寄 Email 驗證信"}
+                            </Button>
+                        ) : null}
+                    </>
+                )}
+            </div>
+
+            <div className="flex flex-col gap-3">
+                <label className="flex flex-col gap-1">
+                    <span className="font-sans text-xs text-copy-muted">
+                        原因（停權必填，恢復 / 強制登出選填）
+                    </span>
+                    <textarea
+                        className={textareaClass}
+                        maxLength={500}
+                        value={reason}
+                        onChange={(e) => setReason(e.target.value)}
+                    />
+                </label>
+
+                {error ? <ErrorText>{error}</ErrorText> : null}
+                {notice ? <p className="font-sans text-sm text-ink/80">{notice}</p> : null}
+
+                <div className="flex flex-wrap gap-2 pt-2">
+                    {user?.account_status === "active" ? (
+                        <Button
+                            variant="danger"
+                            onClick={() => void run("suspend")}
+                            disabled={pending !== null}
+                            className="h-10 px-4 text-sm"
+                        >
+                            {pending === "suspend" ? "處理中…" : "停權"}
+                        </Button>
+                    ) : null}
+                    {user?.account_status === "suspended" ? (
+                        <Button
+                            onClick={() => void run("reinstate")}
+                            disabled={pending !== null}
+                            className="h-10 px-4 font-sans text-sm"
+                        >
+                            {pending === "reinstate" ? "處理中…" : "恢復"}
+                        </Button>
+                    ) : null}
+                    <Button
+                        variant="secondary"
+                        onClick={() => void run("force-logout")}
+                        disabled={pending !== null}
+                        className="h-10 px-4 text-sm"
+                    >
+                        {pending === "force-logout" ? "處理中…" : "強制登出所有裝置"}
+                    </Button>
+                    {user?.account_status === "active" ? (
+                        <Button
+                            variant="secondary"
+                            onClick={() => void run("reset-password")}
+                            disabled={pending !== null}
+                            className="h-10 px-4 text-sm"
+                        >
+                            {pending === "reset-password" ? "處理中…" : "重置密碼"}
+                        </Button>
+                    ) : null}
+                    {!user?.is_admin && user?.is_admissions_moderator ? (
+                        <Button
+                            variant="secondary"
+                            onClick={() => void run("revoke-admissions")}
+                            disabled={pending !== null}
+                            className="h-10 px-4 text-sm"
+                        >
+                            {pending === "revoke-admissions" ? "處理中…" : "收回簡章管理權限"}
+                        </Button>
+                    ) : null}
+                    {!user?.is_admin && !user?.is_admissions_moderator ? (
+                        <Button
+                            variant="secondary"
+                            onClick={() => void run("grant-admissions")}
+                            disabled={pending !== null}
+                            className="h-10 px-4 text-sm"
+                        >
+                            {pending === "grant-admissions" ? "處理中…" : "授予簡章管理權限"}
+                        </Button>
+                    ) : null}
+                </div>
+                <p className="font-sans text-xs leading-5 text-copy-muted">
+                    版主只能進入「簡章管理」頁面，看不到其他後台頁面或資料。
+                </p>
+            </div>
+        </AdminDialog>
     );
 }
 
@@ -576,7 +710,7 @@ function CreateUserDialog({
     }
 
     return (
-        <Dialog.Root
+        <AdminDialog
             open={open}
             onOpenChange={(next) => {
                 if (!next) {
@@ -584,186 +718,153 @@ function CreateUserDialog({
                     onClose();
                 }
             }}
+            title="建立帳號"
+            maxWidth="max-w-md"
         >
-            <Dialog.Portal>
-                <Dialog.Overlay className="fixed inset-0 z-[80] bg-ink/40" />
-                <Dialog.Content className="fixed top-1/2 left-1/2 z-[90] w-[calc(100vw-2.5rem)] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-[var(--radius-panel)] bg-surface p-6 shadow-[var(--shadow-card)]">
-                    <div className="flex items-start justify-between gap-4">
-                        <Dialog.Title className="font-serif text-xl text-ink">建立帳號</Dialog.Title>
-                        <Dialog.Close asChild>
-                            <button
-                                type="button"
-                                aria-label="關閉"
-                                className="rounded-[var(--radius-small)] p-1.5 text-copy-muted hover:bg-ink/5 hover:text-ink"
-                            >
-                                <X aria-hidden className="h-5 w-5" />
-                            </button>
-                        </Dialog.Close>
+            {issuedToken ? (
+                <>
+                    <p className="font-sans text-sm text-ink">
+                        機器帳號已建立。這組 token 只會顯示這一次，請立刻複製保存：
+                    </p>
+                    <code className="block overflow-x-auto rounded-[var(--radius-small)] border border-ink/15 bg-ink/[0.03] px-3 py-2 font-mono text-xs text-ink">
+                        {issuedToken}
+                    </code>
+                    <Button
+                        type="button"
+                        onClick={() => {
+                            reset();
+                            onClose();
+                        }}
+                        className="mt-2 h-10 px-4 font-sans text-sm"
+                    >
+                        完成
+                    </Button>
+                </>
+            ) : (
+                <>
+                    <div className="flex gap-2">
+                        <button
+                            type="button"
+                            onClick={() => setMode("invite")}
+                            className={twMerge(
+                                "flex-1 rounded-[var(--radius-small)] px-3 py-2 font-sans text-sm font-bold",
+                                mode === "invite"
+                                    ? "bg-ink text-surface"
+                                    : "bg-ink/10 text-copy-muted hover:bg-ink/15"
+                            )}
+                        >
+                            邀請使用者
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setMode("service")}
+                            className={twMerge(
+                                "flex-1 rounded-[var(--radius-small)] px-3 py-2 font-sans text-sm font-bold",
+                                mode === "service"
+                                    ? "bg-ink text-surface"
+                                    : "bg-ink/10 text-copy-muted hover:bg-ink/15"
+                            )}
+                        >
+                            機器帳號
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setMode("password")}
+                            className={twMerge(
+                                "flex-1 rounded-[var(--radius-small)] px-3 py-2 font-sans text-sm font-bold",
+                                mode === "password"
+                                    ? "bg-ink text-surface"
+                                    : "bg-ink/10 text-copy-muted hover:bg-ink/15"
+                            )}
+                        >
+                            指定密碼
+                        </button>
                     </div>
 
-                    {issuedToken ? (
-                        <div className="mt-5 flex flex-col gap-3">
-                            <p className="font-sans text-sm text-ink">
-                                機器帳號已建立。這組 token 只會顯示這一次，請立刻複製保存：
-                            </p>
-                            <code className="block overflow-x-auto rounded-[var(--radius-small)] border border-ink/15 bg-ink/[0.03] px-3 py-2 font-mono text-xs text-ink">
-                                {issuedToken}
-                            </code>
-                            <Button
-                                type="button"
-                                onClick={() => {
-                                    reset();
-                                    onClose();
-                                }}
-                                className="mt-2 h-10 px-4 font-sans text-sm"
-                            >
-                                完成
-                            </Button>
-                        </div>
-                    ) : (
-                        <div className="mt-5 flex flex-col gap-3">
-                            <div className="flex gap-2">
-                                <button
-                                    type="button"
-                                    onClick={() => setMode("invite")}
-                                    className={twMerge(
-                                        "flex-1 rounded-[var(--radius-small)] px-3 py-2 font-sans text-sm font-bold",
-                                        mode === "invite"
-                                            ? "bg-ink text-surface"
-                                            : "bg-ink/10 text-copy-muted hover:bg-ink/15"
-                                    )}
-                                >
-                                    邀請使用者
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => setMode("service")}
-                                    className={twMerge(
-                                        "flex-1 rounded-[var(--radius-small)] px-3 py-2 font-sans text-sm font-bold",
-                                        mode === "service"
-                                            ? "bg-ink text-surface"
-                                            : "bg-ink/10 text-copy-muted hover:bg-ink/15"
-                                    )}
-                                >
-                                    機器帳號
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => setMode("password")}
-                                    className={twMerge(
-                                        "flex-1 rounded-[var(--radius-small)] px-3 py-2 font-sans text-sm font-bold",
-                                        mode === "password"
-                                            ? "bg-ink text-surface"
-                                            : "bg-ink/10 text-copy-muted hover:bg-ink/15"
-                                    )}
-                                >
-                                    指定密碼
-                                </button>
-                            </div>
+                    <label className="flex flex-col gap-1">
+                        <span className="font-sans text-xs text-copy-muted">使用者名稱</span>
+                        <input
+                            className={inputClass}
+                            value={username}
+                            onChange={(e) => setUsername(e.target.value)}
+                        />
+                    </label>
 
+                    {mode === "invite" ? (
+                        <label className="flex flex-col gap-1">
+                            <span className="font-sans text-xs text-copy-muted">Email</span>
+                            <input
+                                type="email"
+                                className={inputClass}
+                                value={email}
+                                onChange={(e) => setEmail(e.target.value)}
+                            />
+                            <span className="mt-1 font-sans text-xs leading-5 text-copy-muted">
+                                會直接建立已啟用帳號，並寄一封設定密碼的連結信到這個地址。
+                            </span>
+                        </label>
+                    ) : mode === "service" ? (
+                        <>
                             <label className="flex flex-col gap-1">
-                                <span className="font-sans text-xs text-copy-muted">
-                                    使用者名稱
-                                </span>
+                                <span className="font-sans text-xs text-copy-muted">用途標籤</span>
                                 <input
                                     className={inputClass}
-                                    value={username}
-                                    onChange={(e) => setUsername(e.target.value)}
+                                    placeholder="例如：大表匯入"
+                                    value={label}
+                                    onChange={(e) => setLabel(e.target.value)}
                                 />
                             </label>
-
-                            {mode === "invite" ? (
-                                <label className="flex flex-col gap-1">
-                                    <span className="font-sans text-xs text-copy-muted">Email</span>
-                                    <input
-                                        type="email"
-                                        className={inputClass}
-                                        value={email}
-                                        onChange={(e) => setEmail(e.target.value)}
-                                    />
-                                    <span className="mt-1 font-sans text-xs leading-5 text-copy-muted">
-                                        會直接建立已啟用帳號，並寄一封設定密碼的連結信到這個地址。
-                                    </span>
-                                </label>
-                            ) : mode === "service" ? (
-                                <>
-                                    <label className="flex flex-col gap-1">
-                                        <span className="font-sans text-xs text-copy-muted">
-                                            用途標籤
-                                        </span>
-                                        <input
-                                            className={inputClass}
-                                            placeholder="例如：大表匯入"
-                                            value={label}
-                                            onChange={(e) => setLabel(e.target.value)}
-                                        />
-                                    </label>
-                                    <label className="flex items-center gap-2 font-sans text-sm text-ink">
-                                        <input
-                                            type="checkbox"
-                                            checked={grantAdmin}
-                                            onChange={(e) => setGrantAdmin(e.target.checked)}
-                                        />
-                                        同時授予管理員權限（可呼叫後台 API）
-                                    </label>
-                                    <span className="font-sans text-xs leading-5 text-copy-muted">
-                                        會發一組 API token，只顯示這一次，之後無法再次查看。
-                                    </span>
-                                </>
-                            ) : (
-                                <>
-                                    <label className="flex flex-col gap-1">
-                                        <span className="font-sans text-xs text-copy-muted">
-                                            密碼（至少 8 個字元）
-                                        </span>
-                                        <input
-                                            type="text"
-                                            className={`${inputClass} font-mono`}
-                                            value={password}
-                                            onChange={(e) => setPassword(e.target.value)}
-                                        />
-                                    </label>
-                                    <label className="flex items-center gap-2 font-sans text-sm text-ink">
-                                        <input
-                                            type="checkbox"
-                                            checked={grantAdmissionsModerator}
-                                            onChange={(e) =>
-                                                setGrantAdmissionsModerator(e.target.checked)
-                                            }
-                                        />
-                                        同時授予簡章管理權限
-                                    </label>
-                                    <span className="font-sans text-xs leading-5 text-copy-muted">
-                                        不需要 email，直接用這組帳號密碼登入；沒有寄信、沒有一次性連結。
-                                    </span>
-                                </>
-                            )}
-
-                            {error ? (
-                                <p className="font-sans text-sm text-red-600">{error}</p>
-                            ) : null}
-
-                            <Button
-                                type="button"
-                                onClick={() => void submit()}
-                                disabled={pending}
-                                className="mt-2 h-10 px-4 font-sans text-sm"
-                            >
-                                {pending ? "建立中…" : "建立"}
-                            </Button>
-                        </div>
+                            <label className="flex items-center gap-2 font-sans text-sm text-ink">
+                                <input
+                                    type="checkbox"
+                                    checked={grantAdmin}
+                                    onChange={(e) => setGrantAdmin(e.target.checked)}
+                                />
+                                同時授予管理員權限（可呼叫後台 API）
+                            </label>
+                            <span className="font-sans text-xs leading-5 text-copy-muted">
+                                會發一組 API token，只顯示這一次，之後無法再次查看。
+                            </span>
+                        </>
+                    ) : (
+                        <>
+                            <label className="flex flex-col gap-1">
+                                <span className="font-sans text-xs text-copy-muted">
+                                    密碼（至少 8 個字元）
+                                </span>
+                                <input
+                                    type="text"
+                                    className={`${inputClass} font-mono`}
+                                    value={password}
+                                    onChange={(e) => setPassword(e.target.value)}
+                                />
+                            </label>
+                            <label className="flex items-center gap-2 font-sans text-sm text-ink">
+                                <input
+                                    type="checkbox"
+                                    checked={grantAdmissionsModerator}
+                                    onChange={(e) => setGrantAdmissionsModerator(e.target.checked)}
+                                />
+                                同時授予簡章管理權限
+                            </label>
+                            <span className="font-sans text-xs leading-5 text-copy-muted">
+                                不需要 email，直接用這組帳號密碼登入；沒有寄信、沒有一次性連結。
+                            </span>
+                        </>
                     )}
-                </Dialog.Content>
-            </Dialog.Portal>
-        </Dialog.Root>
-    );
-}
 
-function formatDate(iso?: string): string {
-    if (!iso) return "—";
-    try {
-        return new Date(iso).toLocaleString("zh-TW", { dateStyle: "medium", timeStyle: "short" });
-    } catch {
-        return iso;
-    }
+                    {error ? <ErrorText>{error}</ErrorText> : null}
+
+                    <Button
+                        type="button"
+                        onClick={() => void submit()}
+                        disabled={pending}
+                        className="mt-2 h-10 px-4 font-sans text-sm"
+                    >
+                        {pending ? "建立中…" : "建立"}
+                    </Button>
+                </>
+            )}
+        </AdminDialog>
+    );
 }

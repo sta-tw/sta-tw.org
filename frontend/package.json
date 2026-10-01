@@ -19,7 +19,7 @@
         "@dnd-kit/sortable": "^10.0.0",
         "@dnd-kit/utilities": "^3.2.2",
         "lucide-react": "^1.9.0",
-        "next": "16.2.4",
+        "next": "^16.3.6",
         "react": "^19.2.5",
         "react-dom": "^19.2.5",
         "tailwind-merge": "^3.5.0"
@@ -30,7 +30,7 @@
         "@types/react": "^19",
         "@types/react-dom": "^19",
         "eslint": "^9",
-        "eslint-config-next": "16.2.4",
+        "eslint-config-next": "^16.3.6",
         "prettier": "^3.6.2",
         "prettier-plugin-tailwindcss": "^0.6.11",
         "radix-ui": "^1.4.3",

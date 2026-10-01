@@ -46,7 +46,7 @@ func run(logger *slog.Logger) error {
 	}
 
 	startupContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	databasePool, err := db.OpenPostgres(startupContext, cfg.DatabaseURL)
+	databasePool, err := db.OpenPostgres(startupContext, cfg.DatabaseURL, 10)
 	cancel()
 	if err != nil {
 		return err

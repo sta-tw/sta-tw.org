@@ -69,7 +69,7 @@ func (f *fakeAuthStore) CreateAccount(_ context.Context, username string, _, ema
 	return f.createAccount(username, emailLookupHash, passwordHash, "active")
 }
 
-func (f *fakeAuthStore) CreatePendingAccount(_ context.Context, username string, _, emailLookupHash []byte, passwordHash string) (Account, error) {
+func (f *fakeAuthStore) CreatePendingAccount(_ context.Context, username string, _, emailLookupHash, _, _ []byte, passwordHash string) (Account, error) {
 	return f.createAccount(username, emailLookupHash, passwordHash, "pending_verification")
 }
 

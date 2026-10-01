@@ -164,7 +164,7 @@ func Run(ctx context.Context, dir string, opts Options) error {
 		return errors.New("STA_DATABASE_URL is required for migrations")
 	}
 	startupContext, cancel := context.WithTimeout(ctx, 10*time.Second)
-	pool, err := db.OpenPostgres(startupContext, cfg.DatabaseURL)
+	pool, err := db.OpenPostgres(startupContext, cfg.DatabaseURL, 5)
 	cancel()
 	if err != nil {
 		return err

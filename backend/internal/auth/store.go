@@ -48,7 +48,11 @@ type Store interface {
 	// school-email registration: the account activates only once the
 	// password-set link mailed to the school address is consumed — see
 	// PasswordResetStore.CreatePasswordResetChallenge's activatesAccount.
-	CreatePendingAccount(ctx context.Context, username string, emailCiphertext, emailLookupHash []byte, passwordHash string) (Account, error)
+	// schoolEmailCiphertext/schoolEmailLookupHash are stored (not just used
+	// in-memory to send the one activation email) so a mistyped address can
+	// later be shown and corrected from the admin panel instead of leaving
+	// the account permanently stuck with no record of what was typed.
+	CreatePendingAccount(ctx context.Context, username string, emailCiphertext, emailLookupHash, schoolEmailCiphertext, schoolEmailLookupHash []byte, passwordHash string) (Account, error)
 	FindAccountByUsername(ctx context.Context, username string) (Account, string, error)
 	FindAccountByID(ctx context.Context, accountID uuid.UUID) (Account, error)
 	CreateSession(ctx context.Context, accountID uuid.UUID, tokenHash, csrfHash []byte, expiresAt time.Time, ipHash, userAgentHash []byte) (uuid.UUID, error)
@@ -119,6 +123,25 @@ type PasswordResetStore interface {
 	// self-service change and revokes that account's sessions except
 	// keepSessionID (the one making the request).
 	UpdatePasswordForAccount(ctx context.Context, accountID uuid.UUID, newPasswordHash string, keepSessionID uuid.UUID) error
+}
+
+// AdminContactStore is the optional persistence behind the admin panel's
+// "edit user" surface: reading/replacing an account's contact and school
+// email ciphertexts directly, bypassing the self-service registration flow
+// entirely (an admin fixing a typo, not the account holder changing their
+// own address).
+type AdminContactStore interface {
+	// GetAccountContact returns both ciphertexts plus the account's current
+	// account_status; schoolEmailCiphertext is nil when the account was
+	// never created through school-email registration (e.g.
+	// CreateApprovedAccount, a bot/service account). Deliberately doesn't
+	// go through FindAccountByID, which only ever returns 'active'
+	// accounts (by design, for login/session lookups) — this is the only
+	// account lookup an admin caller needing a non-active account (e.g. a
+	// 'pending_verification' one) can use.
+	GetAccountContact(ctx context.Context, accountID uuid.UUID) (emailCiphertext, schoolEmailCiphertext []byte, accountStatus string, err error)
+	UpdateAccountEmail(ctx context.Context, accountID uuid.UUID, emailCiphertext, emailLookupHash []byte) error
+	UpdateAccountSchoolEmail(ctx context.Context, accountID uuid.UUID, schoolEmailCiphertext, schoolEmailLookupHash []byte) error
 }
 
 // oauthSubjectRehasher is the optional hook that lets the OAuth login path

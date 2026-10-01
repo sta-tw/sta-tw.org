@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"sta-backend/internal/auth"
@@ -40,6 +41,12 @@ type userDetail struct {
 	ActiveSessions int     `json:"active_sessions"`
 	Applications   int     `json:"applications"`
 	Experiences    int     `json:"experiences"`
+	// Email/SchoolEmail are decrypted only for this single-account detail
+	// view, never for the list — see auth.Service.AdminAccountContact.
+	// SchoolEmail is "" when the account has none on file (see
+	// auth.AdminContactStore.GetAccountContact).
+	Email       string `json:"email"`
+	SchoolEmail string `json:"school_email"`
 }
 
 func validAccountStatus(v string) bool {
@@ -198,7 +205,179 @@ func (h *Handler) getUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
 	}
+	d.Email, d.SchoolEmail, err = h.auth.AdminAccountContact(r.Context(), accountID)
+	if err != nil && !errors.Is(err, auth.ErrNotConfigured) {
+		writeError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
 	writeJSON(w, http.StatusOK, d)
+}
+
+// updateUser edits the fields the admin user-management UI exposes as
+// directly editable: username, identity_status, contact email and school
+// email. Password is deliberately never settable here — see resetPassword,
+// the only supported path to change one.
+func (h *Handler) updateUser(w http.ResponseWriter, r *http.Request) {
+	session, ok := h.requireAdminMutation(w, r)
+	if !ok {
+		return
+	}
+	accountID, err := uuid.Parse(r.PathValue("accountID"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_account_id", "account id is invalid")
+		return
+	}
+	var body struct {
+		Username       *string `json:"username"`
+		IdentityStatus *string `json:"identity_status"`
+		Email          *string `json:"email"`
+		SchoolEmail    *string `json:"school_email"`
+	}
+	if err := decodeAdminJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_body", "request body is invalid")
+		return
+	}
+
+	if body.Username != nil {
+		username := strings.TrimSpace(*body.Username)
+		if len(username) < 3 || len(username) > 64 {
+			writeError(w, http.StatusBadRequest, "invalid_username", "username must be 3-64 characters")
+			return
+		}
+		tag, err := h.pool.Exec(r.Context(), `UPDATE accounts SET username = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $1`, accountID, username)
+		if err != nil {
+			if isUniqueViolation(err) {
+				writeError(w, http.StatusConflict, "username_taken", "username is already in use")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+			return
+		}
+		if tag.RowsAffected() == 0 {
+			writeError(w, http.StatusNotFound, "not_found", "account not found")
+			return
+		}
+	}
+	if body.IdentityStatus != nil {
+		if !validIdentityStatus(*body.IdentityStatus) {
+			writeError(w, http.StatusBadRequest, "invalid_identity_status", "identity_status is invalid")
+			return
+		}
+		if _, err := h.pool.Exec(r.Context(), `UPDATE accounts SET identity_status = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $1`, accountID, *body.IdentityStatus); err != nil {
+			writeError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+			return
+		}
+	}
+	if body.Email != nil {
+		if err := h.auth.AdminUpdateAccountEmail(r.Context(), accountID, *body.Email); err != nil {
+			writeContactUpdateError(w, err)
+			return
+		}
+	}
+	if body.SchoolEmail != nil {
+		if err := h.auth.AdminUpdateAccountSchoolEmail(r.Context(), accountID, *body.SchoolEmail); err != nil {
+			writeContactUpdateError(w, err)
+			return
+		}
+	}
+
+	if _, err := h.pool.Exec(r.Context(), `
+		INSERT INTO audit_log (actor_account_id, action, entity_type, entity_key, reason)
+		VALUES ($1, 'account.updated', 'account', $2, '-')`, session.Session.Account.ID, accountID.String()); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "updated"})
+}
+
+func writeContactUpdateError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, auth.ErrConflict):
+		writeError(w, http.StatusConflict, "email_taken", "this email is already in use by another account")
+	case errors.Is(err, auth.ErrInvalidInput):
+		writeError(w, http.StatusBadRequest, "invalid_email", err.Error())
+	case errors.Is(err, auth.ErrNotFound):
+		writeError(w, http.StatusNotFound, "not_found", "account not found")
+	default:
+		writeError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+	}
+}
+
+func isUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505"
+}
+
+// resendActivation re-sends the school-email activation link for an account
+// stuck 'pending_verification' — typically after correcting a mistyped
+// school email via updateUser first. See auth.Service.AdminResendActivation.
+func (h *Handler) resendActivation(w http.ResponseWriter, r *http.Request) {
+	session, ok := h.requireAdminMutation(w, r)
+	if !ok {
+		return
+	}
+	accountID, err := uuid.Parse(r.PathValue("accountID"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_account_id", "account id is invalid")
+		return
+	}
+	expiresAt, err := h.auth.AdminResendActivation(r.Context(), accountID)
+	if err != nil {
+		switch {
+		case errors.Is(err, auth.ErrNoSchoolEmailOnFile):
+			writeError(w, http.StatusConflict, "no_school_email", "this account has no school email on file")
+		case errors.Is(err, auth.ErrInvalidInput):
+			writeError(w, http.StatusConflict, "not_pending", "account is not pending verification")
+		case errors.Is(err, auth.ErrNotFound):
+			writeError(w, http.StatusNotFound, "not_found", "account not found")
+		case errors.Is(err, auth.ErrNotConfigured):
+			writeError(w, http.StatusServiceUnavailable, "service_unavailable", "activation email is not configured")
+		default:
+			writeError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+		}
+		return
+	}
+	if _, err := h.pool.Exec(r.Context(), `
+		INSERT INTO audit_log (actor_account_id, action, entity_type, entity_key, reason)
+		VALUES ($1, 'account.activation_resent', 'account', $2, '-')`, session.Session.Account.ID, accountID.String()); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "sent", "expires_at": expiresAt})
+}
+
+// resendEmailVerification re-sends the contact-email verification link for
+// an active account whose email_verified_at is still null — separate from
+// resendActivation, which is for the pre-activation school-email link.
+func (h *Handler) resendEmailVerification(w http.ResponseWriter, r *http.Request) {
+	session, ok := h.requireAdminMutation(w, r)
+	if !ok {
+		return
+	}
+	accountID, err := uuid.Parse(r.PathValue("accountID"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_account_id", "account id is invalid")
+		return
+	}
+	expiresAt, err := h.auth.IssueEmailVerification(r.Context(), accountID)
+	if err != nil {
+		switch {
+		case errors.Is(err, auth.ErrRateLimited):
+			writeError(w, http.StatusTooManyRequests, "rate_limited", "too many verification emails sent recently")
+		case errors.Is(err, auth.ErrNotConfigured):
+			writeError(w, http.StatusServiceUnavailable, "service_unavailable", "email verification is not configured")
+		default:
+			writeError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+		}
+		return
+	}
+	if _, err := h.pool.Exec(r.Context(), `
+		INSERT INTO audit_log (actor_account_id, action, entity_type, entity_key, reason)
+		VALUES ($1, 'account.email_verification_resent', 'account', $2, '-')`, session.Session.Account.ID, accountID.String()); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "sent", "expires_at": expiresAt})
 }
 
 type suspendRequest struct {

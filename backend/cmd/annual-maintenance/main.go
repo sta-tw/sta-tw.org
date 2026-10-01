@@ -53,7 +53,7 @@ func run(ctx context.Context, logger *slog.Logger, academicYear int) error {
 		return err
 	}
 	startupContext, cancel := context.WithTimeout(ctx, 10*time.Second)
-	databasePool, err := db.OpenPostgres(startupContext, cfg.DatabaseURL)
+	databasePool, err := db.OpenPostgres(startupContext, cfg.DatabaseURL, 5)
 	cancel()
 	if err != nil {
 		return err

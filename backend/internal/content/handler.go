@@ -70,6 +70,14 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/v1/forum/posts/{postID}/reactions/{emoji}", h.removePostReaction)
 	mux.HandleFunc("PUT /api/v1/experiences/{experienceID}/reactions/{emoji}", h.addExperienceReaction)
 	mux.HandleFunc("DELETE /api/v1/experiences/{experienceID}/reactions/{emoji}", h.removeExperienceReaction)
+	mux.HandleFunc("GET /api/v1/admin/forum/threads", h.adminListThreads)
+	mux.HandleFunc("GET /api/v1/admin/forum/threads/{threadID}/posts", h.adminListPosts)
+	mux.HandleFunc("POST /api/v1/admin/forum/threads/{threadID}/lock", h.lockThread)
+	mux.HandleFunc("POST /api/v1/admin/forum/threads/{threadID}/unlock", h.unlockThread)
+	mux.HandleFunc("POST /api/v1/admin/forum/threads/{threadID}/archive", h.archiveThread)
+	mux.HandleFunc("DELETE /api/v1/admin/forum/threads/{threadID}", h.deleteThread)
+	mux.HandleFunc("POST /api/v1/admin/forum/posts/{postID}/archive", h.archivePost)
+	mux.HandleFunc("DELETE /api/v1/admin/forum/posts/{postID}", h.deletePost)
 }
 
 func (h *Handler) listSpaces(w http.ResponseWriter, r *http.Request) {
@@ -153,7 +161,7 @@ func (h *Handler) listPosts(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) createThread(w http.ResponseWriter, r *http.Request) {
-	session, ok := h.requireMutation(w, r)
+	session, ok := h.requireVerifiedIdentity(w, r)
 	if !ok {
 		return
 	}
@@ -182,7 +190,7 @@ func (h *Handler) createThread(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) createPost(w http.ResponseWriter, r *http.Request) {
-	session, ok := h.requireMutation(w, r)
+	session, ok := h.requireVerifiedIdentity(w, r)
 	if !ok {
 		return
 	}
@@ -354,6 +362,107 @@ func (h *Handler) reviewExperience(w http.ResponseWriter, r *http.Request) {
 	writeContentJSON(w, http.StatusOK, map[string]any{"data": experience})
 }
 
+func (h *Handler) adminListThreads(w http.ResponseWriter, r *http.Request) {
+	if _, ok := h.requireAdmin(w, r); !ok {
+		return
+	}
+	limit, cursor, ok := contentPageQuery(w, r)
+	if !ok {
+		return
+	}
+	threads, nextCursor, err := h.repository.AdminListThreads(r.Context(), limit, cursor)
+	if err != nil {
+		writeContentError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	writeContentJSON(w, http.StatusOK, map[string]any{"data": threads, "next_cursor": nextCursor})
+}
+
+func (h *Handler) adminListPosts(w http.ResponseWriter, r *http.Request) {
+	if _, ok := h.requireAdmin(w, r); !ok {
+		return
+	}
+	threadID, err := uuid.Parse(r.PathValue("threadID"))
+	if err != nil {
+		writeContentError(w, http.StatusBadRequest, "invalid_thread_id", "thread id is invalid")
+		return
+	}
+	posts, err := h.repository.AdminListPosts(r.Context(), threadID)
+	if err != nil {
+		writeContentError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	writeContentJSON(w, http.StatusOK, map[string]any{"data": posts})
+}
+
+func (h *Handler) lockThread(w http.ResponseWriter, r *http.Request) {
+	h.setThreadStatus(w, r, ThreadStatusLocked)
+}
+
+func (h *Handler) unlockThread(w http.ResponseWriter, r *http.Request) {
+	h.setThreadStatus(w, r, ThreadStatusPublished)
+}
+
+func (h *Handler) deleteThread(w http.ResponseWriter, r *http.Request) {
+	h.setThreadStatus(w, r, ThreadStatusRemoved)
+}
+
+// archiveThread marks a thread as kept-for-evidence rather than ordinary
+// moderation; deliberately one-way (no "unarchive" endpoint) so a
+// preserved-as-evidence flag can't be casually toggled back off.
+func (h *Handler) archiveThread(w http.ResponseWriter, r *http.Request) {
+	h.setThreadStatus(w, r, ThreadStatusArchived)
+}
+
+func (h *Handler) setThreadStatus(w http.ResponseWriter, r *http.Request, status string) {
+	if _, ok := h.requireAdmin(w, r); !ok {
+		return
+	}
+	threadID, err := uuid.Parse(r.PathValue("threadID"))
+	if err != nil {
+		writeContentError(w, http.StatusBadRequest, "invalid_thread_id", "thread id is invalid")
+		return
+	}
+	if err := h.repository.SetThreadStatus(r.Context(), threadID, status); err != nil {
+		h.writeRepositoryError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) deletePost(w http.ResponseWriter, r *http.Request) {
+	if _, ok := h.requireAdmin(w, r); !ok {
+		return
+	}
+	postID, err := uuid.Parse(r.PathValue("postID"))
+	if err != nil {
+		writeContentError(w, http.StatusBadRequest, "invalid_post_id", "post id is invalid")
+		return
+	}
+	if err := h.repository.SetPostStatus(r.Context(), postID, PostStatusRemoved); err != nil {
+		h.writeRepositoryError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// archivePost mirrors archiveThread for a single post/reply.
+func (h *Handler) archivePost(w http.ResponseWriter, r *http.Request) {
+	if _, ok := h.requireAdmin(w, r); !ok {
+		return
+	}
+	postID, err := uuid.Parse(r.PathValue("postID"))
+	if err != nil {
+		writeContentError(w, http.StatusBadRequest, "invalid_post_id", "post id is invalid")
+		return
+	}
+	if err := h.repository.SetPostStatus(r.Context(), postID, PostStatusArchived); err != nil {
+		h.writeRepositoryError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (h *Handler) requireAuth(w http.ResponseWriter, r *http.Request) (auth.RequestSession, bool) {
 	session, err := h.authService.Authenticate(r.Context(), r)
 	if err != nil {
@@ -384,6 +493,34 @@ func (h *Handler) requireMutation(w http.ResponseWriter, r *http.Request) (auth.
 	if err := h.authService.AuthorizeMutation(r, session); err != nil {
 		writeContentError(w, http.StatusForbidden, "csrf_required", "request verification failed")
 		return auth.RequestSession{}, false
+	}
+	return session, true
+}
+
+// requireVerifiedIdentity gates thread/post creation on a real, verified
+// identity (school or senior email, not the 'temporary' default new accounts
+// start in) — so a forum post always traces back to someone reachable, which
+// matters both for garden-variety moderation and for the rarer case the
+// platform needs to respond to a legal request about who posted something.
+func (h *Handler) requireVerifiedIdentity(w http.ResponseWriter, r *http.Request) (auth.RequestSession, bool) {
+	session, ok := h.requireMutation(w, r)
+	if !ok {
+		return auth.RequestSession{}, false
+	}
+	if session.Session.Account.IdentityStatus == "temporary" {
+		// Admins are already individually accountable through the admin role
+		// itself, so the identity-verification gate would otherwise block
+		// them from ever posting (e.g. an announcement) without a reason
+		// that matters here.
+		isAdmin, err := h.repository.IsAdmin(r.Context(), session.Session.Account.ID)
+		if err != nil {
+			writeContentError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+			return auth.RequestSession{}, false
+		}
+		if !isAdmin {
+			writeContentError(w, http.StatusForbidden, "identity_verification_required", "a verified school or senior identity is required to post")
+			return auth.RequestSession{}, false
+		}
 	}
 	return session, true
 }

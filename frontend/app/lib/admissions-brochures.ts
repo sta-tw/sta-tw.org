@@ -153,7 +153,14 @@ export function admissionProgramToBrochure(program: AdmissionProgram): Brochure 
         facts: [
             { label: "學年度", value: `${program.academic_year} 學年度` },
             ...(hasValue(program.admission_group)
-                ? [{ label: "學群", value: program.admission_group }]
+                ? [
+                      {
+                          label: "學群",
+                          value: hasValue(program.cross_group)
+                              ? `${program.admission_group} 跨 ${program.cross_group}`
+                              : program.admission_group
+                      }
+                  ]
                 : []),
             ...(hasValue(program.admission_category)
                 ? [{ label: "學類", value: program.admission_category }]

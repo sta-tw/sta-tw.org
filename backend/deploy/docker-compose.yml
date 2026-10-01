@@ -24,10 +24,18 @@ x-app-image: &app-image
 services:
   postgres:
     image: postgres:16-alpine
-    command: postgres -c max_connections=120
+    # pg_stat_statements needs to be loaded at startup (shared_preload_libraries),
+    # not just CREATE EXTENSION'd — it hooks the query executor, which can't be
+    # attached to an already-running postmaster. track=all also counts queries
+    # run inside PL/pgSQL functions/triggers, not just top-level statements.
+    command: postgres -c max_connections=120 -c shared_preload_libraries=pg_stat_statements -c pg_stat_statements.track=all
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-sta}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sta}
+      # Required, not defaulted (matches STA_REDIS_PASSWORD below): a
+      # silently-applied "sta" fallback here would mean any deploy that
+      # forgot to set this ends up with a guessable Postgres password
+      # instead of failing to start.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       POSTGRES_DB: ${POSTGRES_DB:-sta}
     volumes:
       - postgres-data:/var/lib/postgresql/data
@@ -145,7 +153,7 @@ services:
   postgres-exporter:
     image: quay.io/prometheuscommunity/postgres-exporter:latest
     environment:
-      DATA_SOURCE_NAME: "postgresql://${POSTGRES_USER:-sta}:${POSTGRES_PASSWORD:-sta}@postgres:5432/${POSTGRES_DB:-sta}?sslmode=disable"
+      DATA_SOURCE_NAME: "postgresql://${POSTGRES_USER:-sta}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-sta}?sslmode=disable"
     depends_on:
       postgres:
         condition: service_healthy
@@ -176,6 +184,18 @@ services:
     image: grafana/grafana-oss:latest
     environment:
       GF_SERVER_ROOT_URL: "https://${STA_GRAFANA_HOSTNAME}/"
+      # Grafana is only served through Caddy over HTTPS. Keep its session
+      # cookie HTTPS-only and emit HSTS; SameSite=Lax preserves normal
+      # top-level navigation through the external auth proxy.
+      GF_SECURITY_COOKIE_SECURE: "true"
+      GF_SECURITY_COOKIE_SAMESITE: "lax"
+      GF_SECURITY_STRICT_TRANSPORT_SECURITY: "true"
+      GF_SECURITY_STRICT_TRANSPORT_SECURITY_MAX_AGE_SECONDS: "31536000"
+      # Reduce transient SQLITE_BUSY failures without serializing Grafana's
+      # startup migrations onto a single connection.
+      GF_DATABASE_WAL: "true"
+      GF_DATABASE_QUERY_RETRIES: "5"
+      GF_DATABASE_TRANSACTION_RETRIES: "10"
       # No password login of its own: Caddy's forward_auth (see Caddyfile)
       # only lets a request through once the API confirms the caller is
       # already a logged-in STA admin, and hands Grafana that account's
@@ -190,7 +210,7 @@ services:
       GF_AUTH_PROXY_HEADER_NAME: "X-WEBAUTH-USER"
       GF_AUTH_PROXY_HEADER_PROPERTY: "username"
       GF_AUTH_PROXY_AUTO_SIGN_UP: "true"
-      GF_AUTH_PROXY_SYNC_TTL: "5"
+      GF_AUTH_PROXY_SYNC_TTL: "15"
       GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: "/etc/grafana/dashboards/home-dashboard.json"
       # No GF_AUTH_PROXY_WHITELIST: that pins trusted source IPs, but
       # Grafana's container has no published host port at all, so the only
@@ -201,7 +221,9 @@ services:
     volumes:
       - grafana-data:/var/lib/grafana
       - ./monitoring/grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+      - ./monitoring/grafana-dashboards.yml:/etc/grafana/provisioning/dashboards/sta.yml:ro
       - ./monitoring/home-dashboard.json:/etc/grafana/dashboards/home-dashboard.json:ro
+      - ./monitoring/provisioned-dashboards:/etc/grafana/provisioned-dashboards:ro
     depends_on:
       - prometheus
     restart: unless-stopped
@@ -222,16 +244,34 @@ services:
       MAIL_HOSTNAME: ${STA_MAIL_HOSTNAME:-mail.sta-tw.org}
       MAIL_DOMAIN: ${STA_MAIL_DOMAIN:-sta-tw.org}
       STA_ACCOUNT_APPLICATION_MAIL_TOKEN: ${STA_ACCOUNT_APPLICATION_MAIL_TOKEN:-}
+      # For the pgsql local_recipient_maps/transport_maps lookups against
+      # mail_routes — same credentials the api/postgres-exporter services
+      # already use, just handed to Postfix too.
+      STA_POSTGRES_USER: ${POSTGRES_USER:-sta}
+      STA_POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      STA_POSTGRES_DB: ${POSTGRES_DB:-sta}
     # The host's default resolver is Tailscale's MagicDNS (100.100.100.100),
     # which has been observed to intermittently SERVFAIL on real *.edu.tw
     # zones (e.g. nchu.edu.tw) — Postfix needs reliable MX lookups to deliver
     # the registration/verification mail this whole flow depends on.
+    #
+    # Resolved via dns-doh (DNS-over-HTTPS to Cloudflare) instead of talking
+    # plaintext UDP/53 to a public resolver directly: every MX/A lookup this
+    # MTA makes for an inbound sender's or outbound recipient's domain is
+    # otherwise visible in cleartext to anything on the network path, which
+    # for a mail server is a steady stream of externally-influenced lookups
+    # (a spammer's From: domain, a bounce target, ...) — exactly the pattern
+    # a campus/network SOC's DNS monitoring flags as suspicious on a host
+    # it already has reason to watch. DoH keeps the query content opaque to
+    # that vantage point; see the dns-doh service below.
     dns:
-      - 8.8.8.8
-      - 8.8.4.4
-      - 1.1.1.1
+      - 172.16.255.53
     depends_on:
       api:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      dns-doh:
         condition: service_started
     volumes:
       - postfix-tls:/etc/postfix/tls
@@ -252,6 +292,36 @@ services:
         # verification needs the connection name to match the cert.
         aliases:
           - ${STA_MAIL_HOSTNAME:-mail.sta-tw.org}
+    restart: unless-stopped
+
+  # DNS-over-HTTPS resolver for postfix (see the comment on its `dns:` key).
+  # Must live on the `default` network, not a second one: Docker's embedded
+  # per-container DNS proxy (127.0.0.11, which every container on a
+  # user-defined network gets regardless of the `dns:` override) only
+  # forwards to an external nameserver reachable via the container's
+  # *primary* network — confirmed by testing: this same setup on a separate
+  # `postfix-dns` network had a fully open, reachable UDP/TCP 53 (verified
+  # with nc from inside postfix's own network namespace) yet 127.0.0.11
+  # still timed out forwarding every query. Fixed IP (172.16.255.53, picked
+  # well outside Docker's dynamic allocation range to avoid ever colliding
+  # with an auto-assigned container address) needs `default`'s subnet
+  # pinned below to match its real, already-in-place value exactly — so
+  # this never forces Compose to recreate the network other services sit on.
+  dns-doh:
+    # Pinned: `proxy-dns` (plain-DNS-in, DoH-out) was removed from cloudflared
+    # upstream in 2026.2.0 with no direct replacement flag — this is the last
+    # tag confirmed to still have it. Revisit if Cloudflare stops publishing
+    # it; dnscrypt-proxy is the fallback if this tag becomes unavailable.
+    image: cloudflare/cloudflared:2025.9.1
+    command:
+      - proxy-dns
+      - --address=0.0.0.0
+      - --port=53
+      - --upstream=https://1.1.1.1/dns-query
+      - --upstream=https://1.0.0.1/dns-query
+    networks:
+      default:
+        ipv4_address: 172.16.255.53
     restart: unless-stopped
 
   searxng:
@@ -308,16 +378,6 @@ services:
       retries: 5
       start_period: 15s
     stop_grace_period: 20s
-    depends_on:
-      api:
-        condition: service_healthy
-    restart: unless-stopped
-
-  telegram-bot:
-    <<: *app-image
-    profiles: ["telegram-bot"]
-    command: ["telegram-bot"]
-    stop_grace_period: 10s
     depends_on:
       api:
         condition: service_healthy
@@ -470,6 +530,18 @@ services:
       frontend-build:
         condition: service_completed_successfully
     restart: unless-stopped
+
+networks:
+  # Pinned (not left to Compose's auto-allocation) so it never collides with
+  # another project's network on this host — confirm via `docker network
+  # inspect` before changing; this must match the network's actual subnet
+  # exactly, or Compose will try to recreate the network (and every
+  # container on it) to apply a "changed" config.
+  default:
+    ipam:
+      config:
+        - subnet: 172.16.0.0/16
+          gateway: 172.16.0.1
 
 volumes:
   postgres-data:

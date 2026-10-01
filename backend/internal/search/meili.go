@@ -148,21 +148,35 @@ func mergeSynonyms(maps ...map[string][]string) map[string][]string {
 	return out
 }
 
+// cjkTypoTolerance lowers Meilisearch's typo-tolerance word-length
+// thresholds (default: oneTypo at 5 letters, twoTypos at 9) way down — those
+// defaults are calibrated for Latin alphabetic words and effectively never
+// fire for Chinese queries, where a 2-4 character term is already a normal
+// full search phrase, not a fragment of a longer word. Without this, a
+// search only ever matched exact character sequences, which read as "too
+// strict" for CJK input despite typo tolerance being nominally "on".
+var cjkTypoTolerance = map[string]any{
+	"minWordSizeForTypos": map[string]int{"oneTypo": 2, "twoTypos": 4},
+}
+
 func (c *Client) EnsureIndexes(ctx context.Context) error {
 	settings := map[string]map[string]any{
 		IndexSchools: {
 			"searchableAttributes": []string{"school_name", "school_code"},
 			"filterableAttributes": []string{"institution_type", "is_active"},
 			"synonyms":             searchSynonyms,
+			"typoTolerance":        cjkTypoTolerance,
 		},
 		IndexPrograms: {
 			"searchableAttributes": []string{"admission_program_name", "school_name", "program_identifier", "special_talent_target"},
 			"filterableAttributes": []string{"academic_year", "school_code"},
 			"synonyms":             searchSynonyms,
+			"typoTolerance":        cjkTypoTolerance,
 		},
 		IndexExperiences: {
 			"searchableAttributes": []string{"title", "snippet"},
 			"synonyms":             searchSynonyms,
+			"typoTolerance":        cjkTypoTolerance,
 		},
 	}
 	for name, s := range settings {

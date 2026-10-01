@@ -67,7 +67,7 @@ func (s *verificationAuthStore) CreateAccount(context.Context, string, []byte, [
 	return auth.Account{}, errors.New("not used")
 }
 
-func (s *verificationAuthStore) CreatePendingAccount(context.Context, string, []byte, []byte, string) (auth.Account, error) {
+func (s *verificationAuthStore) CreatePendingAccount(context.Context, string, []byte, []byte, []byte, []byte, string) (auth.Account, error) {
 	return auth.Account{}, errors.New("not used")
 }
 

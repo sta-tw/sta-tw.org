@@ -95,9 +95,19 @@
 {$STA_GRAFANA_HOSTNAME} {
 	route {
 		request_header -X-WEBAUTH-USER
-		forward_auth api:8080 {
-			uri /api/v1/admin/grafana-auth
-			copy_headers X-WEBAUTH-USER
+		reverse_proxy api:8080 {
+			# This is a server-side auth check, not a browser CORS request.
+			# Keep the browser's Origin away from the API CORS middleware.
+			method GET
+			rewrite /api/v1/admin/grafana-auth
+			header_up -Origin
+			header_up X-Forwarded-Method {method}
+			header_up X-Forwarded-Uri {uri}
+
+			@grafanaAuthGranted status 2xx
+			handle_response @grafanaAuthGranted {
+				request_header X-WEBAUTH-USER {rp.header.X-WEBAUTH-USER}
+			}
 		}
 		reverse_proxy grafana:3000
 	}

@@ -133,6 +133,10 @@ func (h *Handler) agentCandidate(w http.ResponseWriter, r *http.Request) {
 	}
 	defer r.MultipartForm.RemoveAll()
 	detectedYear, err := strconv.Atoi(strings.TrimSpace(r.FormValue("detected_academic_year")))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_candidate", "candidate detected academic year is invalid")
+		return
+	}
 	input := CandidateInput{
 		DetectedAcademicYear: detectedYear,
 		SourceURL:            strings.TrimSpace(r.FormValue("source_url")),

@@ -1,13 +1,23 @@
 Syslog          yes
 UMask           002
-Domain          __MAIL_HOSTNAME__
+Domain          __MAIL_DOMAIN__
 KeyFile         /etc/opendkim/keys/mail.private
 Selector        mail
-Socket          inet:8891@localhost
+Socket          inet:8891@127.0.0.1
 PidFile         /run/opendkim/opendkim.pid
 Mode            sv
 Canonicalization        relaxed/simple
-SubDomains      no
+# Our own outbound mail's From/envelope domain is __MAIL_HOSTNAME__ (e.g.
+# noreply@mail.sta-tw.org), a SUBDOMAIN of __MAIL_DOMAIN__ — with
+# SubDomains=no, that silently fails OpenDKIM's sender-domain allowlist
+# check and every message we send goes out completely unsigned (found by
+# inspecting a real queued message: no DKIM-Signature header at all,
+# despite a correctly published DKIM DNS record). "yes" lets it sign mail
+# from any subdomain of __MAIL_DOMAIN__ too, still stamping d=__MAIL_DOMAIN__
+# (the domain the DNS TXT record is actually published under) — no new DNS
+# record needed, and DMARC's default relaxed alignment already treats
+# d=__MAIL_DOMAIN__ and From:__MAIL_HOSTNAME__ as aligned.
+SubDomains      yes
 AutoRestart     yes
 AutoRestartRate 10/1h
 UserID          root

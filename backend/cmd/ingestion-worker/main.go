@@ -38,7 +38,7 @@ func run(logger *slog.Logger) error {
 		return errors.New("STA_RABBITMQ_URL is required for the ingestion worker")
 	}
 	startupContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	databasePool, err := db.OpenPostgres(startupContext, cfg.DatabaseURL)
+	databasePool, err := db.OpenPostgres(startupContext, cfg.DatabaseURL, 10)
 	cancel()
 	if err != nil {
 		return err

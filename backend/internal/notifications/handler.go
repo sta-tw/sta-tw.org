@@ -3,7 +3,6 @@ package notifications
 import (
 	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
 	"strconv"
 
@@ -151,15 +150,3 @@ func writeNotificationError(w http.ResponseWriter, status int, code, message str
 	writeNotificationJSON(w, status, notificationErrorBody{Error: notificationError{Code: code, Message: message}})
 }
 
-func decodeNotificationJSON(r *http.Request, destination any) error {
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(destination); err != nil {
-		return err
-	}
-	var extra any
-	if err := decoder.Decode(&extra); err != io.EOF {
-		return errors.New("multiple JSON values")
-	}
-	return nil
-}

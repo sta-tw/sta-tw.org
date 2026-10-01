@@ -1,6 +1,11 @@
 import Link from "next/link";
 import { relatedSites } from "../lib/related-sites";
-import { DISCORD_INVITE_URL, GITHUB_REPOSITORY_URL } from "../lib/site-links";
+import {
+    DISCORD_INVITE_URL,
+    GITHUB_REPOSITORY_URL,
+    TELEGRAM_URL,
+    THREADS_URL
+} from "../lib/site-links";
 
 const footerSections = [
     {
@@ -8,6 +13,8 @@ const footerSections = [
         title: "社群媒體",
         links: [
             { label: "Instagram", href: "https://www.instagram.com/spec_talent.tw/" },
+            { label: "Threads", href: THREADS_URL },
+            { label: "Telegram", href: TELEGRAM_URL },
             { label: "Discord", href: DISCORD_INVITE_URL }
         ]
     },
@@ -21,7 +28,7 @@ const footerSections = [
         title: "關於本站",
         links: [
             { label: "GitHub", href: GITHUB_REPOSITORY_URL },
-            { label: "Dev. Credit", href: "/credits" },
+            { label: "聯絡信箱", href: "mailto:contact@mail.sta-tw.org" },
             { label: "隱私權政策", href: "/privacy" },
             { label: "服務條款", href: "/terms" }
         ]

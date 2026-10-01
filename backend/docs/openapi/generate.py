@@ -98,6 +98,10 @@ SCHEMAS: dict[str, dict] = {
                   "properties": {"id": UUID, "username": STR, "identity_status": STR, "account_status": STR,
                                  "email_verified": BOOL, "is_admin": BOOL, "last_login_at": DT,
                                  "suspended_at": DT, "suspension_reason": STR, "created_at": DT}},
+    "SitePolicyDocument": S(value=STR, updated_at=DT),
+    "SitePolicyDocuments": S(terms=REF("SitePolicyDocument"), privacy=REF("SitePolicyDocument")),
+    "SiteAssetMetadata": S(exists=BOOL, content_type=STR,
+                           size_bytes={"type": "integer", "format": "int64"}, updated_at=DT),
     "AuditRow": S(id={"type": "integer", "format": "int64"}, actor_account_id=UUID, action=STR,
                   entity_type=STR, entity_key=STR, before_data={"type": "object"}, after_data={"type": "object"},
                   reason=STR, request_id=STR, created_at=DT),
@@ -315,6 +319,22 @@ def download_of(resource_ref: dict) -> dict:
         "expires_in": {"type": "integer", "description": "seconds"}}}
 
 ROUTES: dict[tuple[str, str], dict] = {
+    # ---- public managed assets -------------------------------------
+    ("get", "/api/v1/site-assets/article-overview"): {
+        "summary": "Get the public article overview image",
+        "responseContent": {
+            "image/png": {"schema": {"type": "string", "format": "binary"}},
+            "image/jpeg": {"schema": {"type": "string", "format": "binary"}},
+        }},
+    ("get", "/api/v1/site-assets/article-overview/meta"): {
+        "summary": "Get article overview image metadata",
+        "response": data(REF("SiteAssetMetadata"))},
+
+    # ---- public site policies ---------------------------------------
+    ("get", "/api/v1/site-policies"): {
+        "summary": "Get the public service terms and privacy policy",
+        "response": data(REF("SitePolicyDocuments"))},
+
     # ---- auth ---------------------------------------------------------
     ("post", "/api/v1/auth/register"): {
         "summary": "Register a native account",
@@ -497,6 +517,33 @@ ROUTES: dict[tuple[str, str], dict] = {
 
     # ---- admin: users / stats -------------------------
     ("get", "/api/v1/admin/stats"): {"summary": "Platform statistics snapshot", "response": REF("StatsSnapshot")},
+    ("get", "/api/v1/admin/settings/site-policies"): {
+        "summary": "Get editable site policy content",
+        "response": data(REF("SitePolicyDocuments"))},
+    ("post", "/api/v1/admin/settings/site-policies/{policy}"): {
+        "summary": "Update one site policy",
+        "request": S(value={"type": "string", "minLength": 1, "maxLength": 500000}),
+        "response": S(value=STR)},
+    ("get", "/api/v1/admin/site-assets/article-overview"): {
+        "summary": "Get article overview image metadata",
+        "response": data(REF("SiteAssetMetadata"))},
+    ("post", "/api/v1/admin/site-assets/article-overview"): {
+        "summary": "Upload the article overview image",
+        "requestContent": {
+            "multipart/form-data": {
+                "schema": {
+                    "type": "object",
+                    "required": ["file"],
+                    "properties": {
+                        "file": {"type": "string", "format": "binary"},
+                    },
+                },
+            },
+        },
+        "response": data(REF("SiteAssetMetadata"))},
+    ("delete", "/api/v1/admin/site-assets/article-overview"): {
+        "summary": "Reset the article overview image to the static default",
+        "status": "204"},
     ("get", "/api/v1/admin/users/{accountID}"): {"response": data(REF("AdminUser"))},
     ("post", "/api/v1/admin/users/{accountID}/suspend"): {"request": S(reason={"type": "string", "minLength": 1, "maxLength": 500}),
                                                           "response": S(status=STR, sessions_revoked=INT)},
@@ -700,6 +747,10 @@ def security_for(method: str, path: str) -> list[dict]:
         return []
     if "/webhooks/" in path:
         return [{"webhookSignature": []}]
+    if path in ("/api/v1/site-policies",
+                "/api/v1/site-assets/article-overview",
+                "/api/v1/site-assets/article-overview/meta"):
+        return []
     if path in _PUBLIC_AUTH:
         return []
     if "/api/v1/admin/" in path:
@@ -760,6 +811,8 @@ def build_op(method: str, path: str) -> dict:
         responses["204"] = {"description": "No Content"}
     elif status == "302":
         responses["302"] = {"description": "Redirect to a presigned URL (Location header)"}
+    elif "responseContent" in ov:
+        responses[status] = {"description": "OK", "content": ov["responseContent"]}
     elif method == "get" and path == "/api/v1/events":
         responses["200"] = {"description": "SSE stream",
                             "content": {"text/event-stream": {"schema": {"type": "string"}}}}

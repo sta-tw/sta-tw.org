@@ -1,0 +1,11 @@
+# Used as local_recipient_maps (main.cf.template): an existence check, not
+# an alias rewrite — any non-null result means "this local part is a
+# registered mail_routes row", which is all Postfix needs to accept the
+# recipient instead of bouncing "User unknown". Queried on every inbound
+# SMTP transaction, so an admin adding a category via the /admin/mail-routes
+# UI is accepted immediately — no container restart.
+hosts = postgres
+user = __STA_POSTGRES_USER__
+password = __STA_POSTGRES_PASSWORD__
+dbname = __STA_POSTGRES_DB__
+query = SELECT 1 FROM mail_routes WHERE local_part = '%u' AND '%d' = '__MAIL_HOSTNAME__' LIMIT 1

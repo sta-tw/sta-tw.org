@@ -10,7 +10,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -227,11 +226,4 @@ func discordMessageContent(task DiscordOutboxTask) string {
 		content = content[:1900] + "…（完整內容請至 STA 查看）"
 	}
 	return content
-}
-
-func discordMessageID(value string) string {
-	if _, err := strconv.ParseInt(value, 10, 64); err == nil {
-		return value
-	}
-	return value
 }

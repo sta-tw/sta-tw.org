@@ -20,28 +20,53 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"sta-backend/internal/auth"
+	"sta-backend/internal/security"
 )
 
 type Handler struct {
 	auth *auth.Service
 	pool *pgxpool.Pool
+	// grafanaAuthLimiter throttles internal/admin.grafanaAuth by caller IP.
+	// Every hit to grafana.sta-tw.org — logged in or not — reaches this
+	// handler (see the Caddyfile's forward_auth), so a flood against that
+	// hostname still costs the origin a role-check query per request
+	// without this; capped process-local, mirrors the existing mfaLimiter
+	// pattern.
+	grafanaAuthLimiter *security.FixedWindowLimiter
 }
 
 func NewHandler(authService *auth.Service, pool *pgxpool.Pool) (*Handler, error) {
 	if authService == nil || pool == nil {
 		return nil, errors.New("admin handler dependencies are missing")
 	}
-	return &Handler{auth: authService, pool: pool}, nil
+	return &Handler{
+		auth:               authService,
+		pool:               pool,
+		grafanaAuthLimiter: security.NewFixedWindowLimiter(60, time.Minute, 4096),
+	}, nil
 }
 
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/admin/stats", h.stats)
 	mux.HandleFunc("GET /api/v1/admin/audit-log", h.auditLog)
+	mux.HandleFunc("GET /api/v1/site-assets/article-overview", h.getArticleOverviewImage)
+	mux.HandleFunc("GET /api/v1/site-assets/article-overview/meta", h.getArticleOverviewImageMeta)
+	mux.HandleFunc("GET /api/v1/site-policies", h.getSitePolicies)
 	mux.HandleFunc("GET /api/v1/admin/users", h.listUsers)
 	mux.HandleFunc("POST /api/v1/admin/users", h.createUser)
 	mux.HandleFunc("GET /api/v1/admin/settings/require-admin-mfa", h.getRequireAdminMFA)
 	mux.HandleFunc("POST /api/v1/admin/settings/require-admin-mfa", h.setRequireAdminMFA)
+	mux.HandleFunc("GET /api/v1/admin/settings/mail-reply-template", h.getMailReplyTemplate)
+	mux.HandleFunc("POST /api/v1/admin/settings/mail-reply-template", h.setMailReplyTemplate)
+	mux.HandleFunc("GET /api/v1/admin/settings/site-policies", h.getAdminSitePolicies)
+	mux.HandleFunc("POST /api/v1/admin/settings/site-policies/{policy}", h.setSitePolicy)
+	mux.HandleFunc("GET /api/v1/admin/site-assets/article-overview", h.getAdminArticleOverviewImageMeta)
+	mux.HandleFunc("POST /api/v1/admin/site-assets/article-overview", h.uploadArticleOverviewImage)
+	mux.HandleFunc("DELETE /api/v1/admin/site-assets/article-overview", h.deleteArticleOverviewImage)
 	mux.HandleFunc("GET /api/v1/admin/users/{accountID}", h.getUser)
+	mux.HandleFunc("PUT /api/v1/admin/users/{accountID}", h.updateUser)
+	mux.HandleFunc("POST /api/v1/admin/users/{accountID}/resend-activation", h.resendActivation)
+	mux.HandleFunc("POST /api/v1/admin/users/{accountID}/resend-email-verification", h.resendEmailVerification)
 	mux.HandleFunc("POST /api/v1/admin/users/{accountID}/suspend", h.suspendUser)
 	mux.HandleFunc("POST /api/v1/admin/users/{accountID}/reinstate", h.reinstateUser)
 	mux.HandleFunc("POST /api/v1/admin/users/{accountID}/force-logout", h.forceLogoutUser)
@@ -57,11 +82,21 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 // already an authenticated STA admin. There's no separate Grafana account to
 // provision or keep in sync.
 //
-// Deliberately doesn't reuse requireAdmin: that also enforces admin MFA via
-// an X-MFA-Code header, which only the SPA's own fetch calls can attach.
-// Caddy's forward_auth is a plain top-level page load with no way to prompt
-// for or forward an MFA code, so this checks session + admin role only.
+// Deliberately doesn't reuse requireAdmin: that enforces admin MFA via an
+// X-MFA-Code header, which only the SPA's own fetch calls can attach — a
+// plain top-level page load through Caddy's forward_auth has no way to
+// prompt for or forward one. Instead of skipping MFA entirely, this checks
+// HasValidAdminMFAGrant: the admin must have completed a TOTP check in the
+// admin SPA within the configured grant window (see ConfigureAdminMFAGrant)
+// before Grafana lets them in — when admin MFA isn't required at all this is
+// a no-op, same as requireAdmin's behavior.
 func (h *Handler) grafanaAuth(w http.ResponseWriter, r *http.Request) {
+	result := h.grafanaAuthLimiter.Take(clientIP(r), time.Now())
+	security.WriteRateLimitHeaders(w, result, time.Now())
+	if !result.Allowed {
+		writeError(w, http.StatusTooManyRequests, "rate_limited", "too many requests")
+		return
+	}
 	session, err := h.auth.Authenticate(r.Context(), r)
 	if err != nil {
 		writeError(w, http.StatusUnauthorized, "unauthorized", "authentication is required")
@@ -76,6 +111,15 @@ func (h *Handler) grafanaAuth(w http.ResponseWriter, r *http.Request) {
 	}
 	if !isAdmin {
 		writeError(w, http.StatusForbidden, "admin_required", "administrator permission is required")
+		return
+	}
+	mfaGranted, err := h.auth.HasValidAdminMFAGrant(r.Context(), session.Session.Account.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	if !mfaGranted {
+		writeError(w, http.StatusPreconditionRequired, "admin_mfa_required", "complete administrator MFA verification in the admin panel first")
 		return
 	}
 	w.Header().Set("X-WEBAUTH-USER", session.Session.Account.Username)
@@ -330,4 +374,17 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(payload)
+}
+
+// clientIP mirrors internal/httpapi's unexported equivalent — the API sits
+// behind a trusted TLS proxy (Caddy), so the left-most X-Forwarded-For entry
+// is preferred over the raw transport peer.
+func clientIP(r *http.Request) string {
+	if forwarded := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); forwarded != "" {
+		if idx := strings.IndexByte(forwarded, ','); idx >= 0 {
+			return strings.TrimSpace(forwarded[:idx])
+		}
+		return forwarded
+	}
+	return r.RemoteAddr
 }

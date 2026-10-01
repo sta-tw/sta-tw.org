@@ -26,7 +26,7 @@ const faqItems: FaqItem[] = [
         answer: (
             <>
                 備審資料每個學校、科系要求都不同。可以先到
-                <Link href="/search" className="underline underline-offset-4 hover:text-ink">
+                <Link href="/bochures" className="underline underline-offset-4 hover:text-ink">
                     簡章搜尋
                 </Link>
                 查看歷屆簡章，並參考學長姐經驗與備審準備方向。
@@ -51,6 +51,25 @@ const faqItems: FaqItem[] = [
                 ：填想要的帳號名稱、聯絡信箱，並附上能證明身分或申請動機的佐證資料（例如自學證明、作品集、相關證明文件）。
                 <br />
                 管理員審核通過後，會寄一封信到你留的聯絡信箱，附上設定密碼的連結，設定完成後就能登入。審核通常需要人工處理時間，請耐心等候；有疑問可以直接回覆那封通知信詢問，我們會收到。
+            </>
+        )
+    },
+    {
+        id: "which-mailbox",
+        question: "有問題該寄到哪個信箱？",
+        answer: (
+            <>
+                依用途分成幾個信箱，寄到對的地方我們能更快處理：
+                <br />
+                <strong>account@mail.sta-tw.org</strong>：帳號登入、啟用、密碼相關問題
+                <br />
+                <strong>brochure@mail.sta-tw.org</strong>：簡章內容有誤、缺漏，或想提供資料
+                <br />
+                <strong>report@mail.sta-tw.org</strong>：檢舉違規內容、著作權侵權申訴
+                <br />
+                <strong>contact@mail.sta-tw.org</strong>：其他問題，或不確定要寄去哪一個都可以
+                <br />
+                不確定分類也沒關係，直接寄到 contact@mail.sta-tw.org 就好，工作人員看到後會幫你處理或轉給對的人。
             </>
         )
     }

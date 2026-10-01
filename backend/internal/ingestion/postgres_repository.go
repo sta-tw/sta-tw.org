@@ -43,14 +43,6 @@ func (r *PostgresRepository) IsAdmin(ctx context.Context, accountID uuid.UUID) (
 	return exists, err
 }
 
-func (r *PostgresRepository) queueBrochureJob(ctx context.Context, adminID *uuid.UUID, academicYear int, schoolCode, storageKey, sha256Hex, processor string, now time.Time) (brochureJobRecord, error) {
-	return r.queueDocumentJob(ctx, adminID, academicYear, schoolCode, storageKey, sha256Hex, processor, jobs.SourceTypeBrochure, "", "", now)
-}
-
-func (r *PostgresRepository) queueCandidateListJob(ctx context.Context, adminID *uuid.UUID, academicYear int, schoolCode, storageKey, sha256Hex, processor, sourceURL, programCode string, now time.Time) (brochureJobRecord, error) {
-	return r.queueDocumentJob(ctx, adminID, academicYear, schoolCode, storageKey, sha256Hex, processor, jobs.SourceTypeCandidateList, sourceURL, programCode, now)
-}
-
 func (r *PostgresRepository) queueDocumentJob(ctx context.Context, adminID *uuid.UUID, academicYear int, schoolCode, storageKey, sha256Hex, processor, sourceType, sourceURL, programCode string, now time.Time) (brochureJobRecord, error) {
 	if academicYear < 100 || academicYear > 999 || len(schoolCode) != 3 || len(sha256Hex) != 64 || strings.TrimSpace(storageKey) == "" || strings.TrimSpace(processor) == "" {
 		return brochureJobRecord{}, ErrInvalid

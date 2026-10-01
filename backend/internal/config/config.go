@@ -41,23 +41,31 @@ type Config struct {
 	// endpoint (a docker-network service name) is unreachable from a
 	// browser, so a publicly routable host — reverse-proxied to the same
 	// MinIO instance — is required for any link handed to a client.
-	ObjectStoragePublicEndpoint             string
-	ObjectStoragePublicUseSSL               bool
-	ClamAVAddress                           string
-	RequireFileScan                         bool
-	DiscordChatWebhookSecret                string
-	TelegramChatWebhookSecret               string
-	DiscordChatBotToken                     string
-	DiscordChatChannelID                    string
-	DiscordCommunityInviteCode              string
-	SupportEmail                            string
-	SupportEmailWebhookSecret               string
-	DiscordSupportWebhookSecret             string
-	DiscordSupportBotToken                  string
-	DiscordSupportGuildID                   string
-	DiscordSupportCategoryID                string
-	DiscordSupportArchiveCategoryID         string
-	DiscordSupportRoleID                    string
+	ObjectStoragePublicEndpoint     string
+	ObjectStoragePublicUseSSL       bool
+	ClamAVAddress                   string
+	RequireFileScan                 bool
+	DiscordChatWebhookSecret        string
+	TelegramChatWebhookSecret       string
+	DiscordChatBotToken             string
+	DiscordChatChannelID            string
+	DiscordCommunityInviteCode      string
+	SupportEmail                    string
+	SupportEmailWebhookSecret       string
+	DiscordSupportWebhookSecret     string
+	DiscordSupportBotToken          string
+	DiscordSupportGuildID           string
+	DiscordSupportCategoryID        string
+	DiscordSupportArchiveCategoryID string
+	DiscordSupportRoleID            string
+	// DiscordMailBotToken posts/reads the per-mail-route forum threads (see
+	// internal/mailroutes, internal/emailinquiries, internal/discordmail) —
+	// kept separate from DiscordChatBotToken/DiscordSupportBotToken, which
+	// belong to unrelated existing Discord integrations.
+	DiscordMailBotToken                     string
+	DiscordMailApplicationPublicKey         string
+	DiscordMailGuildID                      string
+	DiscordMailForumCategoryID              string
 	TelegramBotToken                        string
 	TelegramChatID                          string
 	TelegramCrossCheckToken                 string
@@ -166,6 +174,10 @@ func Load() (Config, error) {
 		DiscordSupportCategoryID:                strings.TrimSpace(os.Getenv("STA_DISCORD_SUPPORT_CATEGORY_ID")),
 		DiscordSupportArchiveCategoryID:         strings.TrimSpace(os.Getenv("STA_DISCORD_SUPPORT_ARCHIVE_CATEGORY_ID")),
 		DiscordSupportRoleID:                    strings.TrimSpace(os.Getenv("STA_DISCORD_SUPPORT_ROLE_ID")),
+		DiscordMailBotToken:                     strings.TrimSpace(os.Getenv("STA_DISCORD_MAIL_BOT_TOKEN")),
+		DiscordMailApplicationPublicKey:         strings.TrimSpace(os.Getenv("STA_DISCORD_MAIL_APPLICATION_PUBLIC_KEY")),
+		DiscordMailGuildID:                      strings.TrimSpace(os.Getenv("STA_DISCORD_MAIL_GUILD_ID")),
+		DiscordMailForumCategoryID:              strings.TrimSpace(os.Getenv("STA_DISCORD_MAIL_FORUM_CATEGORY_ID")),
 		TelegramBotToken:                        strings.TrimSpace(os.Getenv("STA_TELEGRAM_BOT_TOKEN")),
 		TelegramChatID:                          strings.TrimSpace(os.Getenv("STA_TELEGRAM_CHAT_ID")),
 		TelegramCrossCheckToken:                 strings.TrimSpace(os.Getenv("STA_TELEGRAM_CROSS_CHECK_TOKEN")),

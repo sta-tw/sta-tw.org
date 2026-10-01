@@ -38,7 +38,7 @@ func run(logger *slog.Logger, username string) error {
 		return errors.New("STA_DATABASE_URL is required for admin bootstrap")
 	}
 	startupContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	pool, err := db.OpenPostgres(startupContext, cfg.DatabaseURL)
+	pool, err := db.OpenPostgres(startupContext, cfg.DatabaseURL, 5)
 	cancel()
 	if err != nil {
 		return err
