@@ -15,8 +15,9 @@ type Feature = {
 
 const features: Feature[] = [
     {
-        title: "交流社群，\n即將開放",
-        body: "論壇功能目前施工中，暫未開放。",
+        title: "交流社群，\n現已開放",
+        body: "歡迎到論壇分享備審心得、交流特殊選才資訊，跟其他申請者一起討論。",
+        href: "/forum",
         image: publicPath("/features/feature-community.webp"),
         imageAlt: "柔和色塊交疊的抽象社群圖像",
         imagePosition: "left"

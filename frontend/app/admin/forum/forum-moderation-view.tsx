@@ -34,7 +34,7 @@ const threadStatusLabel: Record<ForumThreadStatus, string> = {
     locked: "已關閉回覆",
     hidden: "已隱藏",
     removed: "已刪除",
-    archived: "已封存（證據保留）"
+    archived: "已封存"
 };
 
 const threadStatusTone: Record<ForumThreadStatus, BadgeTone> = {
@@ -49,7 +49,7 @@ const postStatusLabel: Record<ForumPostStatus, string> = {
     published: "公開中",
     hidden: "已隱藏",
     removed: "已刪除",
-    archived: "已封存（證據保留）"
+    archived: "已封存"
 };
 
 function formatDate(iso: string): string {
@@ -126,7 +126,7 @@ function PostRow({
                         className="inline-flex items-center gap-1 font-sans text-xs text-ink/60 hover:text-ink hover:underline"
                     >
                         <Archive className="h-3.5 w-3.5" aria-hidden />
-                        封存做為證據
+                        封存
                     </button>
                     <button
                         type="button"
@@ -151,7 +151,7 @@ function PostRow({
                 open={archiveConfirmOpen}
                 onOpenChange={setArchiveConfirmOpen}
                 title="封存這則回覆？"
-                description="內容會從公開論壇移除並保留做為證據，僅管理員看得到，之後無法透過介面復原為公開狀態。"
+                description="內容會從公開論壇移除，僅管理員看得到，之後無法透過介面復原為公開狀態。"
                 confirmLabel="封存"
                 pending={pending}
                 onConfirm={() => void confirmArchive()}
@@ -294,7 +294,7 @@ function ThreadRow({
                             className="inline-flex items-center gap-1 font-sans text-sm text-ink/60 hover:text-ink hover:underline"
                         >
                             <Archive className="h-4 w-4" aria-hidden />
-                            封存做為證據
+                            封存
                         </button>
                     )}
                     {!removed && !archived && (
@@ -356,7 +356,7 @@ function ThreadRow({
                 open={archiveConfirmOpen}
                 onOpenChange={setArchiveConfirmOpen}
                 title="封存這個討論串？"
-                description={`「${thread.title}」整串討論會從公開論壇移除並保留做為證據，僅管理員看得到，之後無法透過介面復原為公開狀態。`}
+                description={`「${thread.title}」整串討論會從公開論壇移除，僅管理員看得到，之後無法透過介面復原為公開狀態。`}
                 confirmLabel="封存"
                 pending={actionPending}
                 onConfirm={() => void confirmArchiveThread()}
@@ -394,7 +394,7 @@ export default function ForumModerationView() {
             <div>
                 <h1 className="font-serif text-2xl text-ink">論壇管理</h1>
                 <p className="mt-2 font-sans text-sm text-ink/60">
-                    發文與回覆已限制為通過學校或畢業生身份驗證的帳號，每則討論串與回覆都記錄了發文者帳號，方便追查不當言論。「關閉回覆」會保留討論串內容但停止接受新回覆；「刪除」會把內容從公開論壇上移除；「封存」同樣會下架內容，但標記為保留做為證據（例如疑似違法情形），僅管理員看得到，且無法透過介面復原。
+                    發文與回覆已限制為通過學校或畢業生身份驗證的帳號，每則討論串與回覆都記錄了發文者帳號，方便追查不當言論。「關閉回覆」會保留討論串內容但停止接受新回覆；「刪除」會把內容從公開論壇上移除；「封存」同樣會下架內容，僅管理員看得到，且無法透過介面復原。
                 </p>
             </div>
 

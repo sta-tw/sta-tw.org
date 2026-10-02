@@ -16,7 +16,8 @@ const logoIcon = publicPath("/logo.svg");
 
 const navLinks = [
     { label: "文章總覽", href: "/articlemain" },
-    { label: "簡章搜尋", href: "/bochures" }
+    { label: "簡章搜尋", href: "/bochures" },
+    { label: "討論區", href: "/forum" }
 ];
 
 export default function Navbar() {

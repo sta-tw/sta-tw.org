@@ -340,7 +340,7 @@ func (h *Handler) unpublishExperience(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) reviewExperience(w http.ResponseWriter, r *http.Request) {
-	session, ok := h.requireAdmin(w, r)
+	session, ok := h.requireAdminMutation(w, r)
 	if !ok {
 		return
 	}
@@ -415,7 +415,7 @@ func (h *Handler) archiveThread(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) setThreadStatus(w http.ResponseWriter, r *http.Request, status string) {
-	if _, ok := h.requireAdmin(w, r); !ok {
+	if _, ok := h.requireAdminMutation(w, r); !ok {
 		return
 	}
 	threadID, err := uuid.Parse(r.PathValue("threadID"))
@@ -431,7 +431,7 @@ func (h *Handler) setThreadStatus(w http.ResponseWriter, r *http.Request, status
 }
 
 func (h *Handler) deletePost(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.requireAdmin(w, r); !ok {
+	if _, ok := h.requireAdminMutation(w, r); !ok {
 		return
 	}
 	postID, err := uuid.Parse(r.PathValue("postID"))
@@ -448,7 +448,7 @@ func (h *Handler) deletePost(w http.ResponseWriter, r *http.Request) {
 
 // archivePost mirrors archiveThread for a single post/reply.
 func (h *Handler) archivePost(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.requireAdmin(w, r); !ok {
+	if _, ok := h.requireAdminMutation(w, r); !ok {
 		return
 	}
 	postID, err := uuid.Parse(r.PathValue("postID"))
@@ -544,8 +544,13 @@ func (h *Handler) checkRateLimit(w http.ResponseWriter, r *http.Request, limiter
 	return true
 }
 
+// requireAdmin gates a read — session + admin role + MFA, no CSRF. A GET
+// never carries X-CSRF-Token (see client.ts's apiFetch, which only attaches
+// it for a non-GET method), so demanding one here made every admin forum
+// listing 403 with "request verification failed" before a staff member had
+// even tried to change anything.
 func (h *Handler) requireAdmin(w http.ResponseWriter, r *http.Request) (auth.RequestSession, bool) {
-	session, ok := h.requireMutation(w, r)
+	session, ok := h.requireAuth(w, r)
 	if !ok {
 		return auth.RequestSession{}, false
 	}
@@ -560,6 +565,20 @@ func (h *Handler) requireAdmin(w http.ResponseWriter, r *http.Request) (auth.Req
 	}
 	if err := h.authService.RequireAdminMFA(r.Context(), session.Session.Account.ID, r.Header.Get("X-MFA-Code")); err != nil {
 		writeContentError(w, http.StatusPreconditionRequired, "admin_mfa_required", "administrator MFA verification is required")
+		return auth.RequestSession{}, false
+	}
+	return session, true
+}
+
+// requireAdminMutation layers the CSRF check back on top of requireAdmin —
+// for the actual lock/unlock/archive/delete endpoints, which do need it.
+func (h *Handler) requireAdminMutation(w http.ResponseWriter, r *http.Request) (auth.RequestSession, bool) {
+	session, ok := h.requireAdmin(w, r)
+	if !ok {
+		return auth.RequestSession{}, false
+	}
+	if err := h.authService.AuthorizeMutation(r, session); err != nil {
+		writeContentError(w, http.StatusForbidden, "csrf_required", "request verification failed")
 		return auth.RequestSession{}, false
 	}
 	return session, true
