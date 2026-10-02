@@ -108,6 +108,10 @@ func searchTermCandidates(term string) []string {
 
 type PostgresRepository struct {
 	pool *pgxpool.Pool
+	// timelineChangeHook, when set, is called after a successful
+	// UpsertPrograms commit with every program_timeline_events row whose
+	// date/time actually changed — see SetTimelineChangeHook.
+	timelineChangeHook func(context.Context, []TimelineChange)
 }
 
 func NewPostgresRepository(pool *pgxpool.Pool) (*PostgresRepository, error) {
@@ -115,6 +119,80 @@ func NewPostgresRepository(pool *pgxpool.Pool) (*PostgresRepository, error) {
 		return nil, errors.New("postgres pool is nil")
 	}
 	return &PostgresRepository{pool: pool}, nil
+}
+
+// SetTimelineChangeHook registers a callback invoked after UpsertPrograms
+// commits, with the set of timeline rows whose start/end date or time
+// actually changed. This is how a visitor's already-added Google Calendar
+// event gets corrected when an admin later fixes a schedule mistake — the
+// hook (wired in cmd/api/main.go to calendar.Service.SyncEventDates) looks
+// up every account linked to that row's external_id and pushes the new
+// dates to each one's Google Calendar. The hook must not block or return an
+// error here; it's expected to handle its own logging/goroutines, since a
+// calendar sync failure must never fail or roll back the admin's edit.
+func (r *PostgresRepository) SetTimelineChangeHook(hook func(context.Context, []TimelineChange)) {
+	r.timelineChangeHook = hook
+}
+
+// TimelineChange describes one program_timeline_events row whose start/end
+// date or time changed as a result of an admin edit. ProgramIdentifier +
+// SortOrder together reconstruct the external_id the frontend used when the
+// visitor added this event to their calendar (see
+// app/components/brochure-detail-tabs.tsx's externalId: `${slug}:timeline-${sortOrder}`).
+// ISOStart is "" when the corrected event no longer has a determinable date
+// (e.g. it was reset to "not yet announced") — callers should treat that as
+// "nothing to sync" rather than attempt a patch with an empty date.
+type TimelineChange struct {
+	ProgramIdentifier string
+	SortOrder         int
+	EventName         string
+	ISOStart          string
+	ISOEnd            string
+}
+
+// timelineEventISODates mirrors the frontend's formatTimelineEventDate/
+// registrationTimeline convention in app/lib/admissions-brochures.ts: a
+// blank start means no event at all (not even a single day), and a blank
+// end falls back to start (single-day event).
+func timelineEventISODates(event TimelineEvent) (isoStart, isoEnd string) {
+	if event.StartDate == "" || event.StartDate == "-" {
+		return "", ""
+	}
+	isoStart = event.StartDate
+	if event.EndDate == "" || event.EndDate == "-" {
+		return isoStart, isoStart
+	}
+	return isoStart, event.EndDate
+}
+
+// diffTimelineChanges compares two snapshots of the same program's timeline
+// (matched by SortOrder, since that's the stable id baked into every
+// external_id) and reports every row whose synced-to-calendar dates moved.
+func diffTimelineChanges(identifier string, before, after []TimelineEvent) []TimelineChange {
+	beforeBySortOrder := make(map[int]TimelineEvent, len(before))
+	for _, event := range before {
+		beforeBySortOrder[event.SortOrder] = event
+	}
+	var changes []TimelineChange
+	for _, event := range after {
+		newStart, newEnd := timelineEventISODates(event)
+		oldEvent, existed := beforeBySortOrder[event.SortOrder]
+		oldStart, oldEnd := "", ""
+		if existed {
+			oldStart, oldEnd = timelineEventISODates(oldEvent)
+		}
+		if newStart == oldStart && newEnd == oldEnd {
+			continue
+		}
+		changes = append(changes, TimelineChange{
+			ProgramIdentifier: identifier,
+			SortOrder:         event.SortOrder,
+			EventName:         event.Name,
+			ISOStart:          newStart,
+			ISOEnd:            newEnd,
+		})
+	}
+	return changes
 }
 
 // ListPrograms requires admission_quota > 0 to hide empty placeholder slots
@@ -383,10 +461,11 @@ func (r *PostgresRepository) PublishBrochureInTx(ctx context.Context, tx pgx.Tx,
 			source_url = EXCLUDED.source_url,
 			review_status = 'published',
 			published_at = CURRENT_TIMESTAMP,
-			updated_at = CURRENT_TIMESTAMP
-		RETURNING academic_year, school_code, storage_key, original_file_name, mime_type, file_size_bytes, sha256_hex, source_url, review_status, published_at, created_at, updated_at
+			updated_at = CURRENT_TIMESTAMP,
+			watermarked_storage_key = NULL
+		RETURNING academic_year, school_code, storage_key, original_file_name, mime_type, file_size_bytes, sha256_hex, source_url, review_status, published_at, created_at, updated_at, watermarked_storage_key
 	`, input.AcademicYear, input.SchoolCode, input.StorageKey, input.OriginalFileName, input.MIMEType, input.FileSizeBytes, input.SHA256, emptyBrochureValue(input.SourceURL)).Scan(
-		&document.AcademicYear, &document.SchoolCode, &document.storageKey, &document.OriginalFileName, &document.MIMEType, &document.FileSizeBytes, &document.SHA256, &document.SourceURL, &document.ReviewStatus, &document.PublishedAt, &document.CreatedAt, &document.UpdatedAt,
+		&document.AcademicYear, &document.SchoolCode, &document.storageKey, &document.OriginalFileName, &document.MIMEType, &document.FileSizeBytes, &document.SHA256, &document.SourceURL, &document.ReviewStatus, &document.PublishedAt, &document.CreatedAt, &document.UpdatedAt, new(*string),
 	)
 	if err != nil {
 		return BrochureDocument{}, "", mapAdmissionRepositoryError(err)
@@ -432,10 +511,11 @@ func (r *PostgresRepository) createBrochure(ctx context.Context, actorID *uuid.U
 			source_url = EXCLUDED.source_url,
 			review_status = 'pending',
 			published_at = NULL,
-			updated_at = CURRENT_TIMESTAMP
-		RETURNING academic_year, school_code, storage_key, original_file_name, mime_type, file_size_bytes, sha256_hex, source_url, review_status, published_at, created_at, updated_at
+			updated_at = CURRENT_TIMESTAMP,
+			watermarked_storage_key = NULL
+		RETURNING academic_year, school_code, storage_key, original_file_name, mime_type, file_size_bytes, sha256_hex, source_url, review_status, published_at, created_at, updated_at, watermarked_storage_key
 	`, input.AcademicYear, input.SchoolCode, input.StorageKey, input.OriginalFileName, input.MIMEType, input.FileSizeBytes, input.SHA256, emptyBrochureValue(input.SourceURL)).Scan(
-		&document.AcademicYear, &document.SchoolCode, &document.storageKey, &document.OriginalFileName, &document.MIMEType, &document.FileSizeBytes, &document.SHA256, &document.SourceURL, &document.ReviewStatus, &document.PublishedAt, &document.CreatedAt, &document.UpdatedAt,
+		&document.AcademicYear, &document.SchoolCode, &document.storageKey, &document.OriginalFileName, &document.MIMEType, &document.FileSizeBytes, &document.SHA256, &document.SourceURL, &document.ReviewStatus, &document.PublishedAt, &document.CreatedAt, &document.UpdatedAt, new(*string),
 	)
 	if err != nil {
 		return BrochureDocument{}, "", mapAdmissionRepositoryError(err)
@@ -464,7 +544,7 @@ func (r *PostgresRepository) ListBrochures(ctx context.Context, adminID uuid.UUI
 		condition = "academic_year = $1"
 		args = append(args, academicYear)
 	}
-	rows, err := r.pool.Query(ctx, `SELECT academic_year, school_code, storage_key, original_file_name, mime_type, file_size_bytes, sha256_hex, source_url, review_status, published_at, created_at, updated_at FROM brochure_documents WHERE `+condition+` ORDER BY academic_year DESC, school_code`, args...)
+	rows, err := r.pool.Query(ctx, `SELECT academic_year, school_code, storage_key, original_file_name, mime_type, file_size_bytes, sha256_hex, source_url, review_status, published_at, created_at, updated_at, watermarked_storage_key FROM brochure_documents WHERE `+condition+` ORDER BY academic_year DESC, school_code`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -549,6 +629,7 @@ func (r *PostgresRepository) changeBrochureStatus(ctx context.Context, adminID u
 		return BrochureDocument{}, ErrInvalidProgram
 	}
 	var document BrochureDocument
+	var watermarkedKey *string
 	// $3 is used twice below (SET target and inside the CASE), and pgx's
 	// extended query protocol infers a type per occurrence — one comes back
 	// `text`, the other `character varying`, and Postgres refuses the
@@ -560,12 +641,15 @@ func (r *PostgresRepository) changeBrochureStatus(ctx context.Context, adminID u
 	err = tx.QueryRow(ctx, `
 		UPDATE brochure_documents SET review_status = $3::varchar, published_at = CASE WHEN $3::varchar = 'published' THEN CURRENT_TIMESTAMP ELSE NULL END, updated_at = CURRENT_TIMESTAMP
 		WHERE academic_year = $1 AND school_code = $2
-		RETURNING academic_year, school_code, storage_key, original_file_name, mime_type, file_size_bytes, sha256_hex, source_url, review_status, published_at, created_at, updated_at
+		RETURNING academic_year, school_code, storage_key, original_file_name, mime_type, file_size_bytes, sha256_hex, source_url, review_status, published_at, created_at, updated_at, watermarked_storage_key
 	`, academicYear, schoolCode, newStatus).Scan(
-		&document.AcademicYear, &document.SchoolCode, &document.storageKey, &document.OriginalFileName, &document.MIMEType, &document.FileSizeBytes, &document.SHA256, &document.SourceURL, &document.ReviewStatus, &document.PublishedAt, &document.CreatedAt, &document.UpdatedAt,
+		&document.AcademicYear, &document.SchoolCode, &document.storageKey, &document.OriginalFileName, &document.MIMEType, &document.FileSizeBytes, &document.SHA256, &document.SourceURL, &document.ReviewStatus, &document.PublishedAt, &document.CreatedAt, &document.UpdatedAt, &watermarkedKey,
 	)
 	if err != nil {
 		return BrochureDocument{}, err
+	}
+	if watermarkedKey != nil {
+		document.watermarkedStorageKey = *watermarkedKey
 	}
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO brochure_document_events (academic_year, school_code, storage_key, original_file_name, sha256_hex, action, from_status, to_status, actor_account_id, reason)
@@ -581,7 +665,7 @@ func (r *PostgresRepository) changeBrochureStatus(ctx context.Context, adminID u
 }
 
 func (r *PostgresRepository) GetPublishedBrochure(ctx context.Context, academicYear int, schoolCode string) (BrochureDocument, error) {
-	row := r.pool.QueryRow(ctx, `SELECT academic_year, school_code, storage_key, original_file_name, mime_type, file_size_bytes, sha256_hex, source_url, review_status, published_at, created_at, updated_at FROM brochure_documents WHERE academic_year = $1 AND school_code = $2 AND review_status = 'published'`, academicYear, schoolCode)
+	row := r.pool.QueryRow(ctx, `SELECT academic_year, school_code, storage_key, original_file_name, mime_type, file_size_bytes, sha256_hex, source_url, review_status, published_at, created_at, updated_at, watermarked_storage_key FROM brochure_documents WHERE academic_year = $1 AND school_code = $2 AND review_status = 'published'`, academicYear, schoolCode)
 	item, err := scanBrochureDocument(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return BrochureDocument{}, ErrNotFound
@@ -595,7 +679,7 @@ func (r *PostgresRepository) GetPublishedBrochure(ctx context.Context, academicY
 // callers fetch that per-year, on demand, via the existing download
 // endpoint, since a presigned URL is only valid for 5 minutes.
 func (r *PostgresRepository) ListPublishedBrochures(ctx context.Context, schoolCode string) ([]BrochureDocument, error) {
-	rows, err := r.pool.Query(ctx, `SELECT academic_year, school_code, storage_key, original_file_name, mime_type, file_size_bytes, sha256_hex, source_url, review_status, published_at, created_at, updated_at FROM brochure_documents WHERE school_code = $1 AND review_status = 'published' ORDER BY academic_year DESC`, schoolCode)
+	rows, err := r.pool.Query(ctx, `SELECT academic_year, school_code, storage_key, original_file_name, mime_type, file_size_bytes, sha256_hex, source_url, review_status, published_at, created_at, updated_at, watermarked_storage_key FROM brochure_documents WHERE school_code = $1 AND review_status = 'published' ORDER BY academic_year DESC`, schoolCode)
 	if err != nil {
 		return nil, fmt.Errorf("list published brochures: %w", err)
 	}
@@ -620,7 +704,7 @@ func (r *PostgresRepository) GetBrochure(ctx context.Context, adminID uuid.UUID,
 	} else if !ok {
 		return BrochureDocument{}, ErrInvalidProgram
 	}
-	row := r.pool.QueryRow(ctx, `SELECT academic_year, school_code, storage_key, original_file_name, mime_type, file_size_bytes, sha256_hex, source_url, review_status, published_at, created_at, updated_at FROM brochure_documents WHERE academic_year = $1 AND school_code = $2`, academicYear, schoolCode)
+	row := r.pool.QueryRow(ctx, `SELECT academic_year, school_code, storage_key, original_file_name, mime_type, file_size_bytes, sha256_hex, source_url, review_status, published_at, created_at, updated_at, watermarked_storage_key FROM brochure_documents WHERE academic_year = $1 AND school_code = $2`, academicYear, schoolCode)
 	item, err := scanBrochureDocument(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return BrochureDocument{}, ErrNotFound
@@ -630,8 +714,26 @@ func (r *PostgresRepository) GetBrochure(ctx context.Context, adminID uuid.UUID,
 
 func scanBrochureDocument(row rowScanner) (BrochureDocument, error) {
 	var item BrochureDocument
-	err := row.Scan(&item.AcademicYear, &item.SchoolCode, &item.storageKey, &item.OriginalFileName, &item.MIMEType, &item.FileSizeBytes, &item.SHA256, &item.SourceURL, &item.ReviewStatus, &item.PublishedAt, &item.CreatedAt, &item.UpdatedAt)
+	var watermarkedKey *string
+	err := row.Scan(&item.AcademicYear, &item.SchoolCode, &item.storageKey, &item.OriginalFileName, &item.MIMEType, &item.FileSizeBytes, &item.SHA256, &item.SourceURL, &item.ReviewStatus, &item.PublishedAt, &item.CreatedAt, &item.UpdatedAt, &watermarkedKey)
+	if watermarkedKey != nil {
+		item.watermarkedStorageKey = *watermarkedKey
+	}
 	return item, err
+}
+
+// SetBrochureWatermarkedKey persists the one-time watermarked copy's storage
+// key, generated lazily on first public download (see
+// BrochureHandler.downloadPublic). The expectedStorageKey guard means a
+// concurrent re-upload that changed storage_key wins over this write — the
+// stale watermark result is simply discarded, and the next download
+// regenerates it against the new file.
+func (r *PostgresRepository) SetBrochureWatermarkedKey(ctx context.Context, academicYear int, schoolCode, expectedStorageKey, watermarkedKey string) error {
+	_, err := r.pool.Exec(ctx, `
+		UPDATE brochure_documents SET watermarked_storage_key = $4
+		WHERE academic_year = $1 AND school_code = $2 AND storage_key = $3
+	`, academicYear, schoolCode, expectedStorageKey, watermarkedKey)
+	return err
 }
 
 func emptyBrochureValue(value string) string {

@@ -336,9 +336,7 @@ export function getAdmissionProgram(identifier: string, options?: { signal?: Abo
 /**
  * Every published academic_year's brochure PDF for a school — a school's
  * brochure covers all its departments, so this is keyed by school, same as
- * getPublishedBrochureDownload. Used for "歷史簡章" (past years' brochures);
- * each entry needs its own getPublishedBrochureDownload call to get a fresh
- * presigned URL when the user actually clicks it (the URL expires quickly).
+ * getPublishedBrochureDownloadURL. Used for "歷史簡章" (past years' brochures).
  */
 export function listPublishedBrochures(schoolCode: string, options?: { signal?: AbortSignal }) {
     return apiFetch<AdmissionListResponse<BrochureDocument>>(
@@ -347,16 +345,30 @@ export function listPublishedBrochures(schoolCode: string, options?: { signal?: 
     );
 }
 
-/** Returns a short-lived signed URL for the currently published school brochure. */
-export function getPublishedBrochureDownload(
+/**
+ * The public brochure download endpoint streams the PDF directly (it bakes
+ * in a per-request metadata stamp, so it can't be a static signed link) —
+ * this just builds that URL for `window.open`/`<a href>`, no API round trip.
+ */
+export function getPublishedBrochureDownloadURL(academicYear: number, schoolCode: string): string {
+    return `${API_BASE_URL}/api/v1/admissions/brochures/${academicYear}/${encodeURIComponent(schoolCode)}/download`;
+}
+
+/** HEAD-checks whether a brochure exists without transferring the PDF. */
+export async function publishedBrochureExists(
     academicYear: number,
     schoolCode: string,
     options?: { signal?: AbortSignal }
-) {
-    return apiFetch<BrochureDownloadResponse>(
-        `/api/v1/admissions/brochures/${academicYear}/${encodeURIComponent(schoolCode)}/download`,
-        { signal: options?.signal }
-    );
+): Promise<boolean> {
+    try {
+        const response = await fetch(
+            `${API_BASE_URL}/api/v1/admissions/brochures/${academicYear}/${encodeURIComponent(schoolCode)}/download`,
+            { method: "HEAD", signal: options?.signal }
+        );
+        return response.ok;
+    } catch {
+        return false;
+    }
 }
 
 // --- admin admissions ---------------------------------------------------

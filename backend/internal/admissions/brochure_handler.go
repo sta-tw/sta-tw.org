@@ -1,9 +1,13 @@
 package admissions
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
@@ -57,6 +61,7 @@ func NewBrochureHandlerWithDispatcherAndScanner(authService *auth.Service, repos
 
 func (h *BrochureHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/admissions/brochures/{academicYear}/{schoolCode}/download", h.downloadPublic)
+	mux.HandleFunc("HEAD /api/v1/admissions/brochures/{academicYear}/{schoolCode}/download", h.downloadPublicExists)
 	mux.HandleFunc("GET /api/v1/admissions/brochures/{schoolCode}", h.listPublicBySchool)
 	mux.HandleFunc("GET /api/v1/admin/admissions/brochures", h.list)
 	mux.HandleFunc("GET /api/v1/admin/admissions/brochures/{academicYear}/{schoolCode}/events", h.listEvents)
@@ -68,8 +73,19 @@ func (h *BrochureHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/admin/admissions/brochures/{academicYear}/{schoolCode}/visibility", h.visibility)
 }
 
+// downloadPublic streams the public brochure PDF through Go instead of
+// redirecting to a presigned storage URL, because every response needs a
+// per-request metadata patch (stampDownloadMetadata) baked in — a static
+// signed link can't carry that. The heavier one-time step, the hidden OCG
+// watermark (applyHiddenWatermark), runs lazily on the first download after
+// publish and is cached via watermarked_storage_key from then on.
 func (h *BrochureHandler) downloadPublic(w http.ResponseWriter, r *http.Request) {
 	if h.blobStore == nil {
+		writeAdmissionError(w, http.StatusServiceUnavailable, "storage_unavailable", "brochure storage is unavailable")
+		return
+	}
+	reader, ok := h.blobStore.(storage.BlobReader)
+	if !ok {
 		writeAdmissionError(w, http.StatusServiceUnavailable, "storage_unavailable", "brochure storage is unavailable")
 		return
 	}
@@ -87,7 +103,112 @@ func (h *BrochureHandler) downloadPublic(w http.ResponseWriter, r *http.Request)
 		writeAdmissionError(w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
 	}
-	h.writeDownload(w, r, document)
+
+	watermarkedBytes, err := h.watermarkedBrochureBytes(r.Context(), reader, document)
+	if err != nil {
+		slog.Error("brochure watermark unavailable", "academic_year", year, "school_code", schoolCode, "error", err)
+		writeAdmissionError(w, http.StatusBadGateway, "storage_unavailable", "brochure storage is unavailable")
+		return
+	}
+
+	stamped, err := stampDownloadMetadata(watermarkedBytes, requestClientIP(r))
+	if err != nil {
+		// Metadata stamping is a secondary protection; a healthy, watermarked
+		// file is still far better than a hard failure here.
+		slog.Error("brochure metadata stamp failed", "academic_year", year, "school_code", schoolCode, "error", err)
+		stamped = watermarkedBytes
+	}
+
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Type", "application/pdf")
+	w.Header().Set("Content-Disposition", `attachment; filename="brochure.pdf"`)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Length", strconv.Itoa(len(stamped)))
+	_, _ = w.Write(stamped)
+}
+
+// downloadPublicExists lets the frontend check whether a brochure is
+// downloadable without transferring the (now much heavier, per-request
+// processed) PDF bytes — it was a side effect of the old JSON+presigned-URL
+// endpoint and some callers depend on that existence check.
+func (h *BrochureHandler) downloadPublicExists(w http.ResponseWriter, r *http.Request) {
+	year, schoolCode, err := parseBrochurePath(r)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	_, err = h.repository.GetPublishedBrochure(r.Context(), year, schoolCode)
+	if errors.Is(err, ErrNotFound) {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusOK)
+}
+
+// watermarkedBrochureBytes returns the publicly-servable PDF, generating and
+// caching the hidden-watermark copy on first use. A race where two requests
+// both regenerate it concurrently is harmless — both produce an equivalent
+// watermarked file and SetBrochureWatermarkedKey's storage_key guard means
+// only a write consistent with the current document survives.
+func (h *BrochureHandler) watermarkedBrochureBytes(ctx context.Context, reader storage.BlobReader, document BrochureDocument) ([]byte, error) {
+	key := brochureWatermarkedStorageKey(document)
+	if key == "" {
+		key = brochureStorageKey(document)
+	}
+	object, err := reader.Get(ctx, key)
+	if err != nil {
+		return nil, err
+	}
+	data, err := io.ReadAll(object)
+	_ = object.Close()
+	if err != nil {
+		return nil, err
+	}
+	if brochureWatermarkedStorageKey(document) != "" {
+		return data, nil
+	}
+
+	watermarked, err := applyHiddenWatermark(data)
+	if err != nil {
+		// Watermarking failed (e.g. a non-standard PDF structure) — still
+		// serve the original rather than block every download on it.
+		slog.Error("brochure watermark generation failed", "storage_key", brochureStorageKey(document), "error", err)
+		return data, nil
+	}
+
+	watermarkedKey := brochureStorageKey(document) + ".watermarked.pdf"
+	if err := h.blobStore.Put(ctx, watermarkedKey, bytes.NewReader(watermarked), int64(len(watermarked)), "application/pdf"); err != nil {
+		slog.Error("brochure watermark store failed", "storage_key", brochureStorageKey(document), "error", err)
+		return watermarked, nil
+	}
+	if err := h.repository.SetBrochureWatermarkedKey(ctx, document.AcademicYear, document.SchoolCode, brochureStorageKey(document), watermarkedKey); err != nil {
+		slog.Error("brochure watermark key persist failed", "storage_key", brochureStorageKey(document), "error", err)
+	}
+	return watermarked, nil
+}
+
+// requestClientIP prefers X-Forwarded-For's first hop. There is no verified
+// trusted-proxy allowlist in this deployment (only a Caddy reverse proxy in
+// front, per docker-compose.yml — not confirmed to overwrite rather than
+// append to an inbound X-Forwarded-For), so a client can in principle spoof
+// this value. That's an acceptable gap for this field: it's a forensic
+// breadcrumb for investigating a leak, not an access-control decision.
+func requestClientIP(r *http.Request) string {
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		if first := strings.TrimSpace(strings.Split(xff, ",")[0]); first != "" {
+			return first
+		}
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
 }
 
 // listPublicBySchool lists every published academic_year's brochure for a school (歷史簡章).
@@ -572,6 +693,10 @@ func decodeBrochureJSON(r *http.Request, destination any) error {
 		return err
 	}
 	return nil
+}
+
+func brochureWatermarkedStorageKey(document BrochureDocument) string {
+	return document.watermarkedStorageKey
 }
 
 func brochureStorageKey(document BrochureDocument) string {

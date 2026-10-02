@@ -22,7 +22,7 @@ import {
     type CalendarEventInput
 } from "../lib/api/calendar";
 import {
-    getPublishedBrochureDownload,
+    getPublishedBrochureDownloadURL,
     listPublishedBrochures,
     type BrochureDocument
 } from "../lib/api/admissions";
@@ -705,8 +705,8 @@ function HistoryTab({
 }
 
 // 學校的簡章 PDF 依學年度分開存放，不會被隔年上傳的新簡章覆蓋，所以這裡列出的是
-// 這間學校目前所有已上架的年度，而不只是這個科系當年度的那一份。下載連結是短效
-// 簽章網址，所以按下才即時取，不會預先抓好放著。
+// 這間學校目前所有已上架的年度，而不只是這個科系當年度的那一份。下載連結直接指向
+// 後端的串流端點（每次下載都會即時蓋入追蹤標記），不再經過一次 JSON 轉址。
 function HistoricalBrochuresList({ schoolCode }: { schoolCode: string }) {
     const [documents, setDocuments] = useState<BrochureDocument[] | null>(null);
     const [downloadingYear, setDownloadingYear] = useState<number | null>(null);
@@ -724,14 +724,13 @@ function HistoricalBrochuresList({ schoolCode }: { schoolCode: string }) {
         return () => controller.abort();
     }, [schoolCode]);
 
-    async function download(year: number) {
+    function download(year: number) {
         setError(null);
         setDownloadingYear(year);
         try {
-            const response = await getPublishedBrochureDownload(year, schoolCode);
-            window.open(response.url, "_blank", "noopener,noreferrer");
+            window.open(getPublishedBrochureDownloadURL(year, schoolCode), "_blank", "noopener,noreferrer");
         } catch {
-            setError("目前無法取得下載連結，請稍後再試。");
+            setError("目前無法開啟下載連結，請稍後再試。");
         } finally {
             setDownloadingYear(null);
         }

@@ -385,18 +385,19 @@ type School struct {
 }
 
 type BrochureDocument struct {
-	AcademicYear     int        `json:"academic_year"`
-	SchoolCode       string     `json:"school_code"`
-	OriginalFileName string     `json:"original_file_name"`
-	MIMEType         string     `json:"mime_type"`
-	FileSizeBytes    int64      `json:"file_size_bytes"`
-	SHA256           string     `json:"sha256"`
-	SourceURL        string     `json:"source_url"`
-	ReviewStatus     string     `json:"review_status"`
-	PublishedAt      *time.Time `json:"published_at,omitempty"`
-	CreatedAt        time.Time  `json:"created_at"`
-	UpdatedAt        time.Time  `json:"updated_at"`
-	storageKey       string
+	AcademicYear          int        `json:"academic_year"`
+	SchoolCode            string     `json:"school_code"`
+	OriginalFileName      string     `json:"original_file_name"`
+	MIMEType              string     `json:"mime_type"`
+	FileSizeBytes         int64      `json:"file_size_bytes"`
+	SHA256                string     `json:"sha256"`
+	SourceURL             string     `json:"source_url"`
+	ReviewStatus          string     `json:"review_status"`
+	PublishedAt           *time.Time `json:"published_at,omitempty"`
+	CreatedAt             time.Time  `json:"created_at"`
+	UpdatedAt             time.Time  `json:"updated_at"`
+	storageKey            string
+	watermarkedStorageKey string
 }
 
 type BrochureEvent struct {
@@ -455,6 +456,11 @@ type BrochureRepository interface {
 	GetBrochure(context.Context, uuid.UUID, int, string) (BrochureDocument, error)
 	GetPublishedBrochure(context.Context, int, string) (BrochureDocument, error)
 	ListPublishedBrochures(context.Context, string) ([]BrochureDocument, error)
+	// SetBrochureWatermarkedKey records the one-time watermarked copy's
+	// storage key after it's generated on first public download. expectedKey
+	// guards against a race where the underlying brochure was replaced
+	// between reading the document and finishing the watermark work.
+	SetBrochureWatermarkedKey(ctx context.Context, academicYear int, schoolCode, expectedStorageKey, watermarkedKey string) error
 }
 
 // SystemBrochureRepository is the narrow write boundary for authenticated

@@ -7,7 +7,8 @@ import BrochureDetailTabs from "../../components/brochure-detail-tabs";
 import {
     getAdmissionProgram,
     getAdmissionProgramHistory,
-    getPublishedBrochureDownload,
+    getPublishedBrochureDownloadURL,
+    publishedBrochureExists,
     type AdmissionProgram
 } from "../../lib/api/admissions";
 import { ApiError } from "../../lib/api/types";
@@ -46,21 +47,18 @@ export default function BrochureProgramView() {
         getAdmissionProgram(identifier, { signal: controller.signal })
             .then(async (response) => {
                 if (controller.signal.aborted) return;
-                let nextDownloadUrl: string | undefined;
 
                 // A program can be published before its private PDF is
-                // uploaded. Keep the program page usable when the download
-                // endpoint correctly returns 404 in that case.
-                try {
-                    const download = await getPublishedBrochureDownload(
-                        response.data.academic_year,
-                        response.data.school_code,
-                        { signal: controller.signal }
-                    );
-                    nextDownloadUrl = download.url;
-                } catch {
-                    nextDownloadUrl = undefined;
-                }
+                // uploaded. Keep the program page usable when the brochure
+                // doesn't exist yet in that case.
+                const exists = await publishedBrochureExists(
+                    response.data.academic_year,
+                    response.data.school_code,
+                    { signal: controller.signal }
+                );
+                const nextDownloadUrl = exists
+                    ? getPublishedBrochureDownloadURL(response.data.academic_year, response.data.school_code)
+                    : undefined;
 
                 let nextHistory: BrochureHistory[] = [];
                 try {
