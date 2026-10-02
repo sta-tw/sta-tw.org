@@ -38,6 +38,10 @@ func (f *fakeGrantStore) DeleteCalendarGrant(context.Context, uuid.UUID, string)
 
 type fakeEventLinkStore struct {
 	links map[string]string // externalID -> googleEventID
+	// accountID is attributed to every link for ListLinksByExternalID's
+	// purposes — none of the existing single-account tests need more than
+	// one account per externalID, so this keeps the fake simple.
+	accountID uuid.UUID
 }
 
 func (f *fakeEventLinkStore) SaveEventLink(_ context.Context, _ uuid.UUID, externalID, googleEventID string) error {
@@ -59,6 +63,14 @@ func (f *fakeEventLinkStore) GetEventLink(_ context.Context, _ uuid.UUID, extern
 func (f *fakeEventLinkStore) DeleteEventLink(_ context.Context, _ uuid.UUID, externalID string) error {
 	delete(f.links, externalID)
 	return nil
+}
+
+func (f *fakeEventLinkStore) ListLinksByExternalID(_ context.Context, externalID string) ([]AccountEventLink, error) {
+	googleEventID, ok := f.links[externalID]
+	if !ok {
+		return nil, nil
+	}
+	return []AccountEventLink{{AccountID: f.accountID, GoogleEventID: googleEventID}}, nil
 }
 
 func (f *fakeEventLinkStore) ListEventLinks(context.Context, uuid.UUID) ([]string, error) {
@@ -322,6 +334,75 @@ func TestCreateEventsSavesLinkForEventsWithAnExternalID(t *testing.T) {
 	}
 	if googleID := links.links["116-002-001:1"]; googleID != "evt-123" {
 		t.Fatalf("saved link google event id = %q, want evt-123", googleID)
+	}
+}
+
+func TestSyncEventDatesPatchesEveryLinkedAccount(t *testing.T) {
+	grants := &fakeGrantStore{}
+	accountID := uuid.New()
+	links := &fakeEventLinkStore{accountID: accountID, links: map[string]string{"116-005-010:timeline-8": "evt-456"}}
+	var patchedURL, patchedMethod, patchedBody string
+	service, _ := newTestServiceWithLinks(t, grants, links, func(r *http.Request) (*http.Response, error) {
+		if strings.Contains(r.URL.Host, "oauth2.googleapis.com") {
+			return jsonResponse(http.StatusOK, `{"access_token":"access-token","token_type":"Bearer","expires_in":3600}`), nil
+		}
+		patchedURL = r.URL.String()
+		patchedMethod = r.Method
+		body, _ := io.ReadAll(r.Body)
+		patchedBody = string(body)
+		return jsonResponse(http.StatusOK, `{"id":"evt-456"}`), nil
+	})
+
+	updated, err := service.SyncEventDates(context.Background(), "116-005-010:timeline-8", "2026-12-24", "2026-12-24")
+	if err != nil {
+		t.Fatalf("SyncEventDates() error = %v", err)
+	}
+	if updated != 1 {
+		t.Fatalf("SyncEventDates() updated = %d, want 1", updated)
+	}
+	if patchedMethod != http.MethodPatch {
+		t.Fatalf("request method = %s, want PATCH", patchedMethod)
+	}
+	if !strings.HasSuffix(patchedURL, "/evt-456") {
+		t.Fatalf("patched URL = %q, want it to target evt-456", patchedURL)
+	}
+	var decoded struct {
+		Start struct {
+			Date string `json:"date"`
+		} `json:"start"`
+		End struct {
+			Date string `json:"date"`
+		} `json:"end"`
+	}
+	if err := json.Unmarshal([]byte(patchedBody), &decoded); err != nil {
+		t.Fatalf("decode patch body: %v", err)
+	}
+	if decoded.Start.Date != "2026-12-24" {
+		t.Fatalf("patched start date = %q, want 2026-12-24", decoded.Start.Date)
+	}
+	// The Calendar API's all-day end date is exclusive, same as insertEvent.
+	if decoded.End.Date != "2026-12-25" {
+		t.Fatalf("patched end date = %q, want 2026-12-25 (exclusive)", decoded.End.Date)
+	}
+}
+
+func TestSyncEventDatesNoopsWhenNobodyLinkedTheEvent(t *testing.T) {
+	grants := &fakeGrantStore{}
+	called := false
+	service, _ := newTestServiceWithLinks(t, grants, &fakeEventLinkStore{}, func(r *http.Request) (*http.Response, error) {
+		called = true
+		return jsonResponse(http.StatusOK, `{}`), nil
+	})
+
+	updated, err := service.SyncEventDates(context.Background(), "116-005-010:timeline-8", "2026-12-24", "2026-12-24")
+	if err != nil {
+		t.Fatalf("SyncEventDates() error = %v", err)
+	}
+	if updated != 0 {
+		t.Fatalf("SyncEventDates() updated = %d, want 0", updated)
+	}
+	if called {
+		t.Fatal("no Google API call should happen when nobody linked this external_id")
 	}
 }
 

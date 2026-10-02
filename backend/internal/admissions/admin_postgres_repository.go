@@ -66,8 +66,20 @@ func (r *PostgresRepository) ListAdminPrograms(ctx context.Context, adminID uuid
 		position := len(args)
 		conditions = append(conditions, fmt.Sprintf("(REPLACE(s.school_name, '臺', '台') ILIKE $%d ESCAPE '\\' OR REPLACE(p.admission_program_name, '臺', '台') ILIKE $%d ESCAPE '\\' OR p.program_identifier = $%d)", position, position, position))
 	}
-	args = append(args, query.Limit, query.Offset)
-	limitPosition, offsetPosition := len(args)-1, len(args)
+	// Mirrors ListPrograms: with no explicit academic_year and no single-program
+	// lookup, collapse each school+program pair down to its newest row so old,
+	// already-backfilled years (via the 歷年 history feature) don't clutter the
+	// admin list as if they were separate current entries. A specific
+	// academic_year, or a school_code+program_code pair, still gets every row.
+	dedupeToLatestYear := query.AcademicYear <= 0 && query.ProgramCode == ""
+	args = append(args, dedupeToLatestYear, query.Limit, query.Offset)
+	dedupePosition, limitPosition, offsetPosition := len(args)-2, len(args)-1, len(args)
+	conditions = append(conditions, fmt.Sprintf(`(
+		NOT $%d OR p.academic_year = (
+			SELECT MAX(p2.academic_year) FROM academic_programs p2
+			WHERE p2.school_code = p.school_code AND p2.program_code = p.program_code
+		)
+	)`, dedupePosition))
 	statement := fmt.Sprintf("%s WHERE %s ORDER BY p.academic_year DESC, p.school_code, p.program_code LIMIT $%d OFFSET $%d", adminProgramSelect, strings.Join(conditions, " AND "), limitPosition, offsetPosition)
 	rows, err := r.pool.Query(ctx, statement, args...)
 	if err != nil {
@@ -123,12 +135,15 @@ func (r *PostgresRepository) UpsertPrograms(ctx context.Context, adminID uuid.UU
 		return nil, fmt.Errorf("begin admission program update: %w", err)
 	}
 	defer tx.Rollback(ctx)
-	result, err := r.UpsertProgramsInTx(ctx, tx, adminID, input)
+	result, timelineChanges, err := r.upsertProgramsInTx(ctx, tx, adminID, input)
 	if err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit admission program update: %w", err)
+	}
+	if r.timelineChangeHook != nil && len(timelineChanges) > 0 {
+		r.timelineChangeHook(ctx, timelineChanges)
 	}
 	return result, nil
 }
@@ -136,36 +151,49 @@ func (r *PostgresRepository) UpsertPrograms(ctx context.Context, adminID uuid.UU
 // UpsertProgramsInTx applies admission drafts within a caller-owned transaction.
 // The caller is responsible for authenticating adminID beforehand.
 func (r *PostgresRepository) UpsertProgramsInTx(ctx context.Context, tx pgx.Tx, adminID uuid.UUID, input ProgramBatchInput) ([]AdminProgram, error) {
+	result, _, err := r.upsertProgramsInTx(ctx, tx, adminID, input)
+	return result, err
+}
+
+// upsertProgramsInTx is UpsertProgramsInTx's implementation, additionally
+// returning the timeline rows that changed so UpsertPrograms can fire the
+// calendar sync hook once the transaction actually commits. Kept unexported
+// because "did any timeline dates change" is only meaningful once the
+// caller knows the whole transaction succeeded — UpsertProgramsInTx's
+// existing callers (the PDF ingestion pipeline) manage their own
+// transaction lifecycle and don't currently need calendar sync.
+func (r *PostgresRepository) upsertProgramsInTx(ctx context.Context, tx pgx.Tx, adminID uuid.UUID, input ProgramBatchInput) ([]AdminProgram, []TimelineChange, error) {
 	input = normalizeProgramBatch(input)
 	if err := input.Validate(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('sta.admission_programs'))`); err != nil {
-		return nil, fmt.Errorf("lock admission program master: %w", err)
+		return nil, nil, fmt.Errorf("lock admission program master: %w", err)
 	}
 
 	result := make([]AdminProgram, 0, len(input.Items))
+	var timelineChanges []TimelineChange
 	for _, item := range input.Items {
 		identifier, err := item.identifier()
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		var schoolName string
 		if err := tx.QueryRow(ctx, `SELECT school_name FROM schools WHERE school_code = $1`, item.SchoolCode).Scan(&schoolName); errors.Is(err, pgx.ErrNoRows) {
-			return nil, ErrNotFound
+			return nil, nil, ErrNotFound
 		} else if err != nil {
-			return nil, fmt.Errorf("load school %s: %w", item.SchoolCode, err)
+			return nil, nil, fmt.Errorf("load school %s: %w", item.SchoolCode, err)
 		}
 		program, err := item.MaterializeWithSchoolName(schoolName)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		before, err := loadAdminProgram(ctx, tx, identifier, true)
 		exists := true
 		if errors.Is(err, ErrNotFound) {
 			exists = false
 		} else if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		changed := !exists || !programsEqual(before.Program, program)
 		if exists && !changed {
@@ -188,35 +216,36 @@ func (r *PostgresRepository) UpsertProgramsInTx(ctx context.Context, tx pgx.Tx, 
 			program.AdmissionRate, program.FirstStagePassRate, program.CompetitionRatio,
 			program.SchoolOfficialURL, program.DepartmentOfficialURL,
 		); err != nil {
-			return nil, mapAdmissionRepositoryError(err)
+			return nil, nil, mapAdmissionRepositoryError(err)
 		}
 		if changed {
 			if err := replaceExamItems(ctx, tx, program); err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			if err := replaceTimelineEvents(ctx, tx, program); err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 		}
 		after, err := loadAdminProgram(ctx, tx, identifier, false)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if changed {
 			action := "update"
 			beforeData := map[string]any(nil)
 			if exists {
 				beforeData = adminProgramSnapshot(before)
+				timelineChanges = append(timelineChanges, diffTimelineChanges(identifier.String(), before.Program.TimelineEvents, after.Program.TimelineEvents)...)
 			} else {
 				action = "create"
 			}
 			if err := insertProgramAudit(ctx, tx, adminID, action, identifier.String(), beforeData, adminProgramSnapshot(after), input.Reason); err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 		}
 		result = append(result, after)
 	}
-	return result, nil
+	return result, timelineChanges, nil
 }
 
 // PublishProgramsInTx publishes rows after an admin confirms extracted PDF fields

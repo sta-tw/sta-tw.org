@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -68,6 +69,22 @@ func main() {
 		logger.Error("api stopped with error", "error", err)
 		os.Exit(1)
 	}
+}
+
+// timelineChangedNotification decodes the payload of an
+// "admissions.timeline_changed" event — see migrations/000074's
+// notify_timeline_event_change trigger, which fires this whenever a direct
+// SQL UPDATE changes a program_timeline_events row's date, bypassing the
+// admin API entirely (so admissions.PostgresRepository's own before/after
+// diff never runs). StartDate/EndDate are pointers because the trigger's
+// json_build_object emits JSON null for a NULL date column.
+type timelineChangedNotification struct {
+	AcademicYear int     `json:"academic_year"`
+	SchoolCode   string  `json:"school_code"`
+	ProgramCode  string  `json:"program_code"`
+	SortOrder    int     `json:"sort_order"`
+	StartDate    *string `json:"start_date"`
+	EndDate      *string `json:"end_date"`
 }
 
 func run(logger *slog.Logger) error {
@@ -248,12 +265,13 @@ func run(logger *slog.Logger) error {
 			authHandler.ConfigureTurnstile(verifier)
 		}
 		registrars = append(registrars, authHandler.RegisterRoutes)
+		var calendarService *calendar.Service
 		if providerConfigured(cfg.GoogleOAuth) {
 			calendarEventLinks, err := calendar.NewPostgresEventLinkStore(databasePool)
 			if err != nil {
 				return err
 			}
-			calendarService, err := calendar.NewService(store, calendarEventLinks, fieldCipher, cfg.GoogleOAuth.ClientID, cfg.GoogleOAuth.ClientSecret)
+			calendarService, err = calendar.NewService(store, calendarEventLinks, fieldCipher, cfg.GoogleOAuth.ClientID, cfg.GoogleOAuth.ClientSecret)
 			if err != nil {
 				return err
 			}
@@ -266,6 +284,67 @@ func run(logger *slog.Logger) error {
 		admissionRepository, err = admissions.NewPostgresRepository(databasePool)
 		if err != nil {
 			return err
+		}
+		if calendarService != nil {
+			// syncTimelineDates pushes one corrected date/time to every Google
+			// Calendar event linked to externalID. Shared by both trigger
+			// paths below — the app-level save hook and the DB-trigger
+			// listener — so a slow or partially-failing Google sync is
+			// logged the same way regardless of which path caught the edit.
+			syncTimelineDates := func(externalID, isoStart, isoEnd string) {
+				if isoStart == "" {
+					return
+				}
+				syncCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				updated, err := calendarService.SyncEventDates(syncCtx, externalID, isoStart, isoEnd)
+				cancel()
+				if err != nil {
+					logger.Error("calendar timeline sync failed", "external_id", externalID, "updated", updated, "error", err)
+				} else if updated > 0 {
+					logger.Info("calendar timeline sync applied", "external_id", externalID, "updated", updated)
+				}
+			}
+			// Path 1: an admin correcting a timeline date through the normal
+			// admin UI save. This catches it synchronously (replaceTimelineEvents'
+			// before/after diff), before the DB trigger below would even see it,
+			// since that trigger only fires on UPDATE and this path is a
+			// DELETE+INSERT.
+			admissionRepository.SetTimelineChangeHook(func(_ context.Context, changes []admissions.TimelineChange) {
+				go func() {
+					for _, change := range changes {
+						externalID := fmt.Sprintf("%s:timeline-%d", change.ProgramIdentifier, change.SortOrder)
+						syncTimelineDates(externalID, change.ISOStart, change.ISOEnd)
+					}
+				}()
+			})
+			// Path 2: a timeline row corrected by a direct SQL UPDATE (e.g. an
+			// admin fixing a data-entry mistake over psql, bypassing the admin
+			// API entirely) — program_timeline_events_notify_change (see
+			// migrations/000074) fires a Postgres NOTIFY the app-level hook
+			// above can never see, since no Go code ran. eventHub already
+			// has the LISTEN connection open for SSE; this just adds another
+			// subscriber on a different topic.
+			if eventHub != nil {
+				go func() {
+					for ev := range eventHub.Subscribe(hubCtx, "admissions.timeline_changed") {
+						var change timelineChangedNotification
+						if err := json.Unmarshal(ev.Data, &change); err != nil {
+							logger.Warn("dropping malformed timeline change notification", "error", err)
+							continue
+						}
+						externalID := fmt.Sprintf("%03d-%s-%s:timeline-%d", change.AcademicYear, change.SchoolCode, change.ProgramCode, change.SortOrder)
+						isoStart, isoEnd := "", ""
+						if change.StartDate != nil {
+							isoStart = *change.StartDate
+							isoEnd = isoStart
+							if change.EndDate != nil {
+								isoEnd = *change.EndDate
+							}
+						}
+						syncTimelineDates(externalID, isoStart, isoEnd)
+					}
+				}()
+			}
 		}
 		// Cached only for the public catalogue handler — admin/ingestion/results
 		// consumers below keep using the uncached admissionRepository directly

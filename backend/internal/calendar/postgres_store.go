@@ -58,6 +58,28 @@ func (s *PostgresEventLinkStore) DeleteEventLink(ctx context.Context, accountID 
 	return nil
 }
 
+func (s *PostgresEventLinkStore) ListLinksByExternalID(ctx context.Context, externalID string) ([]AccountEventLink, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT account_id, google_event_id FROM calendar_event_links WHERE external_id = $1
+	`, externalID)
+	if err != nil {
+		return nil, fmt.Errorf("list calendar event links by external id: %w", err)
+	}
+	defer rows.Close()
+	links := make([]AccountEventLink, 0)
+	for rows.Next() {
+		var link AccountEventLink
+		if err := rows.Scan(&link.AccountID, &link.GoogleEventID); err != nil {
+			return nil, fmt.Errorf("scan calendar event link: %w", err)
+		}
+		links = append(links, link)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate calendar event links: %w", err)
+	}
+	return links, nil
+}
+
 func (s *PostgresEventLinkStore) ListEventLinks(ctx context.Context, accountID uuid.UUID) ([]string, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT external_id FROM calendar_event_links WHERE account_id = $1

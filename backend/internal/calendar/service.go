@@ -45,6 +45,19 @@ type EventLinkStore interface {
 	GetEventLink(ctx context.Context, accountID uuid.UUID, externalID string) (googleEventID string, err error)
 	DeleteEventLink(ctx context.Context, accountID uuid.UUID, externalID string) error
 	ListEventLinks(ctx context.Context, accountID uuid.UUID) ([]string, error)
+	// ListLinksByExternalID is the reverse of ListEventLinks: every account
+	// that currently has a calendar event recorded under this external_id,
+	// with that event's own Google id — the admin side (an admissions
+	// schedule correction) knows the external_id but not which visitors
+	// added it, so this is how SyncEventDates finds who to push the fix to.
+	ListLinksByExternalID(ctx context.Context, externalID string) ([]AccountEventLink, error)
+}
+
+// AccountEventLink pairs one account with the Google Calendar event id it
+// holds for a given external_id — see ListLinksByExternalID.
+type AccountEventLink struct {
+	AccountID     uuid.UUID
+	GoogleEventID string
 }
 
 // EventInput is one all-day event to create. ISOStart/ISOEnd are inclusive
@@ -236,6 +249,104 @@ func (s *Service) DeleteEvent(ctx context.Context, accountID uuid.UUID, external
 		return fmt.Errorf("delete calendar event link: %w", err)
 	}
 	return nil
+}
+
+// SyncEventDates pushes a corrected date range to every account's Google
+// Calendar event recorded under externalID — used when an admin fixes a
+// program_timeline_events row after visitors have already added it to their
+// calendar (see admissions.PostgresRepository.SetTimelineChangeHook). Only
+// the event's start/end dates are patched; the title and description the
+// visitor saw when they added it are left untouched. isoStart/isoEnd use
+// the same inclusive "YYYY-MM-DD" convention as CreateEvents.
+//
+// Each account's token is independent, so one account with a revoked grant
+// (its link is dropped, same as DeleteEvent would) must not stop the sync
+// for everyone else — failures are collected and returned together rather
+// than aborting the loop.
+func (s *Service) SyncEventDates(ctx context.Context, externalID, isoStart, isoEnd string) (updated int, err error) {
+	links, err := s.links.ListLinksByExternalID(ctx, externalID)
+	if err != nil {
+		return 0, fmt.Errorf("list calendar event links for %s: %w", externalID, err)
+	}
+	var errs []error
+	for _, link := range links {
+		if syncErr := s.patchEventDates(ctx, link.AccountID, link.GoogleEventID, isoStart, isoEnd); syncErr != nil {
+			if isRevokedGrant(syncErr) {
+				_ = s.grants.DeleteCalendarGrant(ctx, link.AccountID, "google")
+				_ = s.links.DeleteEventLink(ctx, link.AccountID, externalID)
+			}
+			errs = append(errs, fmt.Errorf("account %s: %w", link.AccountID, syncErr))
+			continue
+		}
+		updated++
+	}
+	return updated, errors.Join(errs...)
+}
+
+func (s *Service) patchEventDates(ctx context.Context, accountID uuid.UUID, googleEventID, isoStart, isoEnd string) error {
+	client, err := s.clientFor(ctx, accountID)
+	if errors.Is(err, auth.ErrNotFound) {
+		return ErrNotLinked
+	}
+	if err != nil {
+		return err
+	}
+	payload, err := json.Marshal(map[string]any{
+		"start": map[string]string{"date": isoStart},
+		"end":   map[string]string{"date": nextDay(isoEnd)},
+	})
+	if err != nil {
+		return fmt.Errorf("encode calendar event patch: %w", err)
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPatch, eventsEndpoint+"/"+googleEventID, bytes.NewReader(payload))
+	if err != nil {
+		return fmt.Errorf("build calendar patch request: %w", err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	response, err := client.Do(request)
+	if err != nil {
+		var retrieveErr *oauth2.RetrieveError
+		if errors.As(err, &retrieveErr) {
+			return revokedGrantError{detail: retrieveErr.Error()}
+		}
+		return fmt.Errorf("call Google Calendar API: %w", err)
+	}
+	defer response.Body.Close()
+	// 404/410 means the visitor (or something else) already removed this
+	// event on Google's side — nothing left to patch, and not worth
+	// treating as a failure the caller needs to retry.
+	if response.StatusCode == http.StatusNotFound || response.StatusCode == http.StatusGone {
+		return nil
+	}
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
+		if response.StatusCode == http.StatusUnauthorized || strings.Contains(string(body), "invalid_grant") ||
+			strings.Contains(string(body), "insufficientPermissions") || strings.Contains(string(body), "ACCESS_TOKEN_SCOPE_INSUFFICIENT") {
+			return revokedGrantError{detail: string(body)}
+		}
+		return fmt.Errorf("Google Calendar API returned %s: %s", response.Status, string(body))
+	}
+	return nil
+}
+
+// clientFor builds an HTTP client that transparently refreshes accountID's
+// stored Google OAuth token before each request — the same setup
+// CreateEvents and DeleteEvent each inlined their own copy of.
+func (s *Service) clientFor(ctx context.Context, accountID uuid.UUID) (*http.Client, error) {
+	ciphertext, _, err := s.grants.GetCalendarGrant(ctx, accountID, "google")
+	if err != nil {
+		return nil, fmt.Errorf("load calendar grant: %w", err)
+	}
+	refreshToken, err := s.cipher.Open(ciphertext)
+	if err != nil {
+		return nil, fmt.Errorf("decrypt calendar refresh token: %w", err)
+	}
+	ctx = context.WithValue(ctx, oauth2.HTTPClient, s.httpClient)
+	tokenSource := s.oauthConfig.TokenSource(ctx, &oauth2.Token{RefreshToken: refreshToken})
+	return &http.Client{
+		Transport: &oauth2.Transport{Source: tokenSource, Base: s.httpClient.Transport},
+		Timeout:   s.httpClient.Timeout,
+	}, nil
 }
 
 type revokedGrantError struct{ detail string }
