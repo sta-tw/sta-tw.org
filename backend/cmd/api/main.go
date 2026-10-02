@@ -577,6 +577,15 @@ func run(logger *slog.Logger) error {
 				if err != nil {
 					return err
 				}
+				if redisClient != nil {
+					draftStore, err := discordmail.NewRedisDraftStore(redisClient)
+					if err != nil {
+						return err
+					}
+					discordMailHandler.ConfigureDraftStore(draftStore)
+				} else {
+					logger.Warn("STA_REDIS_URL is not set; /re skips the 送出/編輯/刪除 preview and sends immediately on submit")
+				}
 				registrars = append(registrars, discordMailHandler.RegisterRoutes)
 			} else {
 				logger.Warn("STA_DISCORD_MAIL_APPLICATION_PUBLIC_KEY is not set; the /re slash command endpoint is disabled")
