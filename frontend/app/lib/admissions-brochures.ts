@@ -54,9 +54,14 @@ function requirementStatus(
 }
 
 // Blank end_date = point-in-time; set end_date = range (same start/end date = same-day window).
+// Blank start_date with a set end_date = deadline-only event (e.g. "XX截止").
 function formatTimelineEventDate(event: AdmissionTimelineEvent): string {
     if (!hasValue(event.start_date)) {
-        return "以官方簡章公告為準";
+        if (!hasValue(event.end_date)) {
+            return "以官方簡章公告為準";
+        }
+        const endDatePart = formatDate(event.end_date);
+        return hasValue(event.end_time) ? `${endDatePart} ${event.end_time}` : endDatePart;
     }
     const startDatePart = formatDate(event.start_date);
     const startTimePart = hasValue(event.start_time) ? event.start_time : "";

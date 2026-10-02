@@ -3545,7 +3545,12 @@ function ProgramDetails({ program }: { program: AdminAdmissionProgram }) {
 
 function formatAdminTimelineRange(event: AdmissionTimelineEvent): string {
     const hasStart = event.start_date !== "-";
-    if (!hasStart) return "-";
+    if (!hasStart) {
+        // Blank start with a set end = deadline-only event (e.g. "XX截止").
+        const hasEnd = event.end_date !== "-";
+        if (!hasEnd) return "-";
+        return event.end_time !== "-" ? `${event.end_date} ${event.end_time}` : event.end_date;
+    }
     const start =
         event.start_time !== "-" ? `${event.start_date} ${event.start_time}` : event.start_date;
     const hasEnd = event.end_date !== "-";
