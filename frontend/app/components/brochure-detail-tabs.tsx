@@ -59,6 +59,10 @@ type BrochureDetailTabsProps = {
     externalLinkPreviews: OpenGraphPreview[];
     downloadUrl?: string;
     schoolCode: string;
+    /** Current/應屆 admission cycle's academic year — excluded from the
+     * "歷史簡章下載" list below, since that year's brochure is already the
+     * main 簡章下載 button above; "歷史" means prior cycles only. */
+    currentAcademicYear: number;
 };
 
 const tabs = [
@@ -72,7 +76,8 @@ export default function BrochureDetailTabs({
     brochure,
     externalLinkPreviews,
     downloadUrl,
-    schoolCode
+    schoolCode,
+    currentAcademicYear
 }: BrochureDetailTabsProps) {
     return (
         <Tabs.Root defaultValue="overview" className="mt-7 sm:mt-9">
@@ -127,7 +132,11 @@ export default function BrochureDetailTabs({
                 <RegistrationTab brochure={brochure} />
             </Tabs.Content>
             <Tabs.Content value="history" className="outline-none">
-                <HistoryTab brochure={brochure} schoolCode={schoolCode} />
+                <HistoryTab
+                    brochure={brochure}
+                    schoolCode={schoolCode}
+                    currentAcademicYear={currentAcademicYear}
+                />
             </Tabs.Content>
         </Tabs.Root>
     );
@@ -649,8 +658,9 @@ function TimelineItem({
 
 function HistoryTab({
     brochure,
-    schoolCode
-}: Pick<BrochureDetailTabsProps, "brochure" | "schoolCode">) {
+    schoolCode,
+    currentAcademicYear
+}: Pick<BrochureDetailTabsProps, "brochure" | "schoolCode" | "currentAcademicYear">) {
     return (
         <div className="mt-8 flex flex-col gap-8 sm:mt-10">
             {brochure.history.length === 0 ? (
@@ -699,7 +709,7 @@ function HistoryTab({
                 </div>
             )}
 
-            <HistoricalBrochuresList schoolCode={schoolCode} />
+            <HistoricalBrochuresList schoolCode={schoolCode} currentAcademicYear={currentAcademicYear} />
         </div>
     );
 }
@@ -707,7 +717,13 @@ function HistoryTab({
 // 學校的簡章 PDF 依學年度分開存放，不會被隔年上傳的新簡章覆蓋，所以這裡列出的是
 // 這間學校目前所有已上架的年度，而不只是這個科系當年度的那一份。下載連結直接指向
 // 後端的串流端點（每次下載都會即時蓋入追蹤標記），不再經過一次 JSON 轉址。
-function HistoricalBrochuresList({ schoolCode }: { schoolCode: string }) {
+function HistoricalBrochuresList({
+    schoolCode,
+    currentAcademicYear
+}: {
+    schoolCode: string;
+    currentAcademicYear: number;
+}) {
     const [documents, setDocuments] = useState<BrochureDocument[] | null>(null);
     const [downloadingYear, setDownloadingYear] = useState<number | null>(null);
     const [error, setError] = useState<string | null>(null);
@@ -716,13 +732,15 @@ function HistoricalBrochuresList({ schoolCode }: { schoolCode: string }) {
         const controller = new AbortController();
         listPublishedBrochures(schoolCode, { signal: controller.signal })
             .then((response) => {
-                if (!controller.signal.aborted) setDocuments(response.data);
+                if (!controller.signal.aborted) {
+                    setDocuments(response.data.filter((item) => item.academic_year !== currentAcademicYear));
+                }
             })
             .catch(() => {
                 if (!controller.signal.aborted) setDocuments([]);
             });
         return () => controller.abort();
-    }, [schoolCode]);
+    }, [schoolCode, currentAcademicYear]);
 
     function download(year: number) {
         setError(null);

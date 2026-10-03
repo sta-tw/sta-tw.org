@@ -171,6 +171,7 @@ export default function BrochureProgramView() {
                     externalLinkPreviews={externalLinkPreviews}
                     downloadUrl={downloadUrl}
                     schoolCode={program.school_code}
+                    currentAcademicYear={program.academic_year}
                 />
 
                 <aside className="mt-10 w-fit max-w-full rounded-[var(--radius-small)] bg-accent-green/45 px-4 py-2 font-sans text-sm leading-relaxed text-ink/75 sm:mt-12 sm:text-base">
