@@ -62,6 +62,7 @@ func NewBrochureHandlerWithDispatcherAndScanner(authService *auth.Service, repos
 func (h *BrochureHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/admissions/brochures/{academicYear}/{schoolCode}/download", h.downloadPublic)
 	mux.HandleFunc("HEAD /api/v1/admissions/brochures/{academicYear}/{schoolCode}/download", h.downloadPublicExists)
+	mux.HandleFunc("GET /api/v1/admissions/brochures/{academicYear}/{schoolCode}/preview", h.previewPublic)
 	mux.HandleFunc("GET /api/v1/admissions/brochures/{schoolCode}", h.listPublicBySchool)
 	mux.HandleFunc("GET /api/v1/admin/admissions/brochures", h.list)
 	mux.HandleFunc("GET /api/v1/admin/admissions/brochures/{academicYear}/{schoolCode}/events", h.listEvents)
@@ -73,13 +74,25 @@ func (h *BrochureHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/admin/admissions/brochures/{academicYear}/{schoolCode}/visibility", h.visibility)
 }
 
-// downloadPublic streams the public brochure PDF through Go instead of
+func (h *BrochureHandler) downloadPublic(w http.ResponseWriter, r *http.Request) {
+	h.servePublic(w, r, `attachment; filename="brochure.pdf"`)
+}
+
+// previewPublic serves the same PDF as downloadPublic, just inline instead
+// of as an attachment, so the page can offer a "預覽" link that opens the
+// brochure in a new tab without forcing a save-to-disk — "簡章下載" stays a
+// real download.
+func (h *BrochureHandler) previewPublic(w http.ResponseWriter, r *http.Request) {
+	h.servePublic(w, r, `inline; filename="brochure.pdf"`)
+}
+
+// servePublic streams the public brochure PDF through Go instead of
 // redirecting to a presigned storage URL, because every response needs a
 // per-request metadata patch (stampDownloadMetadata) baked in — a static
 // signed link can't carry that. The heavier one-time step, the hidden OCG
 // watermark (applyHiddenWatermark), runs lazily on the first download after
 // publish and is cached via watermarked_storage_key from then on.
-func (h *BrochureHandler) downloadPublic(w http.ResponseWriter, r *http.Request) {
+func (h *BrochureHandler) servePublic(w http.ResponseWriter, r *http.Request, disposition string) {
 	if h.blobStore == nil {
 		writeAdmissionError(w, http.StatusServiceUnavailable, "storage_unavailable", "brochure storage is unavailable")
 		return
@@ -121,7 +134,7 @@ func (h *BrochureHandler) downloadPublic(w http.ResponseWriter, r *http.Request)
 
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", "application/pdf")
-	w.Header().Set("Content-Disposition", `attachment; filename="brochure.pdf"`)
+	w.Header().Set("Content-Disposition", disposition)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Content-Length", strconv.Itoa(len(stamped)))
 	_, _ = w.Write(stamped)

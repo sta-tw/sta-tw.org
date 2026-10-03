@@ -354,6 +354,12 @@ export function getPublishedBrochureDownloadURL(academicYear: number, schoolCode
     return `${API_BASE_URL}/api/v1/admissions/brochures/${academicYear}/${encodeURIComponent(schoolCode)}/download`;
 }
 
+/** Same PDF as getPublishedBrochureDownloadURL, served `inline` instead of
+ * as an attachment — opens in a new tab for viewing instead of saving. */
+export function getPublishedBrochurePreviewURL(academicYear: number, schoolCode: string): string {
+    return `${API_BASE_URL}/api/v1/admissions/brochures/${academicYear}/${encodeURIComponent(schoolCode)}/preview`;
+}
+
 /** HEAD-checks whether a brochure exists without transferring the PDF. */
 export async function publishedBrochureExists(
     academicYear: number,

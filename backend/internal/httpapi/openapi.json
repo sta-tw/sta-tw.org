@@ -9679,6 +9679,63 @@
         }
       }
     },
+    "/api/v1/admissions/brochures/{academicYear}/{schoolCode}/preview": {
+      "get": {
+        "operationId": "get_api_v1_admissions_brochures_academicYear_schoolCode_preview",
+        "summary": "Get admissions brochures academicYear schoolCode preview",
+        "tags": [
+          "admissions"
+        ],
+        "parameters": [
+          {
+            "name": "academicYear",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "schoolCode",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/admissions/brochures/{schoolCode}": {
       "get": {
         "operationId": "get_api_v1_admissions_brochures_schoolCode",

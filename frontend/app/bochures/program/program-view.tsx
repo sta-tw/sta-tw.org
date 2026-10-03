@@ -8,6 +8,7 @@ import {
     getAdmissionProgram,
     getAdmissionProgramHistory,
     getPublishedBrochureDownloadURL,
+    getPublishedBrochurePreviewURL,
     publishedBrochureExists,
     type AdmissionProgram
 } from "../../lib/api/admissions";
@@ -23,6 +24,7 @@ type ProgramViewState = {
     identifier: string;
     program: AdmissionProgram | null;
     downloadUrl?: string;
+    previewUrl?: string;
     history: BrochureHistory[];
     error: string | null;
 };
@@ -59,6 +61,9 @@ export default function BrochureProgramView() {
                 const nextDownloadUrl = exists
                     ? getPublishedBrochureDownloadURL(response.data.academic_year, response.data.school_code)
                     : undefined;
+                const nextPreviewUrl = exists
+                    ? getPublishedBrochurePreviewURL(response.data.academic_year, response.data.school_code)
+                    : undefined;
 
                 let nextHistory: BrochureHistory[] = [];
                 try {
@@ -77,6 +82,7 @@ export default function BrochureProgramView() {
                         identifier,
                         program: response.data,
                         downloadUrl: nextDownloadUrl,
+                        previewUrl: nextPreviewUrl,
                         history: nextHistory,
                         error: null
                     });
@@ -104,6 +110,7 @@ export default function BrochureProgramView() {
     const program = state.identifier === identifier ? state.program : null;
     const error = state.identifier === identifier ? state.error : null;
     const downloadUrl = state.identifier === identifier ? state.downloadUrl : undefined;
+    const previewUrl = state.identifier === identifier ? state.previewUrl : undefined;
     const history = state.identifier === identifier ? state.history : [];
 
     if (isLoading) {
@@ -170,6 +177,7 @@ export default function BrochureProgramView() {
                     brochure={brochure}
                     externalLinkPreviews={externalLinkPreviews}
                     downloadUrl={downloadUrl}
+                    previewUrl={previewUrl}
                     schoolCode={program.school_code}
                     currentAcademicYear={program.academic_year}
                 />

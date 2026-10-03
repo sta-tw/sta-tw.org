@@ -58,6 +58,7 @@ type BrochureDetailTabsProps = {
     brochure: Brochure;
     externalLinkPreviews: OpenGraphPreview[];
     downloadUrl?: string;
+    previewUrl?: string;
     schoolCode: string;
     /** Current/應屆 admission cycle's academic year — excluded from the
      * "歷史簡章下載" list below, since that year's brochure is already the
@@ -76,6 +77,7 @@ export default function BrochureDetailTabs({
     brochure,
     externalLinkPreviews,
     downloadUrl,
+    previewUrl,
     schoolCode,
     currentAcademicYear
 }: BrochureDetailTabsProps) {
@@ -120,6 +122,17 @@ export default function BrochureDetailTabs({
                         尚未提供下載
                     </button>
                 )}
+                {previewUrl ? (
+                    <a
+                        href={previewUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex h-10 shrink-0 cursor-pointer items-center gap-2 rounded-full border border-ink/15 bg-surface px-3 font-sans text-sm font-medium whitespace-nowrap text-ink transition-colors hover:bg-ink/5 focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2 focus-visible:outline-none"
+                    >
+                        <ExternalLink aria-hidden className="h-4 w-4 shrink-0" />
+                        簡章預覽
+                    </a>
+                ) : null}
             </div>
 
             <Tabs.Content value="overview" className="outline-none">
