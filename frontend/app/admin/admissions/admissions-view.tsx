@@ -2661,6 +2661,7 @@ function ProgramYearHistorySection({
     const [admittedCount, setAdmittedCount] = useState("");
     const [waitlistedCount, setWaitlistedCount] = useState("");
     const [promotedCount, setPromotedCount] = useState("");
+    const [notesInput, setNotesInput] = useState("");
     const [pending, setPending] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [rowEdits, setRowEdits] = useState<
@@ -2672,6 +2673,7 @@ function ProgramYearHistorySection({
                 admitted_count: string;
                 waitlisted_count: string;
                 promoted_count: string;
+                notes: string;
             }
         >
     >({});
@@ -2695,7 +2697,8 @@ function ProgramYearHistorySection({
                                 applicant_count: displayFormValue(entry.applicant_count),
                                 admitted_count: displayFormValue(entry.admitted_count),
                                 waitlisted_count: displayFormValue(entry.waitlisted_count),
-                                promoted_count: displayFormValue(entry.promoted_count)
+                                promoted_count: displayFormValue(entry.promoted_count),
+                                notes: displayFormValue(entry.notes)
                             }
                         ])
                     )
@@ -2726,7 +2729,8 @@ function ProgramYearHistorySection({
                 applicant_count: edit.applicant_count.trim() || "-",
                 admitted_count: edit.admitted_count.trim() || "-",
                 waitlisted_count: edit.waitlisted_count.trim() || "-",
-                promoted_count: edit.promoted_count.trim() || "-"
+                promoted_count: edit.promoted_count.trim() || "-",
+                notes: edit.notes.trim() || "-"
             };
             const response = await updateAdminAdmissionProgram(
                 entry.program_identifier,
@@ -2776,7 +2780,8 @@ function ProgramYearHistorySection({
                 applicant_count: applicantCount.trim() || "-",
                 admitted_count: admittedCount.trim() || "-",
                 waitlisted_count: waitlistedCount.trim() || "-",
-                promoted_count: promotedCount.trim() || "-"
+                promoted_count: promotedCount.trim() || "-",
+                notes: notesInput.trim() || "-"
             };
             const syncResponse = await syncAdminAdmissionPrograms(
                 `補登 ${year} 學年度歷史招生資料`,
@@ -2798,6 +2803,7 @@ function ProgramYearHistorySection({
             setAdmittedCount("");
             setWaitlistedCount("");
             setPromotedCount("");
+            setNotesInput("");
             setAdding(false);
             await reload();
         } catch (cause) {
@@ -2825,7 +2831,7 @@ function ProgramYearHistorySection({
 
             {adding ? (
                 <div className="mt-3 rounded-[var(--radius-small)] bg-ink/[0.03] p-3">
-                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-7">
                         <Field label="學年度">
                             <input
                                 className={`${inputClass} w-full`}
@@ -2870,6 +2876,13 @@ function ProgramYearHistorySection({
                                 onChange={(event) => setPromotedCount(event.target.value)}
                             />
                         </Field>
+                        <Field label="備註">
+                            <input
+                                className={`${inputClass} w-full`}
+                                value={notesInput}
+                                onChange={(event) => setNotesInput(event.target.value)}
+                            />
+                        </Field>
                     </div>
                     <Button
                         type="button"
@@ -2902,6 +2915,7 @@ function ProgramYearHistorySection({
                                 <th className="py-1.5 pr-3 font-medium">正取人數</th>
                                 <th className="py-1.5 pr-3 font-medium">備取人數</th>
                                 <th className="py-1.5 pr-3 font-medium">最終遞補人數</th>
+                                <th className="py-1.5 pr-3 font-medium">備註</th>
                                 <th className="py-1.5 pr-3 font-medium">狀態</th>
                                 <th className="py-1.5 pr-3 font-medium" />
                             </tr>
@@ -2989,6 +3003,21 @@ function ProgramYearHistorySection({
                                                         [entry.program_identifier]: {
                                                             ...edit,
                                                             promoted_count: event.target.value
+                                                        }
+                                                    }))
+                                                }
+                                            />
+                                        </td>
+                                        <td className="py-1.5 pr-3">
+                                            <input
+                                                className={`${inputClass} w-36`}
+                                                value={edit.notes}
+                                                onChange={(event) =>
+                                                    setRowEdits((prev) => ({
+                                                        ...prev,
+                                                        [entry.program_identifier]: {
+                                                            ...edit,
+                                                            notes: event.target.value
                                                         }
                                                     }))
                                                 }
