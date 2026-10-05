@@ -614,16 +614,31 @@ func (s *Service) OAuthCallback(ctx context.Context, provider, stateValue, code 
 	if state.AccountID != nil {
 		if err := s.store.CreateOAuthBinding(ctx, *state.AccountID, provider, subjectHash); err != nil {
 			if errors.Is(err, ErrConflict) {
-				// Diagnostic only (see cmd/account-tool's find-oauth-conflict):
-				// a conflict here means this exact provider identity is
-				// already bound to some *other* account — log which one so
-				// support can trace it without needing the user to somehow
-				// prove which Google account they used.
-				if holder, _, findErr := s.store.FindAccountByOAuthSubjectHashes(ctx, provider, [][]byte{subjectHash}); findErr == nil {
-					slog.Warn("oauth bind conflict", "provider", provider, "attempted_account_id", *state.AccountID, "already_bound_to_account_id", holder.ID, "already_bound_to_username", holder.Username)
+				// A conflict here just means a row already exists for this
+				// (account, provider) or (provider, subject) pair — CreateOAuthBinding
+				// is a blind INSERT with no "already mine" exception. The common
+				// case is this exact account re-running the OAuth dance to pick up
+				// an extra scope (e.g. the calendar flow above, which re-requests
+				// consent to get a refresh token) — that's not a real conflict,
+				// just a redundant bind, so let it through instead of erroring.
+				holder, _, findErr := s.store.FindAccountByOAuthSubjectHashes(ctx, provider, [][]byte{subjectHash})
+				if findErr == nil && holder.ID == *state.AccountID {
+					// Already bound to this same account — fall through to the
+					// calendar-grant save below instead of returning an error.
+				} else {
+					// Diagnostic only (see cmd/account-tool's find-oauth-conflict):
+					// a conflict here means this exact provider identity is
+					// already bound to some *other* account — log which one so
+					// support can trace it without needing the user to somehow
+					// prove which Google account they used.
+					if findErr == nil {
+						slog.Warn("oauth bind conflict", "provider", provider, "attempted_account_id", *state.AccountID, "already_bound_to_account_id", holder.ID, "already_bound_to_username", holder.Username)
+					}
+					return OAuthResult{}, err
 				}
+			} else {
+				return OAuthResult{}, err
 			}
-			return OAuthResult{}, err
 		}
 		if err := s.saveCalendarGrantIfPresent(ctx, *state.AccountID, provider, token); err != nil {
 			return OAuthResult{}, err
