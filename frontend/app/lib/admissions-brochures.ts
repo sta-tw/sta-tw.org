@@ -109,9 +109,13 @@ function registrationTimeline(program: AdmissionProgram): BrochureTimelineItem[]
 export function programHistoryFromYears(years: AdmissionProgram[]): BrochureHistory[] {
     return years
         .filter((year) =>
-            [year.applicant_count, year.admitted_count, year.waitlisted_count, year.promoted_count].some(
-                hasValue
-            )
+            [
+                year.applicant_count,
+                year.admitted_count,
+                year.waitlisted_count,
+                year.promoted_count,
+                year.notes
+            ].some(hasValue)
         )
         .map((year) => ({
             year: `${year.academic_year}`,
@@ -119,7 +123,8 @@ export function programHistoryFromYears(years: AdmissionProgram[]): BrochureHist
             applicants: hasValue(year.applicant_count) ? year.applicant_count : "-",
             admitted: hasValue(year.admitted_count) ? year.admitted_count : "-",
             waitlisted: hasValue(year.waitlisted_count) ? year.waitlisted_count : "-",
-            promoted: hasValue(year.promoted_count) ? year.promoted_count : "-"
+            promoted: hasValue(year.promoted_count) ? year.promoted_count : "-",
+            notes: hasValue(year.notes) ? year.notes : "-"
         }));
 }
 

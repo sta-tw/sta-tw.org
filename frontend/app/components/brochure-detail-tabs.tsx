@@ -704,6 +704,9 @@ function HistoryTab({
                                 <th scope="col" className="px-4 py-3 font-medium">
                                     最終遞補人數
                                 </th>
+                                <th scope="col" className="px-4 py-3 font-medium">
+                                    備註
+                                </th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-ink/15 text-ink/75">
@@ -715,6 +718,7 @@ function HistoryTab({
                                     <td className="px-4 py-3">{row.admitted}</td>
                                     <td className="px-4 py-3">{row.waitlisted}</td>
                                     <td className="px-4 py-3">{row.promoted}</td>
+                                    <td className="px-4 py-3">{row.notes}</td>
                                 </tr>
                             ))}
                         </tbody>

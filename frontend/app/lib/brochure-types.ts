@@ -14,6 +14,7 @@ export type BrochureHistory = {
     admitted: string;
     waitlisted: string;
     promoted: string;
+    notes: string;
 };
 
 export type BrochureTimelineItem = {
