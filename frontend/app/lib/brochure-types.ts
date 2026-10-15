@@ -22,10 +22,10 @@ export type BrochureTimelineItem = {
     title: string;
     date: string;
     notes?: string;
-    /** "YYYY-MM-DD", when the underlying data has a real date — powers
-     * "新增至日曆". Missing when the item is only a human-readable fallback
-     * (e.g. "以官方簡章公告為準"). Also used to color each item relative to
-     * today (past/current/next-up/future) — see brochure-detail-tabs.tsx. */
+    /** Calendar date in YYYY-MM-DD. For a deadline-only row stored in
+     * end_date, isoStart is normalized to that date so the event is selectable
+     * as a one-day event. Missing when there is no usable date. Also used to
+     * color each item relative to today — see brochure-detail-tabs.tsx. */
     isoStart?: string;
     isoEnd?: string;
 };

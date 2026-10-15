@@ -21,6 +21,7 @@ const notoSerifTC = Noto_Serif_TC({
 });
 
 export const metadata: Metadata = {
+    metadataBase: new URL("https://sta-tw.org"),
     title: "S.T.A 特殊選才資源網",
     description: "特殊選才資源網 - 提供文章與簡章搜尋等服務"
 };

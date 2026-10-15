@@ -1,6 +1,6 @@
-// Package discordmail is Discord's Interactions Endpoint for the /re slash
-// command: staff reply to a mail-routes-originated inquiry by using /re
-// inside its forum thread, entirely over HTTP — no long-running bot
+// Package discordmail is Discord's Interactions Endpoint for /re:
+// staff reply to a mail inquiry or send an account-application correction
+// from its forum thread, entirely over HTTP — no long-running bot
 // process, matching Discord's Interactions model (see
 // https://discord.com/developers/docs/interactions/receiving-and-responding).
 //
@@ -27,12 +27,16 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+	"sta-backend/internal/accountapplications"
 	"sta-backend/internal/emailinquiries"
 )
 
@@ -85,24 +89,38 @@ func modalEditCustomID(draftID string) string {
 // emailinquiries.Service — kept as an interface so this package doesn't
 // import the concrete type, and so tests can fake it.
 type ReplyService interface {
-	ReplyByDiscord(ctx context.Context, threadID, staffName, staffDiscordID, body, signature string) (emailinquiries.Inquiry, error)
+	ReplyByDiscord(ctx context.Context, command, threadID, staffName, staffDiscordID, body, signature string) error
+}
+
+type ApplicationDecisionService interface {
+	DecideByDiscord(ctx context.Context, threadID string, applicationID uuid.UUID, action, staffName, staffDiscordID string) (accountapplications.Application, error)
 }
 
 type Handler struct {
 	publicKey ed25519.PublicKey
 	reply     ReplyService
+	decisions ApplicationDecisionService
 	drafts    DraftStore
+	logger    *slog.Logger
 }
 
-func NewHandler(publicKeyHex string, reply ReplyService) (*Handler, error) {
-	if reply == nil {
+func NewHandler(publicKeyHex string, reply ReplyService, decisions ApplicationDecisionService) (*Handler, error) {
+	if reply == nil || decisions == nil {
 		return nil, errors.New("discordmail handler dependencies are missing")
 	}
 	key, err := hex.DecodeString(publicKeyHex)
 	if err != nil || len(key) != ed25519.PublicKeySize {
 		return nil, errors.New("discord application public key is invalid")
 	}
-	return &Handler{publicKey: ed25519.PublicKey(key), reply: reply}, nil
+	return &Handler{publicKey: ed25519.PublicKey(key), reply: reply, decisions: decisions, logger: slog.Default()}, nil
+}
+
+// ConfigureLogger uses the API's structured logger for failures that happen
+// after Discord has already received the initial interaction response.
+func (h *Handler) ConfigureLogger(logger *slog.Logger) {
+	if logger != nil {
+		h.logger = logger
+	}
 }
 
 // ConfigureDraftStore wires the 送出/編輯/刪除 preview flow. Without it (e.g.
@@ -152,6 +170,9 @@ func (h *Handler) interact(w http.ResponseWriter, r *http.Request) {
 				} `json:"components"`
 			} `json:"components"`
 		} `json:"data"`
+		Message struct {
+			Content string `json:"content"`
+		} `json:"message"`
 	}
 	if err := json.Unmarshal(body, &payload); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
@@ -185,15 +206,41 @@ func (h *Handler) interact(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, replyModalResponse(replyModalCustomID, "", ""))
 		return
 
+	case payload.Type == interactionTypeApplicationCommand:
+		writeJSON(w, interactionErrorResponse("此指令未啟用，請使用 /re 處理信件回覆。"))
+		return
+
 	case payload.Type == interactionTypeModalSubmit && payload.Data.CustomID == replyModalCustomID:
 		message, signature := extractModalFields(payload.Data.Components)
-		h.handleFreshModalSubmit(w, r, payload.ApplicationID, payload.Token, payload.Channel.ID, staffName, payload.Member.User.ID, message, signature)
+		h.handleFreshModalSubmit(w, r, payload.ApplicationID, payload.Token, payload.Channel.ID, "re", staffName, payload.Member.User.ID, message, signature)
 		return
 
 	case payload.Type == interactionTypeModalSubmit && strings.HasPrefix(payload.Data.CustomID, replyModalCustomID+":"):
 		draftID := strings.TrimPrefix(payload.Data.CustomID, replyModalCustomID+":")
 		message, signature := extractModalFields(payload.Data.Components)
 		h.handleEditModalSubmit(w, r, draftID, message, signature)
+		return
+
+	case payload.Type == interactionTypeMessageComponent && strings.HasPrefix(payload.Data.CustomID, "account_application:"):
+		action, applicationID, ok := parseApplicationDecisionCustomID(payload.Data.CustomID)
+		if !ok {
+			writeJSON(w, interactionErrorResponse("這個審核按鈕已失效。"))
+			return
+		}
+		processingContent := "⏳ STA Assistant 正在處理帳號申請審核…"
+		if content := strings.TrimSpace(payload.Message.Content); content != "" {
+			processingContent = content + "\n\n" + processingContent
+		}
+		writeJSONAndFlush(w, map[string]any{
+			"type": responseTypeUpdateMessage,
+			"data": map[string]any{
+				"content": processingContent,
+				// Preserve any role mention text already on the review post
+				// without notifying those roles a second time on edit.
+				"allowed_mentions": map[string]any{"parse": []string{}},
+			},
+		})
+		go h.finishApplicationDecision(payload.ApplicationID, payload.Token, payload.Channel.ID, applicationID, action, staffName, payload.Member.User.ID)
 		return
 
 	case payload.Type == interactionTypeMessageComponent && strings.HasPrefix(payload.Data.CustomID, draftCustomIDPrefix):
@@ -233,12 +280,13 @@ func extractModalFields(rows []struct {
 // no message/draft exists yet, so this always creates both. Any earlier,
 // not-yet-sent draft for the same thread is superseded (and its now-stale
 // preview message deleted, best-effort) rather than left dangling.
-func (h *Handler) handleFreshModalSubmit(w http.ResponseWriter, r *http.Request, applicationID, token, threadID, staffName, staffDiscordID, message, signature string) {
+func (h *Handler) handleFreshModalSubmit(w http.ResponseWriter, r *http.Request, applicationID, token, threadID, command, staffName, staffDiscordID, message, signature string) {
 	if message == "" || signature == "" {
 		writeJSON(w, interactionErrorResponse("回覆內容跟簽名都不能是空白。"))
 		return
 	}
 	draft := replyDraft{
+		Command:  command,
 		ThreadID: threadID, StaffName: staffName, StaffDiscordID: staffDiscordID,
 		Message: message, Signature: signature,
 		ApplicationID: applicationID, Token: token,
@@ -284,7 +332,7 @@ func (h *Handler) handleEditModalSubmit(w http.ResponseWriter, r *http.Request, 
 	if message == "" || signature == "" {
 		writeJSON(w, map[string]any{
 			"type": responseTypeUpdateMessage,
-			"data": map[string]any{"content": "回覆內容跟簽名都不能是空白，請重新打 /re。", "embeds": []any{}, "components": []any{}},
+			"data": map[string]any{"content": "回覆內容跟簽名都不能是空白，請重新開啟補正指令。", "embeds": []any{}, "components": []any{}},
 		})
 		return
 	}
@@ -292,7 +340,7 @@ func (h *Handler) handleEditModalSubmit(w http.ResponseWriter, r *http.Request, 
 	if err != nil || !found {
 		writeJSON(w, map[string]any{
 			"type": responseTypeUpdateMessage,
-			"data": map[string]any{"content": "這份草稿已經處理過或過期了，麻煩重新打 /re。", "embeds": []any{}, "components": []any{}},
+			"data": map[string]any{"content": "這份草稿已經處理過或過期了，請重新開啟補正指令。", "embeds": []any{}, "components": []any{}},
 		})
 		return
 	}
@@ -301,7 +349,7 @@ func (h *Handler) handleEditModalSubmit(w http.ResponseWriter, r *http.Request, 
 	if err := h.drafts.UpdateDraft(r.Context(), draftID, draft); err != nil {
 		writeJSON(w, map[string]any{
 			"type": responseTypeUpdateMessage,
-			"data": map[string]any{"content": "更新草稿失敗，請重新打 /re。", "embeds": []any{}, "components": []any{}},
+			"data": map[string]any{"content": "更新草稿失敗，請重新開啟補正指令。", "embeds": []any{}, "components": []any{}},
 		})
 		return
 	}
@@ -320,7 +368,7 @@ func (h *Handler) handleDraftAction(w http.ResponseWriter, r *http.Request, appl
 	if err != nil || !found {
 		writeJSON(w, map[string]any{
 			"type": responseTypeUpdateMessage,
-			"data": map[string]any{"content": "這份草稿已經處理過或過期了，麻煩重新打 /re。", "embeds": []any{}, "components": []any{}},
+			"data": map[string]any{"content": "這份草稿已經處理過或過期了，請重新開啟補正指令。", "embeds": []any{}, "components": []any{}},
 		})
 		return
 	}
@@ -358,18 +406,14 @@ func (h *Handler) handleDraftAction(w http.ResponseWriter, r *http.Request, appl
 func (h *Handler) finishReply(applicationID, token string, draft replyDraft, previewDraft *replyDraft) {
 	ctx, cancel := context.WithTimeout(context.Background(), discordFollowupBackgroundTimeout)
 	defer cancel()
-	_, err := h.reply.ReplyByDiscord(ctx, draft.ThreadID, draft.StaffName, draft.StaffDiscordID, draft.Message, draft.Signature)
+	err := h.reply.ReplyByDiscord(ctx, draft.Command, draft.ThreadID, draft.StaffName, draft.StaffDiscordID, draft.Message, draft.Signature)
 	var title string
 	color := embedColorSent
 	switch {
 	case err == nil:
 		title = "✅ 回覆已寄出"
 	case errors.Is(err, emailinquiries.ErrNotFound):
-		// /re only makes sense inside a thread this system created — see
-		// the package doc comment. Using it anywhere else (a random forum
-		// post, a staff-only discussion channel, ...) has no inquiry to
-		// resolve to, so there's nothing to reply to.
-		title, color = "這個指令只能在信件討論串裡使用。", embedColorFailed
+		title, color = "/re 只能在信件或帳號申請討論串裡使用。", embedColorFailed
 	case errors.Is(err, emailinquiries.ErrInvalidInput):
 		title, color = "回覆內容跟簽名都不能是空白。", embedColorFailed
 	default:
@@ -380,6 +424,46 @@ func (h *Handler) finishReply(applicationID, token string, draft replyDraft, pre
 		return
 	}
 	h.editFollowupMessage(ctx, applicationID, token, title)
+}
+
+func parseApplicationDecisionCustomID(customID string) (string, uuid.UUID, bool) {
+	parts := strings.Split(customID, ":")
+	if len(parts) != 3 || parts[0] != "account_application" || (parts[1] != "approve" && parts[1] != "reject") {
+		return "", uuid.UUID{}, false
+	}
+	applicationID, err := uuid.Parse(parts[2])
+	if err != nil {
+		return "", uuid.UUID{}, false
+	}
+	return parts[1], applicationID, true
+}
+
+func (h *Handler) finishApplicationDecision(interactionApplicationID, token, threadID string, applicationID uuid.UUID, action, staffName, staffDiscordID string) {
+	ctx, cancel := context.WithTimeout(context.Background(), discordFollowupBackgroundTimeout)
+	defer cancel()
+	app, err := h.decisions.DecideByDiscord(ctx, threadID, applicationID, action, staffName, staffDiscordID)
+	data := map[string]any{}
+	switch {
+	case err == nil && action == "approve":
+		if app.ActivationEmailQueued {
+			data["content"] = fmt.Sprintf("✅ 帳號申請已由 %s 通過審核；啟用信已排入寄信佇列，寄送失敗時系統會自動重試。", staffName)
+		} else {
+			data["content"] = fmt.Sprintf("✅ 帳號申請已由 %s 通過並建立帳號，但啟用信尚未排入寄信佇列；系統已在審核流程中重試排程，請查看寄信服務狀態。", staffName)
+		}
+		data["components"] = []any{}
+	case err == nil:
+		data["content"] = fmt.Sprintf("⛔ 帳號申請已由 %s 設為不通過。", staffName)
+		data["components"] = []any{}
+	case errors.Is(err, accountapplications.ErrAlreadyDecided):
+		data["content"] = "這份帳號申請已完成審核。"
+		data["components"] = []any{}
+	case errors.Is(err, accountapplications.ErrNotFound):
+		data["content"] = "找不到這份帳號申請，或按鈕不屬於目前討論串。"
+		data["components"] = []any{}
+	default:
+		data["content"] = "審核處理失敗，請稍後再試。"
+	}
+	h.patchOriginal(ctx, interactionApplicationID, token, data)
 }
 
 // editFollowupMessage replaces the deferred placeholder with plain text —
@@ -415,9 +499,13 @@ func (h *Handler) patchOriginal(ctx context.Context, applicationID, token string
 	client := http.Client{Timeout: discordFollowupRequestTimeout}
 	response, err := client.Do(request)
 	if err != nil {
+		h.logger.Warn("discord interaction response edit failed", "error", err)
 		return
 	}
-	_ = response.Body.Close()
+	defer response.Body.Close()
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		h.logger.Warn("discord interaction response edit failed", "status", response.StatusCode)
+	}
 }
 
 // deletePreviewMessage removes an ephemeral preview message outright — used
@@ -451,6 +539,9 @@ func (h *Handler) deletePreviewMessage(ctx context.Context, applicationID, token
 // is replyModalCustomID for a fresh draft, or modalEditCustomID(draftID)
 // when reopened from an existing preview's 編輯 button.
 func replyModalResponse(customID, message, signature string) map[string]any {
+	if strings.TrimSpace(signature) == "" {
+		signature = "STA-tw 工作團隊"
+	}
 	return map[string]any{
 		"type": responseTypeModal,
 		"data": map[string]any{
@@ -478,7 +569,7 @@ func replyModalResponse(customID, message, signature string) map[string]any {
 							"type":       4,
 							"custom_id":  "signature",
 							"style":      1,
-							"label":      "簽名（會附在信件結尾）",
+							"label":      "署名／職稱（預設為 STA-tw 工作團隊）",
 							"required":   true,
 							"max_length": 100,
 							"value":      signature,
@@ -565,6 +656,13 @@ func interactionErrorResponse(text string) map[string]any {
 func writeJSON(w http.ResponseWriter, payload any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	_ = json.NewEncoder(w).Encode(payload)
+}
+
+func writeJSONAndFlush(w http.ResponseWriter, payload any) {
+	writeJSON(w, payload)
+	if flusher, ok := w.(http.Flusher); ok {
+		flusher.Flush()
+	}
 }
 
 func (h *Handler) verifySignature(r *http.Request, body []byte) bool {

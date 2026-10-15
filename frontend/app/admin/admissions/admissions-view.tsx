@@ -69,6 +69,7 @@ import {
 import { ApiError } from "../../lib/api/types";
 import { useAdmin } from "../admin-context";
 import { badgePillClass, badgeToneClasses, describeError, inputClass, Th } from "../admin-ui";
+import DisplayLatestYearControl from "./display-latest-year-control";
 
 const textareaClass =
     "min-h-28 w-full resize-y rounded-[var(--radius-small)] border border-ink/15 bg-surface px-3 py-2 font-mono text-xs leading-5 text-ink outline-none focus:border-ink/40";
@@ -461,6 +462,7 @@ export default function AdmissionsView() {
 
                 {activeTab === "programs" ? (
                     <section className="flex flex-col gap-4">
+                        <DisplayLatestYearControl />
                         <div className={panelClass}>
                             <div className="flex flex-wrap items-start justify-between gap-4">
                                 <div>

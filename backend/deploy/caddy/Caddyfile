@@ -28,6 +28,11 @@
 		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
 	}
 
+	@seo path /sitemap.xml /llms.txt
+	handle @seo {
+		reverse_proxy api:8080
+	}
+
 	@api path /api/* /healthz
 	handle @api {
 		reverse_proxy api:8080 {
@@ -49,25 +54,17 @@
 	@publicassets path /features/* /logo.svg /favicon.ico
 	header @publicassets Cache-Control "public, max-age=86400"
 
-	handle {
-		root * /srv/frontend/current
-		# No /404.html fallback here: that would make file_server "succeed" at
-		# serving it with a 200 for literally any unmatched path, so a genuine
-		# miss never reaches handle_errors below and every non-existent URL on
-		# the whole site reports OK instead of 404 (bad for SEO/monitoring/
-		# scanners, and papers over real broken links). Letting the miss
-		# actually error here is what lets handle_errors serve the same
-		# 404.html content while still reporting the real status code.
-		try_files {path} {path}/
-		file_server
+	# Program data can change during admissions season. Mark these responses
+	# non-cacheable for browsers; admin writes also purge the Cloudflare program
+	# page prefix because its Edge Cache TTL rule can override origin headers.
+	@admissionProgramPage path /bochures/program /bochures/program/ /bochures/program/*
+	header @admissionProgramPage {
+		Cache-Control "private, no-store, no-cache, max-age=0, must-revalidate"
+		Cloudflare-CDN-Cache-Control "no-store"
 	}
 
-	handle_errors {
-		@404 expression {http.error.status_code} == 404
-		rewrite @404 /404.html
-		file_server {
-			root /srv/frontend/current
-		}
+	handle {
+		reverse_proxy frontend:3000
 	}
 }
 

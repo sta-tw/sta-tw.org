@@ -350,18 +350,26 @@ func run(logger *slog.Logger) error {
 		// consumers below keep using the uncached admissionRepository directly
 		// so they never see stale reads.
 		var publicAdmissionRepository admissions.Repository = admissionRepository
-		var admissionsInvalidator admissions.Invalidator
+		var admissionsInvalidators []admissions.Invalidator
 		if redisClient != nil {
 			cachedRepo := admissions.NewCachedRepository(admissionRepository, redisClient, 5*time.Minute)
 			publicAdmissionRepository = cachedRepo
-			admissionsInvalidator = cachedRepo
+			admissionsInvalidators = append(admissionsInvalidators, cachedRepo)
 		}
-		admissionHandler, err := admissions.NewHandler(publicAdmissionRepository)
+		if cloudflarePurger := admissions.NewCloudflareProgramPagePurger(
+			os.Getenv("STA_CLOUDFLARE_API_TOKEN"),
+			os.Getenv("STA_CLOUDFLARE_ZONE_ID"),
+			cfg.PublicBaseURL,
+			logger,
+		); cloudflarePurger != nil {
+			admissionsInvalidators = append(admissionsInvalidators, cloudflarePurger)
+		}
+		admissionHandler, err := admissions.NewHandler(publicAdmissionRepository, cfg.PublicBaseURL)
 		if err != nil {
 			return err
 		}
 		registrars = append(registrars, admissionHandler.RegisterRoutes)
-		admissionAdminHandler, err := admissions.NewAdminHandler(authService, admissionRepository, admissionsInvalidator)
+		admissionAdminHandler, err := admissions.NewAdminHandler(authService, admissionRepository, admissionsInvalidators...)
 		if err != nil {
 			return err
 		}
@@ -491,6 +499,27 @@ func run(logger *slog.Logger) error {
 		verificationHandler.ConfigureDistributedLimiter(distributedLimiter)
 		registrars = append(registrars, verificationHandler.RegisterRoutes)
 		if authService != nil && blobStore != nil {
+			mailRoutesRepository, err := mailroutes.NewPostgresRepository(databasePool)
+			if err != nil {
+				return err
+			}
+			var forumNotifier *emailinquiries.HTTPDiscordNotifier
+			if cfg.DiscordMailBotToken != "" {
+				forumNotifier, err = emailinquiries.NewHTTPDiscordNotifier(cfg.DiscordMailBotToken)
+				if err != nil {
+					return err
+				}
+			} else {
+				logger.Warn("STA_DISCORD_MAIL_BOT_TOKEN is not set; inbound mail inquiries and account application review posts will not be sent to Discord")
+			}
+			accountMailRoute, accountMailRouteErr := mailRoutesRepository.GetByLocalPart(context.Background(), "account")
+			if accountMailRouteErr != nil {
+				logger.Warn("account mail route is not configured; account applications cannot be submitted")
+			}
+			inquiryRepository, err := emailinquiries.NewPostgresRepository(databasePool)
+			if err != nil {
+				return err
+			}
 			var accountApplicationMailer email.Sender
 			if cfg.SMTPHost != "" && cfg.SMTPFrom != "" {
 				// account@, not noreply@: these emails invite a reply and only account@ receives one.
@@ -517,6 +546,14 @@ func run(logger *slog.Logger) error {
 			if err != nil {
 				return err
 			}
+			if forumNotifier != nil && accountMailRouteErr == nil && cfg.DiscordMailApplicationPublicKey != "" {
+				accountApplicationService.ConfigureDiscordForum(
+					forumNotifier, accountMailRoute.DiscordForumChannelID, accountMailRoute.VisibleRoleIDs,
+					accountMailRoute.ID, inquiryRepository,
+				)
+			} else {
+				logger.Warn("account application review is disabled until the Discord bot, application public key, and account mail route are configured")
+			}
 			accountApplicationHandler, err := accountapplications.NewHandler(
 				accountApplicationService, cfg.AccountApplicationReviewToken,
 			)
@@ -526,10 +563,6 @@ func run(logger *slog.Logger) error {
 			accountApplicationHandler.ConfigureDistributedLimiter(distributedLimiter)
 			registrars = append(registrars, accountApplicationHandler.RegisterRoutes)
 
-			mailRoutesRepository, err := mailroutes.NewPostgresRepository(databasePool)
-			if err != nil {
-				return err
-			}
 			var mailPermissions mailroutes.PermissionsClient
 			if cfg.DiscordMailBotToken != "" && cfg.DiscordMailGuildID != "" && cfg.DiscordMailForumCategoryID != "" {
 				mailPermissions, err = mailroutes.NewHTTPPermissionsClient(cfg.DiscordMailBotToken, cfg.DiscordMailGuildID, cfg.DiscordMailForumCategoryID)
@@ -545,20 +578,6 @@ func run(logger *slog.Logger) error {
 			}
 			registrars = append(registrars, mailRoutesHandler.RegisterRoutes)
 
-			var forumNotifier emailinquiries.ForumNotifier
-			if cfg.DiscordMailBotToken != "" {
-				forumNotifier, err = emailinquiries.NewHTTPDiscordNotifier(cfg.DiscordMailBotToken)
-				if err != nil {
-					return err
-				}
-			} else {
-				logger.Warn("STA_DISCORD_MAIL_BOT_TOKEN is not set; inbound mail inquiries will not be posted to Discord")
-			}
-
-			inquiryRepository, err := emailinquiries.NewPostgresRepository(databasePool)
-			if err != nil {
-				return err
-			}
 			inquiryService, err := emailinquiries.NewService(
 				inquiryRepository, blobStore, fileScanner, fieldCipher, cfg.LookupHMACKey,
 				forumNotifier, mailRoutesRepository, accountApplicationMailer, cfg.MailDomain, logger,
@@ -573,10 +592,15 @@ func run(logger *slog.Logger) error {
 			registrars = append(registrars, inquiryAdminHandler.RegisterRoutes)
 
 			if cfg.DiscordMailApplicationPublicKey != "" {
-				discordMailHandler, err := discordmail.NewHandler(cfg.DiscordMailApplicationPublicKey, inquiryService)
+				discordReplyRouter, err := discordmail.NewReplyRouter(inquiryService, accountApplicationService)
 				if err != nil {
 					return err
 				}
+				discordMailHandler, err := discordmail.NewHandler(cfg.DiscordMailApplicationPublicKey, discordReplyRouter, accountApplicationService)
+				if err != nil {
+					return err
+				}
+				discordMailHandler.ConfigureLogger(logger)
 				if redisClient != nil {
 					draftStore, err := discordmail.NewRedisDraftStore(redisClient)
 					if err != nil {
@@ -588,7 +612,7 @@ func run(logger *slog.Logger) error {
 				}
 				registrars = append(registrars, discordMailHandler.RegisterRoutes)
 			} else {
-				logger.Warn("STA_DISCORD_MAIL_APPLICATION_PUBLIC_KEY is not set; the /re slash command endpoint is disabled")
+				logger.Warn("STA_DISCORD_MAIL_APPLICATION_PUBLIC_KEY is not set; /re and account review buttons are disabled")
 			}
 
 			if cfg.DiscordMailBotToken != "" {

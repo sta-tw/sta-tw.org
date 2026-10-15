@@ -5,6 +5,7 @@ import { ChevronRight } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { Accordion } from "radix-ui";
 import styles from "./faq-accordion.module.css";
+import { contactMailtoHref } from "../lib/mailto";
 
 type FaqItem = {
     id?: string;
@@ -61,15 +62,46 @@ const faqItems: FaqItem[] = [
             <>
                 依用途分成幾個信箱，寄到對的地方我們能更快處理：
                 <br />
-                <strong>account@mail.sta-tw.org</strong>：帳號登入、啟用、密碼相關問題
+                <a
+                    href={contactMailtoHref("account")}
+                    className="underline underline-offset-4 hover:text-ink"
+                >
+                    account@mail.sta-tw.org
+                </a>
+                ：帳號登入、啟用、密碼相關問題
                 <br />
-                <strong>brochure@mail.sta-tw.org</strong>：簡章內容有誤、缺漏，或想提供資料
+                <a
+                    href={contactMailtoHref("brochure")}
+                    className="underline underline-offset-4 hover:text-ink"
+                >
+                    brochure@mail.sta-tw.org
+                </a>
+                ：簡章內容有誤、缺漏，或想提供資料
                 <br />
-                <strong>report@mail.sta-tw.org</strong>：檢舉違規內容、著作權侵權申訴
+                <a
+                    href={contactMailtoHref("report")}
+                    className="underline underline-offset-4 hover:text-ink"
+                >
+                    report@mail.sta-tw.org
+                </a>
+                ：檢舉違規內容、著作權侵權申訴
                 <br />
-                <strong>contact@mail.sta-tw.org</strong>：其他問題，或不確定要寄去哪一個都可以
+                <a
+                    href={contactMailtoHref("general")}
+                    className="underline underline-offset-4 hover:text-ink"
+                >
+                    contact@mail.sta-tw.org
+                </a>
+                ：其他問題，或不確定要寄去哪一個都可以
                 <br />
-                不確定分類也沒關係，直接寄到 contact@mail.sta-tw.org 就好，工作人員看到後會幫你處理或轉給對的人。
+                不確定分類也沒關係，直接寄到{" "}
+                <a
+                    href={contactMailtoHref("general")}
+                    className="underline underline-offset-4 hover:text-ink"
+                >
+                    contact@mail.sta-tw.org
+                </a>
+                就好，工作人員看到後會幫你處理或轉給對的人。
             </>
         )
     }

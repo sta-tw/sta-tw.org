@@ -14,7 +14,7 @@ import (
 // (see internal/emailinquiries.Service, which reads the same app_settings
 // row this handler writes). [內容] and [簽名] are the two placeholders a
 // /re reply's message and required signature get substituted into.
-const DefaultMailReplyTemplate = "您好，感謝您的來信，回覆如下：\n\n[內容]\n\n如有其他問題，歡迎再次與我們聯繫。\n\n[簽名]"
+const DefaultMailReplyTemplate = "您好，感謝您的來信，回覆如下：\n\n[內容]\n\n如有其他問題，歡迎直接回覆此信。\n\n敬祝\n順心\n\n[簽名]"
 
 const (
 	sitePolicyTermsKey   = "site_policy_terms"

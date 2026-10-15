@@ -10,19 +10,16 @@ import (
 )
 
 // CachedRepository decorates a Repository with a short-TTL Redis cache for
-// the public catalogue reads (ListPrograms/GetProgram/ListSchools). This data
-// is admin-edited and low-churn (the annual admissions cycle, occasional
-// proofreading fixes), so a few minutes of staleness is an acceptable
-// trade-off for not re-running ListPrograms' per-row N+1 query
+// the public catalogue reads (ListPrograms/GetProgram/ListSchools). Admin
+// writes actively invalidate this cache; the TTL also bounds staleness for
+// out-of-band database changes. This avoids re-running ListPrograms' per-row N+1 query
 // (loadExamItems/loadTimelineEvents once per program in the result set) on
 // every request during a traffic surge.
 //
 // Caching here is purely an optimization, unlike the rate limiter: any Redis
 // error or cache miss falls through to the inner repository rather than
 // failing the request, so a Redis outage degrades performance, not
-// correctness. There is no active invalidation on admin writes in this first
-// pass — deliberately simple; add SCAN+DEL from the admin CRUD handlers later
-// if the TTL window turns out to matter in practice.
+// correctness.
 type CachedRepository struct {
 	inner  Repository
 	client *redis.Client
@@ -49,6 +46,16 @@ func (c *CachedRepository) ListPrograms(ctx context.Context, query ProgramQuery)
 	}
 	c.setCached(ctx, key, programs)
 	return programs, nil
+}
+
+// SearchBrochurePrograms forwards the compact, paged search to the database.
+// It intentionally does not store search results in Redis.
+func (c *CachedRepository) SearchBrochurePrograms(ctx context.Context, query BrochureSearchQuery) ([]BrochureSearchProgram, int, error) {
+	repository, ok := c.inner.(BrochureSearchRepository)
+	if !ok {
+		return nil, 0, fmt.Errorf("brochure search is not supported by the admissions repository")
+	}
+	return repository.SearchBrochurePrograms(ctx, query)
 }
 
 func (c *CachedRepository) GetProgram(ctx context.Context, identifier ProgramIdentifier) (Program, error) {
@@ -80,10 +87,10 @@ func (c *CachedRepository) ListSchools(ctx context.Context, academicYear int) ([
 }
 
 type Invalidator interface {
-	Invalidate(ctx context.Context)
+	Invalidate(ctx context.Context, programIdentifiers ...string)
 }
 
-func (c *CachedRepository) Invalidate(ctx context.Context) {
+func (c *CachedRepository) Invalidate(ctx context.Context, _ ...string) {
 	if c.client == nil {
 		return
 	}

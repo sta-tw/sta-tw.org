@@ -18,6 +18,14 @@ function submitErrorMessage(error: unknown): string {
                 return "帳號名稱或信箱格式不正確，請確認後再試一次。";
             case "rate_limited":
                 return "申請次數過多，請稍後再試。";
+            case "review_unavailable":
+                return "目前無法受理帳號申請，請稍後再試。";
+            case "email_unavailable":
+                return "目前無法寄送申請通知信，請稍後再試。";
+            case "notification_failed":
+                return "收件確認信已寄出，但通知審核人員時發生問題。請先不要重複送出，稍後聯絡管理員。";
+            case "receipt_email_failed":
+                return "申請資料已收到，但收件確認信寄送失敗。請先不要重複送出，稍後聯絡管理員。";
             case "network_error":
                 return error.message;
             default:
@@ -39,7 +47,7 @@ export default function ApplyForm() {
                     申請已送出
                 </h1>
                 <p className="text-base leading-relaxed text-copy-muted">
-                    管理員審核通過後，會寄一封信到你留的信箱，附上設定密碼的連結，設定完成後帳號就會啟用。審核需要人工處理時間，請耐心等候；有問題可以直接回信到那封通知信，我們會收到。
+                    收件確認信已寄到你留的信箱。管理員審核通過後，會再寄一封帳號啟用信，附上設定密碼的連結；有補充資料可直接回覆收件確認信，我們會收到。
                 </p>
                 <Link
                     href="/"

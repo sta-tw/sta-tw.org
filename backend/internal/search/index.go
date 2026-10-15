@@ -67,7 +67,8 @@ func loadSchools(ctx context.Context, pool *pgxpool.Pool) ([]map[string]any, err
 		}
 		docs = append(docs, map[string]any{
 			"id": "school-" + code, "school_code": code, "school_name": name,
-			"institution_type": kind, "is_active": active,
+			"school_name_search": normalizeSearchText(name),
+			"institution_type":   kind, "is_active": active,
 		})
 	}
 	return docs, rows.Err()
@@ -95,7 +96,11 @@ func loadPrograms(ctx context.Context, pool *pgxpool.Pool) ([]map[string]any, er
 		docs = append(docs, map[string]any{
 			"id": identifier, "program_identifier": identifier, "academic_year": year,
 			"school_code": schoolCode, "school_name": schoolName,
-			"admission_program_name": name, "special_talent_target": target,
+			"school_name_search":            normalizeSearchText(schoolName),
+			"admission_program_name":        name,
+			"admission_program_name_search": normalizeSearchText(name),
+			"special_talent_target":         target,
+			"special_talent_target_search":  normalizeSearchText(target),
 		})
 	}
 	return docs, rows.Err()
@@ -118,7 +123,10 @@ func loadExperiences(ctx context.Context, pool *pgxpool.Pool) ([]map[string]any,
 		if err := rows.Scan(&id, &title, &snippet); err != nil {
 			return nil, err
 		}
-		docs = append(docs, map[string]any{"id": id, "title": title, "snippet": snippet})
+		docs = append(docs, map[string]any{
+			"id": id, "title": title, "snippet": snippet,
+			"title_search": normalizeSearchText(title), "snippet_search": normalizeSearchText(snippet),
+		})
 	}
 	return docs, rows.Err()
 }

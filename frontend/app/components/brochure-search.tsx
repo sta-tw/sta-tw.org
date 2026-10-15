@@ -5,20 +5,25 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { ArrowRight, ChevronDown, Search } from "lucide-react";
 import { brochureFilters } from "../data/brochure-filters";
-import type { Brochure, BrochureSearchFilters } from "../lib/brochure-types";
-import { listAllAdmissionPrograms } from "../lib/api/admissions";
-import { admissionProgramToBrochure } from "../lib/admissions-brochures";
+import type { BrochureSearchFilters } from "../lib/brochure-types";
+import { searchBrochurePrograms, type BrochureSearchProgram } from "../lib/api/admissions";
 import { ApiError } from "../lib/api/types";
 import { publicPath } from "../lib/public-path";
 import InfoTooltip from "./info-tooltip";
 
 const DATA_SOURCE_LABEL = "日曆小幫手";
+const RESULTS_PER_PAGE = 50;
 
 type BrochureSearchState = {
     key: string;
-    results: Brochure[];
+    results: BrochureSearchProgram[];
+    total: number;
     error: string | null;
 };
+
+function hasDisplayValue(value: string) {
+    return Boolean(value.trim() && value.trim() !== "-");
+}
 
 export default function BrochureSearch() {
     const searchParams = useSearchParams();
@@ -36,49 +41,64 @@ export default function BrochureSearch() {
     const skillsTestFilter = filters["skills-test"];
     const interviewFilter = filters.interview;
     const portfolioFilter = filters.portfolio;
+    const rawPage = Number(searchParams.get("page") ?? "1");
+    const maxPage = Math.floor(10_000 / RESULTS_PER_PAGE) + 1;
+    const page = Number.isInteger(rawPage) && rawPage > 0 ? Math.min(rawPage, maxPage) : 1;
     const requestKey = [
         query ?? "",
         skillsTestFilter ?? "",
         interviewFilter ?? "",
-        portfolioFilter ?? ""
+        portfolioFilter ?? "",
+        page
     ].join("\u001f");
     const [state, setState] = useState<BrochureSearchState>({
         key: "",
         results: [],
+        total: 0,
         error: null
     });
     const isLoading = state.key !== requestKey;
     const results = state.key === requestKey ? state.results : [];
+    const total = state.key === requestKey ? state.total : 0;
     const error = state.key === requestKey ? state.error : null;
     const hasFilters = Boolean(filters.q || brochureFilters.some((filter) => filters[filter.id]));
+    const pageCount = Math.max(1, Math.ceil(total / RESULTS_PER_PAGE));
+
+    function pageHref(targetPage: number) {
+        const params = new URLSearchParams(searchParams.toString());
+        if (targetPage <= 1) params.delete("page");
+        else params.set("page", String(targetPage));
+        const queryString = params.toString();
+        return publicPath(`/bochures${queryString ? `?${queryString}` : ""}`);
+    }
 
     useEffect(() => {
         const controller = new AbortController();
 
-        listAllAdmissionPrograms({
+        searchBrochurePrograms({
             q: query,
+            skillsTest: skillsTestFilter,
+            interview: interviewFilter,
+            portfolio: portfolioFilter,
+            limit: RESULTS_PER_PAGE,
+            offset: (page - 1) * RESULTS_PER_PAGE,
             signal: controller.signal
         })
             .then((response) => {
                 if (controller.signal.aborted) return;
-                const mapped = response.data
-                    .map(admissionProgramToBrochure)
-                    .filter(
-                        (brochure) =>
-                            (!skillsTestFilter ||
-                                skillsTestFilter === brochure.requirements["skills-test"]) &&
-                            (!interviewFilter ||
-                                interviewFilter === brochure.requirements.interview) &&
-                            (!portfolioFilter ||
-                                portfolioFilter === brochure.requirements.portfolio)
-                    );
-                setState({ key: requestKey, results: mapped, error: null });
+                setState({
+                    key: requestKey,
+                    results: response.data,
+                    total: response.meta?.count ?? response.data.length,
+                    error: null
+                });
             })
             .catch((cause: unknown) => {
                 if (controller.signal.aborted) return;
                 setState({
                     key: requestKey,
                     results: [],
+                    total: 0,
                     error:
                         cause instanceof ApiError
                             ? cause.message
@@ -87,7 +107,7 @@ export default function BrochureSearch() {
             });
 
         return () => controller.abort();
-    }, [requestKey, query, skillsTestFilter, interviewFilter, portfolioFilter]);
+    }, [requestKey, query, skillsTestFilter, interviewFilter, portfolioFilter, page]);
 
     return (
         <main className="article-dots flex flex-1 border-y border-ink/5">
@@ -189,12 +209,13 @@ export default function BrochureSearch() {
                                     ? "正在載入後端簡章資料…"
                                     : error
                                       ? "簡章資料載入失敗"
-                                      : `找到 ${results.length} 筆符合條件的簡章`}
+                                      : `找到 ${total} 筆符合條件的簡章`}
                             </p>
                         </div>
                         {hasFilters && (
                             <Link
-                                href="/bochures"
+                                href={publicPath("/bochures")}
+                                prefetch={false}
                                 className="font-sans text-sm text-ink/65 underline decoration-ink/35 underline-offset-4 transition-colors hover:text-ink sm:text-base"
                             >
                                 清除篩選條件
@@ -220,40 +241,70 @@ export default function BrochureSearch() {
                         </div>
                     ) : results.length > 0 ? (
                         <ul className="mt-5 grid gap-4 sm:mt-6 sm:grid-cols-2">
-                            {results.map((brochure) => (
-                                <li key={brochure.slug}>
-                                    <Link
-                                        href={`/bochures/program?identifier=${encodeURIComponent(brochure.slug)}`}
-                                        className="group flex h-full flex-col rounded-[var(--radius-panel)] border border-ink/10 bg-surface/80 p-5 shadow-sm transition-[border-color,box-shadow,transform] hover:-translate-y-0.5 hover:border-ink/25 hover:shadow-[var(--shadow-card)] focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2 focus-visible:outline-none sm:p-6"
-                                    >
-                                        <p className="font-sans text-sm text-ink/60">
-                                            {brochure.university}
-                                        </p>
-                                        <h3 className="mt-2 font-sans text-xl leading-snug font-medium text-ink sm:text-2xl">
-                                            {brochure.department}
-                                            {brochure.group ? `（${brochure.group}）` : ""}
-                                        </h3>
-                                        <dl className="mt-5 flex flex-wrap gap-x-4 gap-y-2">
-                                            {brochure.facts.map((fact) => (
-                                                <div
-                                                    key={fact.label}
-                                                    className="flex items-center gap-1.5"
-                                                >
-                                                    <dt className="rounded-md bg-accent-green/55 px-1.5 py-0.5 font-sans text-xs font-medium text-ink">
-                                                        {fact.label}
-                                                    </dt>
-                                                    <dd className="font-sans text-sm text-ink/70">
-                                                        {fact.value}
-                                                    </dd>
-                                                </div>
-                                            ))}
-                                        </dl>
-                                        <span className="mt-6 inline-flex items-center gap-1.5 font-sans text-sm font-medium text-ink transition-transform group-hover:translate-x-1">
-                                            查看簡章 <ArrowRight aria-hidden className="h-4 w-4" />
-                                        </span>
-                                    </Link>
-                                </li>
-                            ))}
+                            {results.map((program) => {
+                                const match =
+                                    program.admission_program_name.match(
+                                        /[（(]([^（）()]+)[）)]\s*$/
+                                    );
+                                const department = match
+                                    ? program.admission_program_name.slice(0, match.index).trim()
+                                    : program.admission_program_name;
+                                const group = match?.[1].trim() ?? "";
+                                const facts = [
+                                    { label: "學年度", value: `${program.academic_year} 學年度` },
+                                    ...(hasDisplayValue(program.admission_group)
+                                        ? [
+                                              {
+                                                  label: "學群",
+                                                  value: hasDisplayValue(program.cross_group)
+                                                      ? `${program.admission_group} 跨 ${program.cross_group}`
+                                                      : program.admission_group
+                                              }
+                                          ]
+                                        : []),
+                                    ...(hasDisplayValue(program.admission_category)
+                                        ? [{ label: "學類", value: program.admission_category }]
+                                        : []),
+                                    { label: "招生人數", value: `${program.admission_quota} 人` }
+                                ];
+
+                                return (
+                                    <li key={program.program_identifier}>
+                                        <Link
+                                            href={`/bochures/program/${encodeURIComponent(program.program_identifier)}/`}
+                                            prefetch={false}
+                                            className="group flex h-full flex-col rounded-[var(--radius-panel)] border border-ink/10 bg-surface/80 p-5 shadow-sm transition-[border-color,box-shadow,transform] hover:-translate-y-0.5 hover:border-ink/25 hover:shadow-[var(--shadow-card)] focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2 focus-visible:outline-none sm:p-6"
+                                        >
+                                            <p className="font-sans text-sm text-ink/60">
+                                                {program.school_name}
+                                            </p>
+                                            <h3 className="mt-2 font-sans text-xl leading-snug font-medium text-ink sm:text-2xl">
+                                                {department}
+                                                {group ? `（${group}）` : ""}
+                                            </h3>
+                                            <dl className="mt-5 flex flex-wrap gap-x-4 gap-y-2">
+                                                {facts.map((fact) => (
+                                                    <div
+                                                        key={fact.label}
+                                                        className="flex items-center gap-1.5"
+                                                    >
+                                                        <dt className="rounded-md bg-accent-green/55 px-1.5 py-0.5 font-sans text-xs font-medium text-ink">
+                                                            {fact.label}
+                                                        </dt>
+                                                        <dd className="font-sans text-sm text-ink/70">
+                                                            {fact.value}
+                                                        </dd>
+                                                    </div>
+                                                ))}
+                                            </dl>
+                                            <span className="mt-6 inline-flex items-center gap-1.5 font-sans text-sm font-medium text-ink transition-transform group-hover:translate-x-1">
+                                                查看簡章{" "}
+                                                <ArrowRight aria-hidden className="h-4 w-4" />
+                                            </span>
+                                        </Link>
+                                    </li>
+                                );
+                            })}
                         </ul>
                     ) : (
                         <div className="mt-5 rounded-[var(--radius-panel)] border border-dashed border-ink/20 bg-surface/55 px-5 py-9 text-center sm:mt-6 sm:py-12">
@@ -264,6 +315,49 @@ export default function BrochureSearch() {
                                 試著調整關鍵字或移除部分篩選條件。
                             </p>
                         </div>
+                    )}
+
+                    {!isLoading && !error && pageCount > 1 && (
+                        <nav
+                            aria-label="簡章搜尋分頁"
+                            className="mt-8 flex items-center justify-center gap-4 font-sans text-sm text-ink/70"
+                        >
+                            {page > 1 ? (
+                                <Link
+                                    href={pageHref(page - 1)}
+                                    prefetch={false}
+                                    className="rounded-md border border-ink/15 px-4 py-2 underline decoration-ink/30 underline-offset-4 hover:text-ink"
+                                >
+                                    上一頁
+                                </Link>
+                            ) : (
+                                <span
+                                    aria-disabled="true"
+                                    className="rounded-md border border-ink/10 px-4 py-2 text-ink/35"
+                                >
+                                    上一頁
+                                </span>
+                            )}
+                            <span>
+                                第 {page} / {pageCount} 頁
+                            </span>
+                            {page < pageCount ? (
+                                <Link
+                                    href={pageHref(page + 1)}
+                                    prefetch={false}
+                                    className="rounded-md border border-ink/15 px-4 py-2 underline decoration-ink/30 underline-offset-4 hover:text-ink"
+                                >
+                                    下一頁
+                                </Link>
+                            ) : (
+                                <span
+                                    aria-disabled="true"
+                                    className="rounded-md border border-ink/10 px-4 py-2 text-ink/35"
+                                >
+                                    下一頁
+                                </span>
+                            )}
+                        </nav>
                     )}
                 </section>
             </section>

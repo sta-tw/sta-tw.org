@@ -79,16 +79,30 @@ func (r *PostgresRepository) SetTelegramMessage(ctx context.Context, application
 	return nil
 }
 
+func (r *PostgresRepository) SetDiscordThread(ctx context.Context, applicationID uuid.UUID, threadID string) error {
+	tag, err := r.pool.Exec(ctx, `
+		UPDATE account_applications SET discord_thread_id = $2
+		WHERE id = $1
+	`, applicationID, threadID)
+	if err != nil {
+		return fmt.Errorf("set account application discord thread: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 func (r *PostgresRepository) Get(ctx context.Context, applicationID uuid.UUID) (Application, error) {
 	var app Application
 	var idText string
 	var createdAccountIDText *string
 	err := r.pool.QueryRow(ctx, `
 		SELECT id::text, requested_username, note, status, created_account_id::text,
-		       telegram_chat_id, telegram_message_id, telegram_header_text, created_at
+		       discord_thread_id, telegram_chat_id, telegram_message_id, telegram_header_text, created_at
 		FROM account_applications WHERE id = $1
 	`, applicationID).Scan(&idText, &app.RequestedUsername, &app.Note, &app.Status, &createdAccountIDText,
-		&app.TelegramChatID, &app.TelegramMessageID, &app.TelegramHeaderText, &app.CreatedAt)
+		&app.DiscordThreadID, &app.TelegramChatID, &app.TelegramMessageID, &app.TelegramHeaderText, &app.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Application{}, ErrNotFound
 	}
@@ -109,25 +123,22 @@ func (r *PostgresRepository) Get(ctx context.Context, applicationID uuid.UUID) (
 	return app, nil
 }
 
-// FindByTelegramMessage resolves the one card message an application's
-// whole Telegram thread lives in (see SetTelegramMessage) back to the
-// application it belongs to.
-func (r *PostgresRepository) FindByTelegramMessage(ctx context.Context, chatID, messageID int64) (Application, error) {
+func (r *PostgresRepository) FindByDiscordThread(ctx context.Context, threadID string) (Application, error) {
 	var app Application
 	var idText string
 	var createdAccountIDText *string
 	err := r.pool.QueryRow(ctx, `
 		SELECT id::text, requested_username, note, status, created_account_id::text,
-		       telegram_chat_id, telegram_message_id, telegram_header_text, created_at
+		       discord_thread_id, telegram_chat_id, telegram_message_id, telegram_header_text, created_at
 		FROM account_applications
-		WHERE telegram_chat_id = $1 AND telegram_message_id = $2
-	`, chatID, messageID).Scan(&idText, &app.RequestedUsername, &app.Note, &app.Status, &createdAccountIDText,
-		&app.TelegramChatID, &app.TelegramMessageID, &app.TelegramHeaderText, &app.CreatedAt)
+		WHERE discord_thread_id = $1
+	`, threadID).Scan(&idText, &app.RequestedUsername, &app.Note, &app.Status, &createdAccountIDText,
+		&app.DiscordThreadID, &app.TelegramChatID, &app.TelegramMessageID, &app.TelegramHeaderText, &app.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Application{}, ErrNotFound
 	}
 	if err != nil {
-		return Application{}, fmt.Errorf("find account application by telegram message: %w", err)
+		return Application{}, fmt.Errorf("find account application by discord thread: %w", err)
 	}
 	app.ID, err = uuid.Parse(idText)
 	if err != nil {
@@ -145,7 +156,7 @@ func (r *PostgresRepository) FindByTelegramMessage(ctx context.Context, chatID, 
 
 func (r *PostgresRepository) ListMessages(ctx context.Context, applicationID uuid.UUID) ([]Message, error) {
 	rows, err := r.pool.Query(ctx, `
-		SELECT direction, body, actor, created_at FROM account_application_messages
+		SELECT direction, body, actor, actor_discord_id, created_at FROM account_application_messages
 		WHERE application_id = $1 ORDER BY created_at
 	`, applicationID)
 	if err != nil {
@@ -155,7 +166,7 @@ func (r *PostgresRepository) ListMessages(ctx context.Context, applicationID uui
 	messages := make([]Message, 0)
 	for rows.Next() {
 		var m Message
-		if err := rows.Scan(&m.Direction, &m.Body, &m.Actor, &m.CreatedAt); err != nil {
+		if err := rows.Scan(&m.Direction, &m.Body, &m.Actor, &m.ActorDiscordID, &m.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan account application message: %w", err)
 		}
 		messages = append(messages, m)
@@ -276,6 +287,17 @@ func (r *PostgresRepository) AddMessage(ctx context.Context, applicationID uuid.
 	`, applicationID, direction, body, sourceMessageID, actor)
 	if err != nil {
 		return fmt.Errorf("add account application message: %w", err)
+	}
+	return nil
+}
+
+func (r *PostgresRepository) AddDiscordMessage(ctx context.Context, applicationID uuid.UUID, direction, body, sourceMessageID, actor, actorDiscordID string) error {
+	_, err := r.pool.Exec(ctx, `
+		INSERT INTO account_application_messages (application_id, direction, body, source_message_id, actor, actor_discord_id)
+		VALUES ($1, $2, $3, $4, $5, $6)
+	`, applicationID, direction, body, sourceMessageID, actor, actorDiscordID)
+	if err != nil {
+		return fmt.Errorf("add Discord account application message: %w", err)
 	}
 	return nil
 }

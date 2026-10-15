@@ -1,24 +1,16 @@
-import type { Metadata } from "next";
-import { Suspense } from "react";
-import BrochureProgramView from "./program-view";
+import { notFound, permanentRedirect } from "next/navigation";
 
-export const metadata: Metadata = {
-    title: "招生資料 | S.T.A 特殊選才資源網",
-    description: "查看由 S.T.A 後端招生資料系統提供的校系與簡章資訊。"
+type SearchParams = Promise<{ identifier?: string | string[] }>;
+
+type PageProps = {
+    searchParams: SearchParams;
 };
 
-function LoadingState() {
-    return (
-        <main className="article-dots flex flex-1 items-center justify-center bg-surface px-5 py-20">
-            <p className="font-sans text-base text-ink/65">正在載入招生資料…</p>
-        </main>
-    );
-}
+export default async function LegacyBrochureProgramPage({ searchParams }: PageProps) {
+    const params = await searchParams;
+    const value = Array.isArray(params.identifier) ? params.identifier[0] : params.identifier;
+    const identifier = value?.trim() ?? "";
+    if (!identifier) notFound();
 
-export default function BrochureProgramPage() {
-    return (
-        <Suspense fallback={<LoadingState />}>
-            <BrochureProgramView />
-        </Suspense>
-    );
+    permanentRedirect(`/bochures/program/${encodeURIComponent(identifier)}/`);
 }

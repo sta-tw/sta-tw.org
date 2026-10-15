@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/minio/minio-go/v7"
 	"sta-backend/internal/auth"
 	"sta-backend/internal/security"
 	"sta-backend/internal/storage"
@@ -109,6 +110,9 @@ func (h *BrochureHandler) servePublic(w http.ResponseWriter, r *http.Request, di
 	}
 	document, err := h.repository.GetPublishedBrochure(r.Context(), year, schoolCode)
 	if errors.Is(err, ErrNotFound) {
+		if redirectMissingBrochureToNotFound(w, r) {
+			return
+		}
 		writeAdmissionError(w, http.StatusNotFound, "not_found", "published brochure was not found")
 		return
 	}
@@ -119,6 +123,14 @@ func (h *BrochureHandler) servePublic(w http.ResponseWriter, r *http.Request, di
 
 	watermarkedBytes, err := h.watermarkedBrochureBytes(r.Context(), reader, document)
 	if err != nil {
+		if isMissingBrochureObject(err) {
+			slog.Warn("published brochure file is missing", "academic_year", year, "school_code", schoolCode)
+			if redirectMissingBrochureToNotFound(w, r) {
+				return
+			}
+			writeAdmissionError(w, http.StatusNotFound, "not_found", "published brochure file was not found")
+			return
+		}
 		slog.Error("brochure watermark unavailable", "academic_year", year, "school_code", schoolCode, "error", err)
 		writeAdmissionError(w, http.StatusBadGateway, "storage_unavailable", "brochure storage is unavailable")
 		return
@@ -138,6 +150,19 @@ func (h *BrochureHandler) servePublic(w http.ResponseWriter, r *http.Request, di
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Content-Length", strconv.Itoa(len(stamped)))
 	_, _ = w.Write(stamped)
+}
+
+func redirectMissingBrochureToNotFound(w http.ResponseWriter, r *http.Request) bool {
+	if !strings.Contains(strings.ToLower(r.Header.Get("Accept")), "text/html") {
+		return false
+	}
+	http.Redirect(w, r, "/404", http.StatusFound)
+	return true
+}
+
+func isMissingBrochureObject(err error) bool {
+	var response minio.ErrorResponse
+	return errors.As(err, &response) && (response.Code == "NoSuchKey" || response.Code == "NoSuchObject")
 }
 
 // downloadPublicExists lets the frontend check whether a brochure is

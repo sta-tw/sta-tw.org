@@ -54,11 +54,22 @@ func TestHandlerProgramQueryBounds(t *testing.T) {
 	handler, _ := NewHandler(fakeRepository{})
 	mux := http.NewServeMux()
 	handler.RegisterRoutes(mux)
-	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/api/v1/admissions/programs?limit=101", nil)
-	mux.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusBadRequest)
+	for _, test := range []struct {
+		limit      string
+		wantStatus int
+	}{
+		{limit: "1", wantStatus: http.StatusOK},
+		{limit: "500", wantStatus: http.StatusOK},
+		{limit: "501", wantStatus: http.StatusBadRequest},
+	} {
+		t.Run("limit="+test.limit, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodGet, "/api/v1/admissions/programs?limit="+test.limit, nil)
+			mux.ServeHTTP(recorder, request)
+			if recorder.Code != test.wantStatus {
+				t.Fatalf("status = %d, want %d", recorder.Code, test.wantStatus)
+			}
+		})
 	}
 }
 

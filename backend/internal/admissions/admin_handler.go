@@ -11,29 +11,33 @@ import (
 )
 
 type AdminHandler struct {
-	authService *auth.Service
-	repository  AdminRepository
-	invalidator Invalidator
+	authService  *auth.Service
+	repository   AdminRepository
+	invalidators []Invalidator
 }
 
 func NewAdminHandler(authService *auth.Service, repository AdminRepository, invalidators ...Invalidator) (*AdminHandler, error) {
 	if authService == nil || repository == nil {
 		return nil, errors.New("admission admin handler dependencies are missing")
 	}
-	var inv Invalidator
-	if len(invalidators) > 0 {
-		inv = invalidators[0]
+	activeInvalidators := make([]Invalidator, 0, len(invalidators))
+	for _, invalidator := range invalidators {
+		if invalidator != nil {
+			activeInvalidators = append(activeInvalidators, invalidator)
+		}
 	}
-	return &AdminHandler{authService: authService, repository: repository, invalidator: inv}, nil
+	return &AdminHandler{authService: authService, repository: repository, invalidators: activeInvalidators}, nil
 }
 
-func (h *AdminHandler) invalidate(ctx context.Context) {
-	if h.invalidator != nil {
-		h.invalidator.Invalidate(ctx)
+func (h *AdminHandler) invalidate(ctx context.Context, programIdentifiers ...string) {
+	for _, invalidator := range h.invalidators {
+		invalidator.Invalidate(ctx, programIdentifiers...)
 	}
 }
 
 func (h *AdminHandler) RegisterRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /api/v1/admin/admissions/display-latest-year", h.getDisplayLatestAcademicYear)
+	mux.HandleFunc("PUT /api/v1/admin/admissions/display-latest-year", h.setDisplayLatestAcademicYear)
 	mux.HandleFunc("GET /api/v1/admin/admissions/programs", h.list)
 	mux.HandleFunc("GET /api/v1/admin/admissions/programs/{identifier}", h.get)
 	mux.HandleFunc("GET /api/v1/admin/admissions/programs/{identifier}/history", h.history)
@@ -119,7 +123,11 @@ func (h *AdminHandler) sync(w http.ResponseWriter, r *http.Request) {
 		h.writeAdminError(w, err)
 		return
 	}
-	h.invalidate(r.Context())
+	identifiers := make([]string, 0, len(items))
+	for _, item := range items {
+		identifiers = append(identifiers, item.ProgramIdentifier)
+	}
+	h.invalidate(r.Context(), identifiers...)
 	writeAdmissionJSON(w, http.StatusOK, map[string]any{
 		"data": items,
 		"meta": map[string]any{"count": len(items)},
@@ -152,7 +160,7 @@ func (h *AdminHandler) update(w http.ResponseWriter, r *http.Request) {
 		h.writeAdminError(w, err)
 		return
 	}
-	h.invalidate(r.Context())
+	h.invalidate(r.Context(), identifier.String())
 	writeAdmissionJSON(w, http.StatusOK, map[string]any{"data": items[0]})
 }
 
@@ -176,7 +184,7 @@ func (h *AdminHandler) review(w http.ResponseWriter, r *http.Request) {
 		h.writeAdminError(w, err)
 		return
 	}
-	h.invalidate(r.Context())
+	h.invalidate(r.Context(), identifier.String())
 	writeAdmissionJSON(w, http.StatusOK, map[string]any{"data": item})
 }
 
@@ -201,7 +209,7 @@ func (h *AdminHandler) delete(w http.ResponseWriter, r *http.Request) {
 		h.writeAdminError(w, err)
 		return
 	}
-	h.invalidate(r.Context())
+	h.invalidate(r.Context(), identifier.String())
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -231,6 +239,7 @@ func (h *AdminHandler) archive(w http.ResponseWriter, r *http.Request) {
 		h.writeAdminError(w, err)
 		return
 	}
+	h.invalidate(r.Context(), identifier.String())
 	writeAdmissionJSON(w, http.StatusOK, map[string]any{"data": item})
 }
 

@@ -394,10 +394,20 @@ func (h *Handler) me(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		canManageAdmissions = false
 	}
+	adminMFAVerified := false
+	if isAdmin || canManageAdmissions {
+		adminMFAVerified, err = h.service.HasValidAdminMFAGrant(r.Context(), session.Session.Account.ID)
+		if err != nil {
+			h.logger.ErrorContext(r.Context(), "check admin MFA grant", "error", err)
+			writeAuthError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+			return
+		}
+	}
 	writeAuthJSON(w, http.StatusOK, accountResponse{
 		Account:             session.Session.Account,
 		IsAdmin:             isAdmin,
 		CanManageAdmissions: canManageAdmissions,
+		AdminMFAVerified:    adminMFAVerified,
 	})
 }
 
@@ -533,6 +543,11 @@ type accountResponse struct {
 	// who should see a way into /admin/admissions without qualifying for
 	// is_admin or anything else under /admin.
 	CanManageAdmissions bool `json:"can_manage_admissions"`
+	// AdminMFAVerified reports whether this account currently has a valid MFA
+	// grant. Admin endpoints still enforce the grant independently; this lets
+	// the shell decide whether to show the MFA prompt without probing a costly
+	// admin data endpoint first.
+	AdminMFAVerified bool `json:"admin_mfa_verified"`
 }
 
 type sessionResponse struct {

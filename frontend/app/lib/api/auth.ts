@@ -65,6 +65,10 @@ export interface MeResult {
      * someone who should see a way into /admin/admissions without
      * qualifying for is_admin or anything else under /admin. */
     can_manage_admissions: boolean;
+    /** Whether the current admin MFA grant is valid. Admin APIs still enforce
+     * the grant independently; this avoids a second request just to decide if
+     * the admin shell should show the MFA prompt. */
+    admin_mfa_verified: boolean;
 }
 
 /** GET /api/v1/auth/me — rejects with ApiError(401) when not logged in. */

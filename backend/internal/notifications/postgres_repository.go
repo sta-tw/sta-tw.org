@@ -85,20 +85,30 @@ func (r *PostgresRepository) CreateInApp(ctx context.Context, accountID uuid.UUI
 }
 
 func (r *PostgresRepository) EnqueueEmailForAccount(ctx context.Context, accountID uuid.UUID, dedupKey, subject, text, html, kind string) error {
+	return r.EnqueueEmailForAccountWithMaxAttempts(ctx, accountID, dedupKey, subject, text, html, kind, 8)
+}
+
+// EnqueueEmailForAccountWithMaxAttempts queues the same durable email payload
+// as EnqueueEmailForAccount with a caller-selected retry cap. The database
+// constraint currently limits this to 100 attempts.
+func (r *PostgresRepository) EnqueueEmailForAccountWithMaxAttempts(ctx context.Context, accountID uuid.UUID, dedupKey, subject, text, html, kind string, maxAttempts int) error {
+	if maxAttempts < 1 || maxAttempts > 100 {
+		return errors.New("email retry limit must be between 1 and 100")
+	}
 	var recipientCiphertext []byte
 	if err := r.pool.QueryRow(ctx, `SELECT email_ciphertext FROM accounts WHERE id = $1 AND account_status = 'active'`, accountID).Scan(&recipientCiphertext); errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
 	} else if err != nil {
 		return err
 	}
-	return r.enqueueEmail(ctx, accountID, nil, recipientCiphertext, dedupKey, subject, text, html, kind)
+	return r.enqueueEmail(ctx, accountID, nil, recipientCiphertext, dedupKey, subject, text, html, kind, maxAttempts)
 }
 
 func (r *PostgresRepository) EnqueueEmailTo(ctx context.Context, accountID uuid.UUID, recipientCiphertext []byte, dedupKey, subject, text, html string) error {
-	return r.enqueueEmail(ctx, accountID, nil, recipientCiphertext, dedupKey, subject, text, html, "verification")
+	return r.enqueueEmail(ctx, accountID, nil, recipientCiphertext, dedupKey, subject, text, html, "verification", 8)
 }
 
-func (r *PostgresRepository) enqueueEmail(ctx context.Context, accountID uuid.UUID, notificationID *uuid.UUID, recipientCiphertext []byte, dedupKey, subject, text, html, kind string) error {
+func (r *PostgresRepository) enqueueEmail(ctx context.Context, accountID uuid.UUID, notificationID *uuid.UUID, recipientCiphertext []byte, dedupKey, subject, text, html, kind string, maxAttempts int) error {
 	if len(recipientCiphertext) == 0 || strings.TrimSpace(dedupKey) == "" || strings.TrimSpace(subject) == "" || strings.TrimSpace(text) == "" || strings.TrimSpace(kind) == "" {
 		return errors.New("email notification data is invalid")
 	}
@@ -111,10 +121,10 @@ func (r *PostgresRepository) enqueueEmail(ctx context.Context, accountID uuid.UU
 		return err
 	}
 	_, err = r.pool.Exec(ctx, `
-		INSERT INTO email_outbox (account_id, notification_id, dedup_key, recipient_ciphertext, payload_ciphertext)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO email_outbox (account_id, notification_id, dedup_key, recipient_ciphertext, payload_ciphertext, max_attempts)
+		VALUES ($1, $2, $3, $4, $5, $6)
 		ON CONFLICT (account_id, dedup_key) DO NOTHING
-	`, accountID, notificationID, dedupKey, recipientCiphertext, payloadCiphertext)
+	`, accountID, notificationID, dedupKey, recipientCiphertext, payloadCiphertext, maxAttempts)
 	return mapNotificationError(err)
 }
 

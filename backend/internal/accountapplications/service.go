@@ -14,18 +14,23 @@ import (
 	"github.com/google/uuid"
 	"sta-backend/internal/auth"
 	"sta-backend/internal/email"
+	"sta-backend/internal/emailinquiries"
 	"sta-backend/internal/storage"
 )
 
-var ErrInvalidInput = errors.New("invalid input")
+var (
+	ErrInvalidInput              = errors.New("invalid input")
+	ErrReviewForumUnavailable    = errors.New("account application review forum is unavailable")
+	ErrReviewNotificationFailed  = errors.New("account application reviewer notification failed")
+	ErrApplicantEmailUnavailable = errors.New("account application email sender is unavailable")
+	ErrApplicantEmailFailed      = errors.New("account application receipt email failed")
+)
 
 type Repository interface {
 	Create(ctx context.Context, username, note string, emailCiphertext, emailLookupHash []byte) (Application, error)
 	AddDocument(ctx context.Context, applicationID uuid.UUID, storageKey, filename, contentType string, sizeBytes int64, sha256Hex string) (Document, error)
-	// SetTelegramMessage records the one message this application's whole
-	// Telegram thread lives in (root, kept continuously edited — see
-	// HandleInboundReply/ReplyByTelegram), and the static header text an
-	// edit rebuilds from.
+	// SetTelegramMessage records the notification message and static header
+	// text used by the legacy Telegram card updater.
 	SetTelegramMessage(ctx context.Context, applicationID uuid.UUID, chatID, messageID int64, headerText string) error
 	Get(ctx context.Context, applicationID uuid.UUID) (Application, error)
 	EmailCiphertext(ctx context.Context, applicationID uuid.UUID) ([]byte, error)
@@ -42,10 +47,6 @@ type Repository interface {
 	// Message-ID for this application, or "" if none is on record.
 	LatestInboundMessageID(ctx context.Context, applicationID uuid.UUID) (string, error)
 	MarkAccountIdentityVerified(ctx context.Context, accountID uuid.UUID) error
-	// FindByTelegramMessage resolves a staff reply typed directly in
-	// Telegram (as a reply to the one card message — see
-	// SetTelegramMessage) back to the application it belongs to.
-	FindByTelegramMessage(ctx context.Context, chatID, messageID int64) (Application, error)
 	// ListMessages returns the full inbound/outbound correspondence on this
 	// application's thread, oldest first — used to rebuild the card's
 	// transcript on every edit.
@@ -55,6 +56,26 @@ type Repository interface {
 type DocumentLink struct {
 	Filename string
 	URL      string
+}
+
+// DiscordForumNotifier creates the review post and appends later applicant or
+// staff messages in the same way as the ordinary email inquiry forum.
+type DiscordForumNotifier interface {
+	CreateAccountApplicationThread(ctx context.Context, forumChannelID, subject, body string, mentionRoleIDs []string, approveCustomID, rejectCustomID string) (string, error)
+	PostAccountApplicationMessage(ctx context.Context, threadID, title, author, body string, inbound bool) error
+}
+
+type discordThreadRepository interface {
+	SetDiscordThread(ctx context.Context, applicationID uuid.UUID, threadID string) error
+	FindByDiscordThread(ctx context.Context, threadID string) (Application, error)
+}
+
+type discordMessageRepository interface {
+	AddDiscordMessage(ctx context.Context, applicationID uuid.UUID, direction, body, sourceMessageID, actor, actorDiscordID string) error
+}
+
+type ReplyTemplateResolver interface {
+	ReplyTemplate(ctx context.Context, mailRouteID uuid.UUID) (value string, ok bool, err error)
 }
 
 // TelegramNotifier posts and updates the review message in the admin group.
@@ -82,16 +103,31 @@ type TelegramNotifier interface {
 }
 
 type Service struct {
-	repository    Repository
-	blobStore     storage.BlobStore
-	scanner       storage.Scanner
-	emailCipher   *auth.FieldCipher
-	lookupHMACKey []byte
-	authService   *auth.Service
-	telegram      TelegramNotifier
-	mailer        email.Sender
-	mailDomain    string
-	logger        *slog.Logger
+	repository       Repository
+	blobStore        storage.BlobStore
+	scanner          storage.Scanner
+	emailCipher      *auth.FieldCipher
+	lookupHMACKey    []byte
+	authService      *auth.Service
+	telegram         TelegramNotifier
+	discordForum     DiscordForumNotifier
+	forumChannelID   string
+	forumRoleIDs     []string
+	replyTemplates   ReplyTemplateResolver
+	replyMailRouteID uuid.UUID
+	mailer           email.Sender
+	mailDomain       string
+	logger           *slog.Logger
+}
+
+// ConfigureDiscordForum connects account applications to the account@ mail
+// route's forum. The same channel is used by account@mail intake replies.
+func (s *Service) ConfigureDiscordForum(notifier DiscordForumNotifier, forumChannelID string, roleIDs []string, replyMailRouteID uuid.UUID, replyTemplates ReplyTemplateResolver) {
+	s.discordForum = notifier
+	s.forumChannelID = strings.TrimSpace(forumChannelID)
+	s.forumRoleIDs = append([]string(nil), roleIDs...)
+	s.replyMailRouteID = replyMailRouteID
+	s.replyTemplates = replyTemplates
 }
 
 func NewService(repository Repository, blobStore storage.BlobStore, scanner storage.Scanner, emailCipher *auth.FieldCipher, lookupHMACKey []byte, authService *auth.Service, telegram TelegramNotifier, mailer email.Sender, mailDomain string, logger *slog.Logger) (*Service, error) {
@@ -140,6 +176,12 @@ var usernameSanitizePattern = regexp.MustCompile(`[^a-zA-Z0-9._-]+`)
 // form: the only way to create an application (a cold email is an inquiry
 // instead — see internal/emailinquiries).
 func (s *Service) SubmitFromWeb(ctx context.Context, rawUsername, rawEmail, note string, attachments []Attachment) (Application, error) {
+	if s.discordForum == nil || s.forumChannelID == "" {
+		return Application{}, ErrReviewForumUnavailable
+	}
+	if s.mailer == nil {
+		return Application{}, ErrApplicantEmailUnavailable
+	}
 	username := usernameSanitizePattern.ReplaceAllString(strings.ToLower(strings.TrimSpace(rawUsername)), "")
 	if len(username) < 3 {
 		return Application{}, fmt.Errorf("%w: username is too short", ErrInvalidInput)
@@ -155,11 +197,8 @@ func (s *Service) SubmitFromWeb(ctx context.Context, rawUsername, rawEmail, note
 	return s.createPending(ctx, username, applicantEmail, note, attachments)
 }
 
-// createPending creates the application row, posts the Telegram card (a
-// minimal header — see renderCard), and then stores/renders note as the
-// thread's first turn. Content lives in exactly one place (the transcript),
-// never baked into the header text itself, so a later edit never shows it
-// twice.
+// createPending stores the application and sends its review post to the
+// account mail route's Discord forum.
 func (s *Service) createPending(ctx context.Context, username, applicantEmail, note string, attachments []Attachment) (Application, error) {
 	emailCiphertext, err := s.emailCipher.Seal(applicantEmail)
 	if err != nil {
@@ -175,6 +214,61 @@ func (s *Service) createPending(ctx context.Context, username, applicantEmail, n
 	}
 
 	links := s.storeAttachments(ctx, app.ID, attachments)
+	initialBody := note
+	for _, link := range links {
+		initialBody += "\n\n附件：" + link.Filename + "\n" + link.URL
+	}
+	if strings.TrimSpace(initialBody) != "" {
+		if err := s.repository.AddMessage(ctx, app.ID, "inbound", initialBody, "", "使用者"); err != nil {
+			s.logger.Error("failed to record initial account application message", "application_id", app.ID, "error", err)
+		}
+	}
+
+	// Send the applicant's receipt as soon as the application has been saved.
+	// Discord forum delivery is a separate notification and must not delay this
+	// email or prevent it from being sent when Discord is temporarily unavailable.
+	receipt := "我們已收到你的 STA 無學校信箱帳號申請（" + app.RequestedUsername + "），接下來會由工作人員人工審核。若需補充資料，直接回覆這封信即可，回覆會接回原申請；審核通過後，系統會再寄送設定密碼的帳號啟用信。"
+	if err := s.mailer.Send(ctx, email.Message{
+		To: applicantEmail, Subject: "STA 帳號申請已收到｜" + app.RequestedUsername,
+		Text: receipt, HTML: email.InfoEmail("帳號申請已收到", []string{
+			"我們已收到你的 STA 無學校信箱帳號申請（" + app.RequestedUsername + "），接下來會由工作人員人工審核。",
+			"若需補充資料，直接回覆這封信即可，回覆會接回原申請；審核通過後，系統會再寄送設定密碼的帳號啟用信。",
+		}), MessageID: s.messageIDFor(app.ID),
+	}); err != nil {
+		s.logger.Error("failed to send account application receipt email", "application_id", app.ID, "error", err)
+		return app, fmt.Errorf("%w: %v", ErrApplicantEmailFailed, err)
+	}
+	if err := s.repository.AddMessage(ctx, app.ID, "outbound", receipt, "", "系統"); err != nil {
+		s.logger.Error("failed to record account application receipt email", "application_id", app.ID, "error", err)
+	}
+
+	if s.discordForum != nil && s.forumChannelID != "" {
+		body := fmt.Sprintf("申請編號：%s\n申請者信箱：%s\n希望帳號：%s\n\n申請說明：\n%s", app.ID, applicantEmail, app.RequestedUsername, note)
+		for _, link := range links {
+			body += "\n\n附件：" + link.Filename + "\n" + link.URL
+		}
+		threadID, err := s.discordForum.CreateAccountApplicationThread(
+			ctx, s.forumChannelID, "無學校信箱帳號申請｜"+app.RequestedUsername, body,
+			s.forumRoleIDs, AccountApplicationDecisionCustomID("approve", app.ID), AccountApplicationDecisionCustomID("reject", app.ID),
+		)
+		if err != nil {
+			s.logger.Error("failed to notify Discord forum about account application", "application_id", app.ID, "error", err)
+			return app, fmt.Errorf("%w: %v", ErrReviewNotificationFailed, err)
+		}
+		app.DiscordThreadID = threadID
+		if repo, ok := s.repository.(discordThreadRepository); ok {
+			if err := repo.SetDiscordThread(ctx, app.ID, threadID); err != nil {
+				s.logger.Error("failed to record Discord thread for account application", "application_id", app.ID, "error", err)
+				return app, fmt.Errorf("%w: %v", ErrReviewNotificationFailed, err)
+			}
+		}
+	}
+
+	if app.DiscordThreadID != "" {
+		if err := s.discordForum.PostAccountApplicationMessage(ctx, app.DiscordThreadID, "✉️ 已寄出收件確認信", "系統", receipt, false); err != nil {
+			s.logger.Warn("failed to post account application receipt status to Discord forum", "application_id", app.ID, "error", err)
+		}
+	}
 
 	if s.telegram != nil {
 		chatID, messageID, headerText, err := s.telegram.NotifyPendingApplication(ctx, app, applicantEmail, links)
@@ -188,13 +282,7 @@ func (s *Service) createPending(ctx context.Context, username, applicantEmail, n
 		if err := s.repository.SetTelegramMessage(ctx, app.ID, chatID, messageID, headerText); err != nil {
 			s.logger.Error("failed to record telegram message for account application", "application_id", app.ID, "error", err)
 		}
-		if note != "" {
-			if err := s.repository.AddMessage(ctx, app.ID, "inbound", note, "", "使用者"); err != nil {
-				s.logger.Error("failed to record initial account application message", "application_id", app.ID, "error", err)
-			} else {
-				s.refreshTelegramCard(ctx, app)
-			}
-		}
+		s.refreshTelegramCard(ctx, app)
 	}
 	return app, nil
 }
@@ -259,6 +347,11 @@ func (s *Service) HandleInboundReply(ctx context.Context, applicationID uuid.UUI
 		return err
 	}
 
+	if s.discordForum != nil && app.DiscordThreadID != "" {
+		if err := s.discordForum.PostAccountApplicationMessage(ctx, app.DiscordThreadID, "📨 申請者補充資料", fromAddress, storedBody, true); err != nil {
+			s.logger.Warn("failed to post account application reply to Discord forum", "application_id", applicationID, "error", err)
+		}
+	}
 	if s.telegram != nil && app.TelegramChatID != nil && app.TelegramMessageID != nil {
 		s.refreshTelegramCard(ctx, app)
 	}
@@ -312,8 +405,8 @@ func (s *Service) renderCard(ctx context.Context, app Application) (string, erro
 }
 
 // Approve creates an active, verified-student account for a pending
-// application and emails the applicant a password-set link.
-// reviewerAccountID is optional — Telegram group members approving a
+// application and emails the applicant an account-activation link.
+// reviewerAccountID is optional — Discord reviewers approving a
 // request don't necessarily have an STA account. People without a school
 // email never go through Register (it requires *.edu.tw), so this is the
 // only way they get an account at all — not a supplement to one that
@@ -358,11 +451,13 @@ func (s *Service) Approve(ctx context.Context, applicationID uuid.UUID, reviewer
 	if err := s.repository.Decide(ctx, applicationID, StatusApproved, reviewerAccountID, &account.ID); err != nil {
 		return Application{}, err
 	}
-	if err := s.authService.RequestPasswordReset(ctx, applicantEmail, nil); err != nil {
-		s.logger.Error("failed to send password-set email after account-application approval", "application_id", applicationID, "error", err)
-	}
 	app.Status = StatusApproved
 	app.CreatedAccountID = &account.ID
+	if err := s.authService.SendApprovedAccountActivation(ctx, account.ID); err != nil {
+		s.logger.Error("failed to send activation email after account-application approval", "application_id", applicationID, "error", err)
+	} else {
+		app.ActivationEmailQueued = true
+	}
 	return app, nil
 }
 
@@ -408,23 +503,76 @@ func (s *Service) Reject(ctx context.Context, applicationID uuid.UUID, reviewerA
 	return app, nil
 }
 
-// ReplyByTelegram sends free text — typed by a staff member directly as a
-// Telegram reply to one of our notification messages — back to the
-// applicant as an email on the same thread. Works for a pending application
-// without needing a decision first.
-//
-// staffMessageID/staffName identify the staff member's own typed message
-// (the one Telegram is already showing in the chat): after the email goes
-// out, that raw message is deleted and its content folded into the card's
-// transcript instead, labelled with staffName — avoids the chat filling up
-// with one message per turn, and keeps "who replied" visible to staff only
-// (the outbound email is always from account@, regardless of who typed it).
-func (s *Service) ReplyByTelegram(ctx context.Context, chatID, messageID, staffMessageID int64, staffName, body string) (Application, error) {
-	body = strings.TrimSpace(body)
-	if body == "" {
+// AccountApplicationDecisionCustomID returns the signed interaction's
+// application-scoped custom ID for the Discord review buttons.
+func AccountApplicationDecisionCustomID(action string, applicationID uuid.UUID) string {
+	return "account_application:" + action + ":" + applicationID.String()
+}
+
+// DecideByDiscord resolves the application from its forum thread before
+// applying a button action, preventing a copied custom ID from acting on a
+// request in a different thread.
+func (s *Service) DecideByDiscord(ctx context.Context, threadID string, applicationID uuid.UUID, action, staffName, staffDiscordID string) (Application, error) {
+	repo, ok := s.repository.(discordThreadRepository)
+	if !ok {
+		return Application{}, errors.New("account application Discord thread repository is unavailable")
+	}
+	app, err := s.repository.Get(ctx, applicationID)
+	if err != nil {
+		return Application{}, err
+	}
+	if app.DiscordThreadID == "" || app.DiscordThreadID != threadID {
+		return Application{}, ErrNotFound
+	}
+	// Ensure the repository can still resolve the thread to this exact row.
+	threadApp, err := repo.FindByDiscordThread(ctx, threadID)
+	if err != nil || threadApp.ID != applicationID {
+		if err != nil {
+			return Application{}, err
+		}
+		return Application{}, ErrNotFound
+	}
+	var decided Application
+	switch action {
+	case "approve":
+		decided, err = s.Approve(ctx, applicationID, nil)
+	case "reject":
+		decided, err = s.Reject(ctx, applicationID, nil)
+	default:
 		return Application{}, ErrInvalidInput
 	}
-	app, err := s.repository.FindByTelegramMessage(ctx, chatID, messageID)
+	if err != nil {
+		return Application{}, err
+	}
+	decisionText := "申請已通過審核。"
+	if action == "approve" && !decided.ActivationEmailQueued {
+		decisionText = "申請已通過審核並建立帳號，但啟用信暫時無法排入寄信佇列。"
+	}
+	if action == "reject" {
+		decisionText = "申請未通過審核。"
+	}
+	if repo, ok := s.repository.(discordMessageRepository); ok {
+		if err := repo.AddDiscordMessage(ctx, app.ID, "outbound", decisionText, "", staffName, staffDiscordID); err != nil {
+			s.logger.Error("failed to record Discord account application decision", "application_id", app.ID, "error", err)
+		}
+	}
+	return decided, nil
+}
+
+// ReplyByDiscord sends a staff correction request to the applicant's
+// personal email and records the message in both the application transcript
+// and its Discord forum thread.
+func (s *Service) ReplyByDiscord(ctx context.Context, threadID, staffName, staffDiscordID, body, signature string) (Application, error) {
+	body = strings.TrimSpace(body)
+	signature = strings.TrimSpace(signature)
+	if body == "" || signature == "" {
+		return Application{}, ErrInvalidInput
+	}
+	repo, ok := s.repository.(discordThreadRepository)
+	if !ok {
+		return Application{}, errors.New("account application Discord thread repository is unavailable")
+	}
+	app, err := repo.FindByDiscordThread(ctx, threadID)
 	if err != nil {
 		return Application{}, err
 	}
@@ -441,29 +589,38 @@ func (s *Service) ReplyByTelegram(ctx context.Context, chatID, messageID, staffM
 	}
 	inReplyTo, err := s.repository.LatestInboundMessageID(ctx, app.ID)
 	if err != nil {
-		s.logger.Warn("failed to look up latest inbound message id for telegram reply", "application_id", app.ID, "error", err)
+		s.logger.Warn("failed to look up latest inbound message id for account application correction", "application_id", app.ID, "error", err)
 	}
-	const subject = "STA 帳號申請信箱回覆"
-	err = s.mailer.Send(ctx, email.Message{
-		To: applicantEmail, Subject: subject, Text: body,
-		HTML:      email.InfoEmail(subject, []string{body}),
-		MessageID: s.messageIDFor(app.ID),
-		InReplyTo: inReplyTo,
+	template := emailinquiries.DefaultReplyTemplate()
+	if s.replyTemplates != nil && s.replyMailRouteID != uuid.Nil {
+		if value, found, templateErr := s.replyTemplates.ReplyTemplate(ctx, s.replyMailRouteID); templateErr == nil && found {
+			template = value
+		} else if templateErr != nil {
+			s.logger.Warn("failed to load account application mail reply template", "application_id", app.ID, "error", templateErr)
+		}
+	}
+	fullBody := emailinquiries.RenderReplyBody(template, emailinquiries.ReplyTemplateVars{
+		Body: body, Signature: signature, Subject: "STA 帳號申請補正", StaffName: staffName,
+		SenderEmail: applicantEmail, Date: time.Now().Format("2006年01月02日"),
 	})
-	if err != nil {
+	const subject = "Re: STA 帳號申請補正"
+	if err := s.mailer.Send(ctx, email.Message{
+		To: applicantEmail, Subject: subject, Text: fullBody,
+		Bcc:       []string{email.SupportArchiveBCCAddress},
+		MessageID: s.messageIDFor(app.ID), InReplyTo: inReplyTo,
+	}); err != nil {
 		return Application{}, err
 	}
-	if err := s.repository.AddMessage(ctx, app.ID, "outbound", body, "", staffName); err != nil {
-		s.logger.Error("failed to record telegram-originated reply", "application_id", app.ID, "error", err)
+	if repo, ok := s.repository.(discordMessageRepository); ok {
+		if err := repo.AddDiscordMessage(ctx, app.ID, "outbound", fullBody, "", staffName, staffDiscordID); err != nil {
+			s.logger.Error("failed to record Discord account application reply", "application_id", app.ID, "error", err)
+		}
+	} else if err := s.repository.AddMessage(ctx, app.ID, "outbound", fullBody, "", staffName); err != nil {
+		s.logger.Error("failed to record Discord account application reply", "application_id", app.ID, "error", err)
 	}
-	if s.telegram != nil {
-		s.refreshTelegramCard(ctx, app)
-		if staffMessageID != 0 {
-			if err := s.telegram.DeleteMessage(ctx, chatID, staffMessageID); err != nil {
-				// Non-fatal: the bot may not have delete rights in this
-				// group. The reply already went out either way.
-				s.logger.Warn("failed to delete staff reply message", "application_id", app.ID, "error", err)
-			}
+	if s.discordForum != nil {
+		if err := s.discordForum.PostAccountApplicationMessage(ctx, threadID, "✅ 已寄出補正通知", staffName, fullBody, false); err != nil {
+			s.logger.Warn("failed to post account application correction to Discord forum", "application_id", app.ID, "error", err)
 		}
 	}
 	return app, nil

@@ -33,6 +33,10 @@
 - `000018_support_attachments.sql`：客服 Ticket 私有附件 metadata 與限制。
 - `000019_support_email_inbound.sql`：簽章 Email webhook 去重與 canonical 回覆來源。
 - `000020_admin_mfa.sql`：管理員 TOTP MFA 加密 seed。
+- `000076_admissions_display_latest_year.sql`：初始化簡章搜尋顯示最新年度，作為公開搜尋年度上限。
+- `000077_account_application_discord_threads.sql`：記錄帳號申請的 Discord 論壇討論串，供審核按鈕與 `/re` 補正回覆使用。
+- `000078_admission_timeline_scope_labels.sql`：把時程適用範圍落在各校系事件資料列，並移除事件名稱中的範圍前綴。
+- `000079_formal_mail_reply_template.sql`：將仍使用舊版預設內容的客服回信範本更新為正式結尾；自訂範本不變。
 
 招生科系資料不另建管理專用表；管理端 API 直接以 transaction 維護 `academic_programs` 與 `program_exam_items`，並以 `review_status` 控制待審／公開狀態，異動寫入既有 append-only `audit_log`。
 

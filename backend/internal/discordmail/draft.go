@@ -22,6 +22,7 @@ const draftTTL = 2 * time.Hour
 // near enough for a reply body), so the actual content has to live
 // somewhere else in between.
 type replyDraft struct {
+	Command        string `json:"command"`
 	ThreadID       string `json:"thread_id"`
 	StaffName      string `json:"staff_name"`
 	StaffDiscordID string `json:"staff_discord_id"`

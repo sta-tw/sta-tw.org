@@ -43,7 +43,6 @@ func (h *Handler) ConfigureDistributedLimiter(limiter security.DistributedLimite
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/account-applications", h.submitForm)
 	mux.HandleFunc("POST /api/v1/internal/account-applications/{id}/decision", h.decision)
-	mux.HandleFunc("POST /api/v1/internal/account-applications/reply-by-telegram", h.replyByTelegram)
 }
 
 // submitForm is the public, unauthenticated application form: the only way
@@ -92,6 +91,22 @@ func (h *Handler) submitForm(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if errors.Is(err, ErrInvalidInput) {
 			writeError(w, http.StatusBadRequest, "invalid_input", "username or email is invalid")
+			return
+		}
+		if errors.Is(err, ErrReviewForumUnavailable) {
+			writeError(w, http.StatusServiceUnavailable, "review_unavailable", "account application review is temporarily unavailable")
+			return
+		}
+		if errors.Is(err, ErrApplicantEmailUnavailable) {
+			writeError(w, http.StatusServiceUnavailable, "email_unavailable", "account application email is temporarily unavailable")
+			return
+		}
+		if errors.Is(err, ErrReviewNotificationFailed) {
+			writeError(w, http.StatusServiceUnavailable, "notification_failed", "application data was saved but reviewers could not be notified; do not submit it again")
+			return
+		}
+		if errors.Is(err, ErrApplicantEmailFailed) {
+			writeError(w, http.StatusServiceUnavailable, "receipt_email_failed", "application data was saved but the receipt email could not be sent; do not submit it again")
 			return
 		}
 		writeError(w, http.StatusInternalServerError, "internal_error", "internal server error")
@@ -150,44 +165,6 @@ func (h *Handler) decision(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusNotFound, "not_found", "application not found")
 		case errors.Is(err, ErrAlreadyDecided):
 			writeError(w, http.StatusConflict, "already_decided", "application was already decided")
-		default:
-			writeError(w, http.StatusInternalServerError, "internal_error", "internal server error")
-		}
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"data": app})
-}
-
-type replyByTelegramInput struct {
-	ChatID         int64  `json:"chat_id"`
-	MessageID      int64  `json:"message_id"`
-	StaffMessageID int64  `json:"staff_message_id"`
-	StaffName      string `json:"staff_name"`
-	Body           string `json:"body"`
-}
-
-// replyByTelegram lets a staff member answer a pending application by simply
-// typing a Telegram reply to its notification message — the bot forwards
-// chat_id/message_id/text here, we resolve which application that message
-// belongs to, and email the reply. Returns 404 for a reply to a message that
-// isn't one of ours, which the bot treats as "not for me" (it may belong to
-// an email-inquiry thread instead) and tries elsewhere.
-func (h *Handler) replyByTelegram(w http.ResponseWriter, r *http.Request) {
-	if !h.requireServiceToken(w, r) {
-		return
-	}
-	var input replyByTelegramInput
-	if err := json.NewDecoder(io.LimitReader(r.Body, 8192)).Decode(&input); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_body", "request body is invalid")
-		return
-	}
-	app, err := h.service.ReplyByTelegram(r.Context(), input.ChatID, input.MessageID, input.StaffMessageID, input.StaffName, input.Body)
-	if err != nil {
-		switch {
-		case errors.Is(err, ErrNotFound):
-			writeError(w, http.StatusNotFound, "not_found", "no application matches this message")
-		case errors.Is(err, ErrInvalidInput):
-			writeError(w, http.StatusBadRequest, "invalid_input", "reply body is empty")
 		default:
 			writeError(w, http.StatusInternalServerError, "internal_error", "internal server error")
 		}

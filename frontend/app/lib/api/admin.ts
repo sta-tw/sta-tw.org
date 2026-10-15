@@ -46,6 +46,29 @@ export function getStats(mfaCode?: string) {
     return apiFetch<AdminStats>("/api/v1/admin/stats", { headers: mfaHeader(mfaCode) });
 }
 
+export interface AdmissionsDisplayLatestYear {
+    academic_year: number;
+    is_set: boolean;
+}
+
+export function getAdmissionsDisplayLatestYear(mfaCode?: string) {
+    return apiFetch<{ data: AdmissionsDisplayLatestYear }>(
+        "/api/v1/admin/admissions/display-latest-year",
+        { headers: mfaHeader(mfaCode) }
+    );
+}
+
+export function setAdmissionsDisplayLatestYear(academicYear: number, mfaCode?: string) {
+    return apiFetch<{ data: AdmissionsDisplayLatestYear }>(
+        "/api/v1/admin/admissions/display-latest-year",
+        {
+            method: "PUT",
+            body: { academic_year: academicYear },
+            headers: mfaHeader(mfaCode)
+        }
+    );
+}
+
 // --- users --------------------------------------------------------------
 
 export type AccountStatus = "active" | "pending_verification" | "suspended" | "deleted";

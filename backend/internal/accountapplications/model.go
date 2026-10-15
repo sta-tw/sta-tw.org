@@ -1,7 +1,7 @@
 // Package accountapplications handles account requests from people without a
 // usable school email: they apply through the /apply web form with proof
-// attachments, an admin reviews the request from a Telegram notification,
-// and approval creates the account. A cold email to account@mail.sta-tw.org
+// attachments, staff review the request in the account mail Forum, and
+// approval creates the account. A cold email to account@mail.sta-tw.org
 // is NOT an application — see internal/emailinquiries.
 package accountapplications
 
@@ -24,13 +24,15 @@ const (
 )
 
 type Application struct {
-	ID                uuid.UUID  `json:"id"`
-	RequestedUsername string     `json:"requested_username"`
-	Note              string     `json:"note"`
-	Status            Status     `json:"status"`
-	CreatedAccountID  *uuid.UUID `json:"created_account_id,omitempty"`
-	TelegramChatID    *int64     `json:"-"`
-	TelegramMessageID *int64     `json:"-"`
+	ID                    uuid.UUID  `json:"id"`
+	RequestedUsername     string     `json:"requested_username"`
+	Note                  string     `json:"note"`
+	Status                Status     `json:"status"`
+	CreatedAccountID      *uuid.UUID `json:"created_account_id,omitempty"`
+	ActivationEmailQueued bool       `json:"-"`
+	DiscordThreadID       string     `json:"-"`
+	TelegramChatID        *int64     `json:"-"`
+	TelegramMessageID     *int64     `json:"-"`
 	// TelegramHeaderText is the static part of the Telegram card (寄件人/
 	// 內容/附件 etc.), rendered once at creation. An edit rebuilds the full
 	// card as this plus the running transcript, instead of re-deriving
@@ -41,14 +43,15 @@ type Application struct {
 
 // Message is one entry in an application's back-and-forth correspondence —
 // see account_application_messages. Direction is "inbound" or "outbound".
-// Actor is "使用者" for inbound, or the staff member's Telegram display name
-// for an outbound reply typed in Telegram (empty for a system-generated
-// email like the rejection notice).
+// Actor identifies the sender for inbound messages or the staff member for
+// outbound replies. It is empty for a system-generated email such as a
+// rejection notice.
 type Message struct {
-	Direction string    `json:"direction"`
-	Body      string    `json:"body"`
-	Actor     string    `json:"actor"`
-	CreatedAt time.Time `json:"created_at"`
+	Direction      string    `json:"direction"`
+	Body           string    `json:"body"`
+	Actor          string    `json:"actor"`
+	ActorDiscordID string    `json:"actor_discord_id,omitempty"`
+	CreatedAt      time.Time `json:"created_at"`
 }
 
 type Document struct {

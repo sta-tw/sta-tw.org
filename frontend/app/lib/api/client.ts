@@ -1,10 +1,9 @@
 import { ApiError } from "./types";
 
 /**
- * Base URL of the Go backend. Set NEXT_PUBLIC_API_BASE_URL in .env.local for
- * local dev (defaults to the docker-compose stack's default port). This is a
- * client-only value (the app is a static export; every call happens in the
- * browser), so it's fine that it's baked in at build time.
+ * Base URL of the Go backend for browser requests. Set
+ * NEXT_PUBLIC_API_BASE_URL in .env.local for local development; production
+ * leaves it blank so the browser uses the same-origin Caddy API proxy.
  */
 export const API_BASE_URL = (
     process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8080"

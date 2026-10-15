@@ -16,6 +16,30 @@ GET /api/v1/admin/admissions/programs/116-001-023/history
 
 管理端清單可用 `academic_year`、`school_code`、`review_status`、`q`、`limit` 與 `offset` 篩選。所有管理端資料不允許瀏覽器快取。
 
+## 簡章搜尋顯示最新年度
+
+管理端可設定簡章搜尋的顯示年度上限：
+
+```http
+GET /api/v1/admin/admissions/display-latest-year
+PUT /api/v1/admin/admissions/display-latest-year
+Content-Type: application/json
+```
+
+更新時送出 `{ "academic_year": 117 }`。公開搜尋會在此年度及更早的已上架資料中，為每個校系顯示最新一筆；若該校系尚無此年度已上架資料，會沿用最近一筆較早年度資料。歷屆資料只會列出早於設定年度的資料，因此切換到 117 後，116 會列入歷屆。資料列即使尚無錄取統計也會顯示，缺少的統計欄位以 `-` 呈現。新資料上架後，搜尋會自動優先顯示新年度資料；要隱藏尚未被新年度資料取代的舊資料，仍可在後台手動下架。
+
+查詢回傳 `{ "data": { "academic_year": 116, "is_set": true } }`；尚未建立設定時，`academic_year` 會使用目前最新的已上架年度，`is_set` 為 `false`。
+
+Migration 000076 會將目前最新的已上架年度設為初始顯示年度，避免部署後應屆年度立刻出現在歷屆清單。
+
+## 公開簡章搜尋
+
+```http
+GET /api/v1/admissions/programs/search?q=台大&interview=required&limit=50&offset=0
+```
+
+搜尋端點只回傳結果卡片需要的欄位，並在資料庫端套用關鍵字、術科、面試與作品集條件。`interview`、`skills_test`、`portfolio` 可設為 `required` 或 `not-required`；`limit` 預設 50、上限 100，`offset` 用於分頁，`meta.count` 是符合條件的總筆數。完整招生資料與時程仍由單筆校系端點讀取。
+
 ## 批次同步
 
 ```http

@@ -8,8 +8,6 @@ import { twMerge } from "tailwind-merge";
 import { ArrowLeft, Loader2, Lock, LogOut, ShieldAlert } from "lucide-react";
 import Button from "../components/button";
 import { getCurrentAccount, logout, verifyAdminMfa } from "../lib/api/auth";
-import { getStats } from "../lib/api/admin";
-import { listAdminAdmissionPrograms } from "../lib/api/admissions";
 import { ApiError, type Account } from "../lib/api/types";
 import { publicPath } from "../lib/public-path";
 import { AdminContextProvider } from "./admin-context";
@@ -52,74 +50,41 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
 
     async function probe() {
         setStatus({ name: "checking" });
-        let account: Account;
-        let isAdmin = false;
-        let canManageAdmissions = false;
+        let me;
         try {
-            const me = await getCurrentAccount();
-            account = me.account;
-            isAdmin = me.is_admin;
-            canManageAdmissions = me.can_manage_admissions;
+            me = await getCurrentAccount();
         } catch {
             setStatus({ name: "signed-out" });
             return;
         }
-        if (!isAdmin && !canManageAdmissions) {
+        if (!me.is_admin && !me.can_manage_admissions) {
             setStatus({ name: "forbidden" });
             return;
         }
-        const scope: Scope = isAdmin ? "full" : "admissions";
-        // An admissions-only moderator has no access to anything else under
-        // /admin — including the /admin/stats probe below, which would just
-        // 403. Redirect them straight to the one page they can use instead
-        // of surfacing that as an error.
-        if (scope === "admissions" && !pathname.startsWith(ADMISSIONS_ONLY_PATH)) {
-            router.replace(ADMISSIONS_ONLY_PATH);
+        if (!me.admin_mfa_verified) {
+            setStatus({ name: "mfa-required" });
             return;
         }
-        try {
-            // The cheapest call scoped to this account's actual permissions:
-            // it's how we learn whether the role check really passes (there's
-            // no reliable single field for that beyond is_admin/
-            // can_manage_admissions) and whether MFA needs a code, without a
-            // separate admin-only endpoint an admissions moderator can't reach.
-            if (scope === "full") {
-                await getStats(mfaCode || undefined);
-            } else {
-                await listAdminAdmissionPrograms({ limit: 1 }, mfaCode || undefined);
-            }
-            setStatus({ name: "ready", account, scope });
-        } catch (cause) {
-            if (cause instanceof ApiError) {
-                if (cause.status === 403) {
-                    setStatus({ name: "forbidden" });
-                    return;
-                }
-                if (cause.status === 428) {
-                    setStatus({ name: "mfa-required" });
-                    return;
-                }
-                if (cause.status === 429) {
-                    setStatus({ name: "rate-limited" });
-                    return;
-                }
-                setStatus({ name: "error", message: cause.message });
-                return;
-            }
-            setStatus({ name: "error", message: "發生未知錯誤，請稍後再試。" });
-        }
+        const scope: Scope = me.is_admin ? "full" : "admissions";
+        setStatus({ name: "ready", account: me.account, scope });
     }
 
     useEffect(() => {
-        // probe() only calls setState after its awaited fetches resolve, never
-        // synchronously, so this can't cascade — safe to call directly. Only
-        // re-probe when the verified MFA code or the current page changes (an
-        // admissions-only account needs re-checking if it navigates, since
-        // that's when the scope-mismatch redirect above applies).
+        // A single identity check is enough for the shell. Every protected
+        // API still checks the role and MFA grant on the server.
         // eslint-disable-next-line react-hooks/set-state-in-effect
         void probe();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [mfaCode, pathname]);
+    }, [mfaCode]);
+
+    useEffect(() => {
+        if (
+            status.name === "ready" &&
+            status.scope === "admissions" &&
+            !pathname.startsWith(ADMISSIONS_ONLY_PATH)
+        ) {
+            router.replace(ADMISSIONS_ONLY_PATH);
+        }
+    }, [pathname, router, status]);
 
     async function handleMfaSubmit(event: React.FormEvent) {
         event.preventDefault();

@@ -2,12 +2,12 @@
 
 `docker-compose.yml` runs the whole stack on one machine: PostgreSQL, MinIO,
 optionally RabbitMQ, ClamAV, MailHog (local SMTP capture), SearXNG, the Go API,
-the Go workers, the two Python workers, and **Caddy**, which builds the static
-Next.js frontend and serves it together with a reverse proxy to the API on one
-domain (`/api/*` and `/healthz` go to `api`, everything else is the static
-site). This is the setup used for both local development and the production
-host — see `../docs/deployment.md` and `../docs/security.md` for the
-non-compose parts (secret management, backups, monitoring).
+the Go workers, the two Python workers, a request-time Next.js frontend, and
+**Caddy** as the public reverse proxy. `/api/*`, `/sitemap.xml`, and `/llms.txt`
+go to `api`; page requests go to the Next.js server. This is the setup used
+for both local development and the production host — see `../docs/deployment.md`
+and `../docs/security.md` for the non-compose parts (secret management,
+backups, monitoring).
 
 ## Quick start (development)
 
@@ -38,6 +38,13 @@ already binds to `127.0.0.1` only.
 `migrations/` (including the detached Telegram adapter, `-include-telegram`).
 `api` waits for Postgres to be healthy, the MinIO bucket to exist and `migrate`
 to succeed before it starts.
+
+The public `/sitemap.xml` and `/llms.txt` endpoints are served by the API.
+They include currently published admissions programs and use
+`STA_PUBLIC_BASE_URL` for canonical links. Program pages are rendered by
+Next.js from the current public record. Successful admin changes invalidate
+the Redis catalogue and purge the Cloudflare program-page, sitemap, and
+`llms.txt` prefixes before the next request renders the updated data.
 
 Check it:
 

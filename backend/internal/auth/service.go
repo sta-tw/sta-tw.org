@@ -69,6 +69,10 @@ type Service struct {
 	adminMFAGrantTTL     time.Duration
 }
 
+type emailEnqueuerWithRetryLimit interface {
+	EnqueueEmailForAccountWithMaxAttempts(ctx context.Context, accountID uuid.UUID, dedupKey, subject, text, html, kind string, maxAttempts int) error
+}
+
 type RegisterInput struct {
 	Username       string `json:"username"`
 	TurnstileToken string `json:"turnstile_token"`
@@ -358,6 +362,63 @@ func (s *Service) RequestPasswordResetForAccount(ctx context.Context, accountID 
 		return ErrNotConfigured
 	}
 	return s.sendPasswordResetEmail(ctx, store, accountID)
+}
+
+// SendApprovedAccountActivation emails an application-approved account a
+// first-password link. The account already exists and is active; the
+// 24-hour token is therefore a normal password challenge, presented with the
+// account-approval email template instead of the self-service reset wording.
+func (s *Service) SendApprovedAccountActivation(ctx context.Context, accountID uuid.UUID) error {
+	store, ok := s.store.(PasswordResetStore)
+	if !ok || s.emailNotifier == nil {
+		return ErrNotConfigured
+	}
+	if accountID == uuid.Nil {
+		return ErrInvalidInput
+	}
+	token, err := NewOpaqueToken(32)
+	if err != nil {
+		return err
+	}
+	if err := store.CreatePasswordResetChallenge(ctx, accountID, HashOpaqueToken(token), s.now().UTC().Add(24*time.Hour), false); err != nil {
+		return err
+	}
+	link := s.publicBaseURL + "/reset-password?token=" + url.QueryEscape(token)
+	logoURL := ""
+	if s.publicBaseURL != "" {
+		logoURL = s.publicBaseURL + "/logo.svg"
+	}
+	textBody := "你的 STA 帳號申請已通過審核。請在 24 小時內設定密碼，完成後即可登入使用：\n" + link
+	htmlBody := email.ApprovedAccountActivationEmail(email.AccountActivationEmailData{
+		LogoURL: logoURL,
+		SetURL:  link,
+	})
+	dedupKey := "account-application-activation:" + accountID.String() + ":" + hex.EncodeToString(HashOpaqueToken(token))
+	enqueue := func() error {
+		if retryable, ok := s.emailNotifier.(emailEnqueuerWithRetryLimit); ok {
+			return retryable.EnqueueEmailForAccountWithMaxAttempts(ctx, accountID, dedupKey, "[特殊選才資源網] 帳號啟用信", textBody, htmlBody, "account_activation", 100)
+		}
+		return s.emailNotifier.EnqueueEmailForAccount(ctx, accountID, dedupKey, "[特殊選才資源網] 帳號啟用信", textBody, htmlBody, "account_activation")
+	}
+	var enqueueErr error
+	for attempt := 0; attempt < 4; attempt++ {
+		enqueueErr = enqueue()
+		if enqueueErr == nil {
+			return nil
+		}
+		if attempt == 3 {
+			break
+		}
+		delay := time.Duration(100*(1<<attempt)) * time.Millisecond
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
+	return enqueueErr
 }
 
 func (s *Service) sendPasswordResetEmail(ctx context.Context, store PasswordResetStore, accountID uuid.UUID) error {
@@ -868,11 +929,11 @@ func isSchoolEmail(value string) bool {
 
 // CreateApprovedAccount creates an already-active account with verified
 // identity_status='student' directly, for someone with no school email whose
-// account-application was approved in Telegram — they never went through
+// account application was approved by staff — they never went through
 // Register (that path requires a *.edu.tw address), so this is the only way
 // they get an account at all. Password is random and never disclosed; the
-// caller follows up with RequestPasswordReset so the person can set their
-// own, the same way school-email registration's activation link works.
+// caller follows up with SendApprovedAccountActivation so the person can set
+// their own password.
 func (s *Service) CreateApprovedAccount(ctx context.Context, rawUsername, rawEmail string) (Account, error) {
 	if !s.ready() {
 		return Account{}, ErrNotConfigured

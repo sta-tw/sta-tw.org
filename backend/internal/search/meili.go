@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 )
@@ -80,16 +81,6 @@ func (c *Client) request(ctx context.Context, method, path string, body any) ([]
 
 // EnsureIndexes creates the indexes (id primary key) and sets searchable /
 // filterable attributes. Idempotent.
-// taiVariantSynonyms maps 台/臺 both directions so either variant matches.
-var taiVariantSynonyms = map[string][]string{
-	"台": {"臺"}, "臺": {"台"},
-	"台灣": {"臺灣"}, "臺灣": {"台灣"},
-	"台北": {"臺北"}, "臺北": {"台北"},
-	"台中": {"臺中"}, "臺中": {"台中"},
-	"台南": {"臺南"}, "臺南": {"台南"},
-	"台東": {"臺東"}, "臺東": {"台東"},
-}
-
 // schoolAbbreviationSynonyms covers common short forms of a school's name
 // that AREN'T a contiguous substring of the official name (so plain
 // substring/prefix matching alone can't find them) — e.g. "交大" doesn't
@@ -133,20 +124,41 @@ var schoolAbbreviationSynonyms = map[string][]string{
 	"亞大": {"亞洲大學"}, "亞洲大學": {"亞大"},
 }
 
-// searchSynonyms merges the two maps above; since neither has overlapping
-// keys today a plain union is enough (last-write-wins would apply if they
-// ever did overlap).
-var searchSynonyms = mergeSynonyms(taiVariantSynonyms, schoolAbbreviationSynonyms)
+// normalizeSearchText makes every indexed value and every query use the same
+// canonical spelling. Applying this to the complete text (instead of listing
+// a few 台/臺 synonyms) also covers school names, program names, and articles
+// that contain less common place names or phrases.
+func normalizeSearchText(value string) string {
+	return strings.ReplaceAll(value, "臺", "台")
+}
 
-func mergeSynonyms(maps ...map[string][]string) map[string][]string {
-	out := make(map[string][]string)
-	for _, m := range maps {
-		for k, v := range m {
-			out[k] = v
+func normalizeSynonyms(source map[string][]string) map[string][]string {
+	out := make(map[string][]string, len(source))
+	seen := make(map[string]map[string]struct{}, len(source))
+	for term, values := range source {
+		key := normalizeSearchText(term)
+		for _, value := range values {
+			value = normalizeSearchText(value)
+			if key == value {
+				continue
+			}
+			if seen[key] == nil {
+				seen[key] = make(map[string]struct{})
+			}
+			if _, exists := seen[key][value]; exists {
+				continue
+			}
+			seen[key][value] = struct{}{}
+			out[key] = append(out[key], value)
 		}
+	}
+	for key := range out {
+		sort.Strings(out[key])
 	}
 	return out
 }
+
+var searchSynonyms = normalizeSynonyms(schoolAbbreviationSynonyms)
 
 // cjkTypoTolerance lowers Meilisearch's typo-tolerance word-length
 // thresholds (default: oneTypo at 5 letters, twoTypos at 9) way down — those
@@ -162,19 +174,19 @@ var cjkTypoTolerance = map[string]any{
 func (c *Client) EnsureIndexes(ctx context.Context) error {
 	settings := map[string]map[string]any{
 		IndexSchools: {
-			"searchableAttributes": []string{"school_name", "school_code"},
+			"searchableAttributes": []string{"school_name_search", "school_code"},
 			"filterableAttributes": []string{"institution_type", "is_active"},
 			"synonyms":             searchSynonyms,
 			"typoTolerance":        cjkTypoTolerance,
 		},
 		IndexPrograms: {
-			"searchableAttributes": []string{"admission_program_name", "school_name", "program_identifier", "special_talent_target"},
+			"searchableAttributes": []string{"admission_program_name_search", "school_name_search", "program_identifier", "special_talent_target_search"},
 			"filterableAttributes": []string{"academic_year", "school_code"},
 			"synonyms":             searchSynonyms,
 			"typoTolerance":        cjkTypoTolerance,
 		},
 		IndexExperiences: {
-			"searchableAttributes": []string{"title", "snippet"},
+			"searchableAttributes": []string{"title_search", "snippet_search"},
 			"synonyms":             searchSynonyms,
 			"typoTolerance":        cjkTypoTolerance,
 		},
@@ -217,6 +229,7 @@ func (c *Client) Search(ctx context.Context, query string, indexes []string, lim
 	if len(indexes) == 0 {
 		indexes = AllIndexes
 	}
+	query = normalizeSearchText(query)
 	queries := make([]map[string]any, 0, len(indexes))
 	for _, idx := range indexes {
 		queries = append(queries, map[string]any{"indexUid": idx, "q": query, "limit": limitPerIndex})

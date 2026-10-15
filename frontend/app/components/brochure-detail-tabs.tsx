@@ -334,13 +334,17 @@ function RegistrationTab({ brochure }: Pick<BrochureDetailTabsProps, "brochure">
                 item.isoStart
         );
         const details = `${brochure.university} ${brochure.department}\n${brochure.externalLinks[0]?.url ?? ""}`;
-        return selected.map((item) => ({
-            title: `${brochure.university} ${brochure.department} - ${item.title}`,
-            iso_start: item.isoStart!,
-            iso_end: item.isoEnd ?? item.isoStart!,
-            details,
-            external_id: externalId(item)
-        }));
+        return selected.flatMap((item) => {
+            const start = item.isoStart;
+            if (!start) return [];
+            return [{
+                title: `${brochure.university} ${brochure.department} - ${item.title}`,
+                iso_start: start,
+                iso_end: item.isoEnd ?? start,
+                details,
+                external_id: externalId(item)
+            }];
+        });
     }
 
     async function submitEvents(events: CalendarEventInput[]) {

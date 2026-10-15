@@ -4159,6 +4159,96 @@
         }
       }
     },
+    "/api/v1/admin/admissions/display-latest-year": {
+      "get": {
+        "operationId": "get_api_v1_admin_admissions_display_latest_year",
+        "summary": "Get admin admissions display latest year",
+        "tags": [
+          "admin-admissions"
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "adminMFA": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "put_api_v1_admin_admissions_display_latest_year",
+        "summary": "Replace admin admissions display latest year",
+        "tags": [
+          "admin-admissions"
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "adminMFA": [],
+            "csrf": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/admin/admissions/programs": {
       "get": {
         "operationId": "get_api_v1_admin_admissions_programs",
@@ -9858,6 +9948,45 @@
         }
       }
     },
+    "/api/v1/admissions/programs/search": {
+      "get": {
+        "operationId": "get_api_v1_admissions_programs_search",
+        "summary": "Get admissions programs search",
+        "tags": [
+          "admissions"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/admissions/programs/{identifier}": {
       "get": {
         "operationId": "get_api_v1_admissions_programs_identifier",
@@ -13794,51 +13923,6 @@
         }
       }
     },
-    "/api/v1/internal/account-applications/reply-by-telegram": {
-      "post": {
-        "operationId": "post_api_v1_internal_account_applications_reply_by_telegram",
-        "summary": "Create internal account applications reply by telegram",
-        "tags": [
-          "internal-account-applications"
-        ],
-        "security": [
-          {
-            "serviceToken": []
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object"
-                }
-              }
-            }
-          },
-          "4XX": {
-            "description": "Client error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/internal/account-applications/{id}/decision": {
       "post": {
         "operationId": "post_api_v1_internal_account_applications_id_decision",
@@ -17474,6 +17558,45 @@
         }
       }
     },
+    "/llms.txt": {
+      "get": {
+        "operationId": "get_llms_txt",
+        "summary": "Get llms.txt",
+        "tags": [
+          "meta"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/readyz": {
       "get": {
         "operationId": "get_readyz",
@@ -17488,6 +17611,45 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Health"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/sitemap.xml": {
+      "get": {
+        "operationId": "get_sitemap_xml",
+        "summary": "Get sitemap.xml",
+        "tags": [
+          "meta"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
                 }
               }
             }

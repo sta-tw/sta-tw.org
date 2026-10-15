@@ -265,7 +265,7 @@ services:
     # it already has reason to watch. DoH keeps the query content opaque to
     # that vantage point; see the dns-doh service below.
     dns:
-      - 172.16.255.53
+      - 172.18.255.53
     depends_on:
       api:
         condition: service_started
@@ -302,7 +302,7 @@ services:
   # *primary* network — confirmed by testing: this same setup on a separate
   # `postfix-dns` network had a fully open, reachable UDP/TCP 53 (verified
   # with nc from inside postfix's own network namespace) yet 127.0.0.11
-  # still timed out forwarding every query. Fixed IP (172.16.255.53, picked
+  # still timed out forwarding every query. Fixed IP (172.18.255.53, picked
   # well outside Docker's dynamic allocation range to avoid ever colliding
   # with an auto-assigned container address) needs `default`'s subnet
   # pinned below to match its real, already-in-place value exactly — so
@@ -321,7 +321,7 @@ services:
       - --upstream=https://1.0.0.1/dns-query
     networks:
       default:
-        ipv4_address: 172.16.255.53
+        ipv4_address: 172.18.255.53
     restart: unless-stopped
 
   searxng:
@@ -450,6 +450,12 @@ services:
       dockerfile: Dockerfile
     command: ["worker.sta_worker.main"]
     env_file: [.env]
+    environment:
+      STA_WORKER_OBJECT_STORAGE_ENDPOINT: ${STA_OBJECT_STORAGE_ENDPOINT}
+      STA_WORKER_OBJECT_STORAGE_ACCESS_KEY: ${STA_OBJECT_STORAGE_ACCESS_KEY}
+      STA_WORKER_OBJECT_STORAGE_SECRET_KEY: ${STA_OBJECT_STORAGE_SECRET_KEY}
+      STA_WORKER_OBJECT_STORAGE_BUCKET: ${STA_OBJECT_STORAGE_BUCKET:-sta-private}
+      STA_WORKER_OBJECT_STORAGE_USE_SSL: ${STA_OBJECT_STORAGE_USE_SSL:-false}
     stop_grace_period: 15s
     depends_on:
       api:
@@ -480,25 +486,27 @@ services:
       postgres:
         condition: service_healthy
 
-  # One-shot: builds the Next.js static export and publishes it into the
-  # frontend-static volume via an atomic symlink swap (see
-  # ../frontend/Dockerfile). Re-run this alone for a frontend-only deploy —
-  # it never touches the caddy container, so there's no port gap.
-  #
-  #   docker compose build frontend-build && docker compose run --rm frontend-build
-  frontend-build:
-    image: sta-frontend-build:local
+  # Request-time Next.js rendering keeps published admissions data fresh and
+  # lets search engines read each program page from the initial HTML.
+  frontend:
+    image: sta-frontend:local
     build:
       context: ../..
       dockerfile: backend/deploy/frontend/Dockerfile
       args:
         NEXT_PUBLIC_API_BASE_URL: ${STA_FRONTEND_API_BASE_URL:-}
-    volumes:
-      - frontend-static:/out
     environment:
-      STA_CLOUDFLARE_API_TOKEN: ${STA_CLOUDFLARE_API_TOKEN:-}
-      STA_CLOUDFLARE_ZONE_ID: ${STA_CLOUDFLARE_ZONE_ID:-}
-    restart: "no"
+      STA_INTERNAL_API_BASE_URL: http://api:8080
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
 
   caddy:
     image: sta-caddy:local
@@ -518,7 +526,6 @@ services:
     volumes:
       - caddy-data:/data
       - caddy-config:/config
-      - frontend-static:/srv/frontend:ro
       # Bind-mounted (not baked into the image) so a Caddyfile-only change
       # can be applied with `caddy reload` — zero-downtime, no container
       # recreate. scp the file here, then:
@@ -527,8 +534,8 @@ services:
     depends_on:
       api:
         condition: service_healthy
-      frontend-build:
-        condition: service_completed_successfully
+      frontend:
+        condition: service_healthy
     restart: unless-stopped
 
 networks:
@@ -540,8 +547,8 @@ networks:
   default:
     ipam:
       config:
-        - subnet: 172.16.0.0/16
-          gateway: 172.16.0.1
+        - subnet: 172.18.0.0/16
+          gateway: 172.18.0.1
 
 volumes:
   postgres-data:
@@ -552,7 +559,6 @@ volumes:
   redis-data:
   prometheus-data:
   grafana-data:
-  frontend-static:
   caddy-data:
   caddy-config:
   postfix-tls:

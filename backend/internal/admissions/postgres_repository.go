@@ -151,12 +151,15 @@ type TimelineChange struct {
 }
 
 // timelineEventISODates mirrors the frontend's formatTimelineEventDate/
-// registrationTimeline convention in app/lib/admissions-brochures.ts: a
-// blank start means no event at all (not even a single day), and a blank
-// end falls back to start (single-day event).
+// registrationTimeline convention in app/lib/admissions-brochures.ts: when
+// only an end date is set, that deadline is a single-day calendar event; a
+// blank end falls back to start (also a single-day event).
 func timelineEventISODates(event TimelineEvent) (isoStart, isoEnd string) {
 	if event.StartDate == "" || event.StartDate == "-" {
-		return "", ""
+		if event.EndDate == "" || event.EndDate == "-" {
+			return "", ""
+		}
+		return event.EndDate, event.EndDate
 	}
 	isoStart = event.StartDate
 	if event.EndDate == "" || event.EndDate == "-" {
@@ -198,14 +201,18 @@ func diffTimelineChanges(identifier string, before, after []TimelineEvent) []Tim
 // ListPrograms requires admission_quota > 0 to hide empty placeholder slots
 // from the public list; the admin list has no such filter.
 func (r *PostgresRepository) ListPrograms(ctx context.Context, query ProgramQuery) ([]Program, error) {
-	if query.Limit < 1 || query.Limit > 100 {
+	if query.Limit < 1 || query.Limit > 500 {
 		query.Limit = 50
 	}
 	if query.Offset < 0 {
 		query.Offset = 0
 	}
+	displayLatestYear, _, err := r.GetDisplayLatestAcademicYear(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("get displayed latest academic year: %w", err)
+	}
 	conditions := []string{"TRUE"}
-	args := make([]any, 0, 5)
+	args := make([]any, 0, 6)
 	if query.AcademicYear > 0 {
 		args = append(args, query.AcademicYear)
 		conditions = append(conditions, fmt.Sprintf("p.academic_year = $%d", len(args)))
@@ -235,12 +242,19 @@ func (r *PostgresRepository) ListPrograms(ctx context.Context, query ProgramQuer
 			conditions = append(conditions, "("+strings.Join(orParts, " OR ")+")")
 		}
 	}
-	// Catalogue-wide reads (no explicit academic_year, no single-program
-	// lookup) collapse every school+program pair down to its newest
-	// published academic_year — that's the only row anyone browsing/
-	// searching the site should see. A specific academic_year, or a
-	// school_code+program_code pair (getAdmissionProgramHistory, the 歷年
-	// tab), still gets every matching row.
+	// The configured display year is an upper bound. Catalogue reads select
+	// the newest published row at or below it; a history lookup returns only
+	// earlier rows so the configured year itself never appears in 歷年資料.
+	latestYearPosition := len(args) + 1
+	args = append(args, displayLatestYear)
+	latestYearOperator := "<="
+	if query.AcademicYear <= 0 && query.ProgramCode != "" {
+		latestYearOperator = "<"
+	}
+	conditions = append(conditions, fmt.Sprintf("p.academic_year %s $%d", latestYearOperator, latestYearPosition))
+	// Catalogue-wide reads collapse every school+program pair down to its
+	// newest published year within the configured ceiling. A per-program
+	// history lookup is handled above and returns only years before the ceiling.
 	dedupeToLatestYear := query.AcademicYear <= 0 && query.ProgramCode == ""
 	args = append(args, dedupeToLatestYear, query.Limit, query.Offset)
 	dedupePosition, limitPosition, offsetPosition := len(args)-2, len(args)-1, len(args)
@@ -318,7 +332,220 @@ func (r *PostgresRepository) ListPrograms(ctx context.Context, query ProgramQuer
 	return programs, nil
 }
 
+// SearchBrochurePrograms reads only the fields needed by search-result cards,
+// applies the checklist filters in PostgreSQL, and returns one page at a time.
+// Detail fields and schedule events are loaded only after a visitor opens a
+// program.
+func (r *PostgresRepository) SearchBrochurePrograms(ctx context.Context, query BrochureSearchQuery) ([]BrochureSearchProgram, int, error) {
+	if query.Limit < 1 || query.Limit > 100 {
+		query.Limit = 50
+	}
+	if query.Offset < 0 {
+		query.Offset = 0
+	}
+	displayLatestYear, _, err := r.GetDisplayLatestAcademicYear(ctx)
+	if err != nil {
+		return nil, 0, fmt.Errorf("get displayed latest academic year: %w", err)
+	}
+
+	searchCTEs, args, orderBy, _ := buildBrochureSearchQuery(displayLatestYear, query, false)
+	programs, total, err := runBrochureSearchQuery(ctx, r.pool, query, searchCTEs, args, orderBy)
+	if err != nil {
+		return nil, 0, err
+	}
+	if total > 0 {
+		return programs, total, nil
+	}
+
+	searchCTEs, args, orderBy, hasFuzzyTerms := buildBrochureSearchQuery(displayLatestYear, query, true)
+	if !hasFuzzyTerms {
+		return programs, total, nil
+	}
+
+	// Only pay for similarity matching after the indexed substring search
+	// returns no results. The trigram indexes use the same normalized
+	// expressions as the conditions below.
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return nil, 0, fmt.Errorf("begin fuzzy brochure search: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, "SET LOCAL pg_trgm.word_similarity_threshold = 0.45"); err != nil {
+		return nil, 0, fmt.Errorf("configure fuzzy brochure search: %w", err)
+	}
+	programs, total, err = runBrochureSearchQuery(ctx, tx, query, searchCTEs, args, orderBy)
+	if err != nil {
+		return nil, 0, fmt.Errorf("fuzzy %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, 0, fmt.Errorf("finish fuzzy brochure search: %w", err)
+	}
+	return programs, total, nil
+}
+
+func buildBrochureSearchQuery(displayLatestYear int, query BrochureSearchQuery, fuzzy bool) (string, []any, string, bool) {
+	args := []any{displayLatestYear}
+	conditions := []string{
+		"p.academic_year <= $1",
+		"p.review_status = 'published'",
+		"p.admission_quota > 0",
+	}
+	termScores := make([]string, 0)
+	for _, term := range strings.Fields(query.Search) {
+		var alternatives []string
+		candidateScores := make([]string, 0)
+		for _, candidate := range searchTermCandidates(term) {
+			args = append(args, "%"+candidate+"%")
+			schoolPosition := len(args)
+			args = append(args, "%"+candidate+"%")
+			programPosition := len(args)
+			alternatives = append(alternatives, fmt.Sprintf(
+				"(REPLACE(s.school_name, '臺', '台') ILIKE $%d OR REPLACE(p.admission_program_name, '臺', '台') ILIKE $%d)",
+				schoolPosition, programPosition,
+			))
+			if fuzzy && len([]rune(candidate)) >= 3 {
+				args = append(args, candidate)
+				fuzzyPosition := len(args)
+				alternatives = append(alternatives, fmt.Sprintf(
+					"($%d <% REPLACE(s.school_name, '臺', '台') OR $%d <% REPLACE(p.admission_program_name, '臺', '台'))",
+					fuzzyPosition, fuzzyPosition,
+				))
+				candidateScores = append(candidateScores,
+					fmt.Sprintf("word_similarity($%d, REPLACE(school_name, '臺', '台'))", fuzzyPosition),
+					fmt.Sprintf("word_similarity($%d, REPLACE(admission_program_name, '臺', '台'))", fuzzyPosition),
+				)
+			}
+		}
+		conditions = append(conditions, "("+strings.Join(alternatives, " OR ")+")")
+		if len(candidateScores) > 0 {
+			termScores = append(termScores, "GREATEST("+strings.Join(candidateScores, ", ")+")")
+		}
+	}
+
+	searchFilterConditions := []string{"TRUE"}
+	appendFilter := func(column string, filter BrochureSearchFilter) {
+		switch filter {
+		case BrochureSearchRequired:
+			searchFilterConditions = append(searchFilterConditions, column)
+		case BrochureSearchNotRequired:
+			searchFilterConditions = append(searchFilterConditions, "NOT "+column)
+		}
+	}
+	appendFilter("has_skills_test", query.SkillsTest)
+	appendFilter("has_interview", query.Interview)
+	appendFilter("has_portfolio", query.Portfolio)
+
+	searchCTEs := fmt.Sprintf(`
+		WITH ranked AS (
+			SELECT
+				p.academic_year, p.program_identifier, p.school_code, s.school_name,
+				p.program_code, p.admission_program_name, p.admission_quota,
+				p.admission_group, p.cross_group, p.admission_category,
+				ROW_NUMBER() OVER (
+					PARTITION BY p.school_code, p.program_code
+					ORDER BY p.academic_year DESC
+				) AS row_number
+			FROM academic_programs p
+			JOIN schools s ON s.school_code = p.school_code
+			WHERE %s
+		), latest AS (
+			SELECT * FROM ranked WHERE row_number = 1
+		), with_requirements AS (
+			SELECT
+				latest.*,
+				COALESCE(exam_flags.has_skills_test, FALSE) AS has_skills_test,
+				COALESCE(exam_flags.has_interview, FALSE) AS has_interview,
+				COALESCE(exam_flags.has_portfolio, FALSE) AS has_portfolio
+			FROM latest
+			LEFT JOIN LATERAL (
+				SELECT
+					BOOL_OR(compact_exam_text ILIKE ANY(ARRAY['%%術科%%', '%%實作%%', '%%術科考試%%'])) AS has_skills_test,
+					BOOL_OR(compact_exam_text ILIKE ANY(ARRAY['%%面試%%', '%%口試%%'])) AS has_interview,
+					BOOL_OR(compact_exam_text ILIKE ANY(ARRAY['%%作品集%%', '%%備審%%', '%%學習歷程%%', '%%學習成果%%'])) AS has_portfolio
+				FROM (
+					SELECT REGEXP_REPLACE(CONCAT_WS(' ', e.item_name, e.description), '[[:space:]]+', '', 'g') AS compact_exam_text
+					FROM program_exam_items e
+					WHERE e.academic_year = latest.academic_year
+					  AND e.school_code = latest.school_code
+					  AND e.program_code = latest.program_code
+				) exam_text
+			) exam_flags ON TRUE
+		), filtered AS (
+			SELECT * FROM with_requirements WHERE %s
+		)
+	`, strings.Join(conditions, " AND "), strings.Join(searchFilterConditions, " AND "))
+	orderBy := "academic_year DESC, school_code, program_code"
+	hasFuzzyTerms := fuzzy && len(termScores) > 0
+	if hasFuzzyTerms {
+		orderBy = fmt.Sprintf("(%s) / %d DESC, %s", strings.Join(termScores, " + "), len(termScores), orderBy)
+	}
+	return searchCTEs, args, orderBy, hasFuzzyTerms
+}
+
+type brochureSearchQuerier interface {
+	Query(context.Context, string, ...any) (pgx.Rows, error)
+	QueryRow(context.Context, string, ...any) pgx.Row
+}
+
+func runBrochureSearchQuery(
+	ctx context.Context,
+	db brochureSearchQuerier,
+	query BrochureSearchQuery,
+	searchCTEs string,
+	args []any,
+	orderBy string,
+) ([]BrochureSearchProgram, int, error) {
+	statement := searchCTEs + fmt.Sprintf(`
+		SELECT
+			academic_year, program_identifier, school_name, admission_program_name,
+			admission_quota, admission_group, cross_group, admission_category,
+			COUNT(*) OVER() AS total_count
+		FROM filtered
+		ORDER BY %s
+		LIMIT $%d OFFSET $%d
+	`, orderBy, len(args)+1, len(args)+2)
+
+	pageArgs := append(append([]any(nil), args...), query.Limit, query.Offset)
+	rows, err := db.Query(ctx, statement, pageArgs...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("search brochure programs: %w", err)
+	}
+	defer rows.Close()
+	programs := make([]BrochureSearchProgram, 0, query.Limit)
+	total := 0
+	for rows.Next() {
+		var program BrochureSearchProgram
+		var rowTotal int64
+		if err := rows.Scan(
+			&program.AcademicYear, &program.ProgramIdentifier, &program.SchoolName,
+			&program.AdmissionProgramName, &program.AdmissionQuota,
+			&program.AdmissionGroup, &program.CrossGroup, &program.AdmissionCategory,
+			&rowTotal,
+		); err != nil {
+			return nil, 0, fmt.Errorf("scan brochure search result: %w", err)
+		}
+		programs = append(programs, program)
+		total = int(rowTotal)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("iterate brochure search results: %w", err)
+	}
+	rows.Close()
+	if len(programs) == 0 && query.Offset > 0 {
+		var count int64
+		if err := db.QueryRow(ctx, searchCTEs+" SELECT COUNT(*) FROM filtered", args...).Scan(&count); err != nil {
+			return nil, 0, fmt.Errorf("count brochure search results: %w", err)
+		}
+		total = int(count)
+	}
+	return programs, total, nil
+}
+
 func (r *PostgresRepository) GetProgram(ctx context.Context, identifier ProgramIdentifier) (Program, error) {
+	displayLatestYear, _, err := r.GetDisplayLatestAcademicYear(ctx)
+	if err != nil {
+		return Program{}, fmt.Errorf("get displayed latest academic year: %w", err)
+	}
 	row := r.pool.QueryRow(ctx, `
 		SELECT
 			p.academic_year, p.program_identifier, p.school_code, s.school_name,
@@ -342,7 +569,8 @@ func (r *PostgresRepository) GetProgram(ctx context.Context, identifier ProgramI
 		WHERE p.academic_year = $1 AND p.school_code = $2 AND p.program_code = $3
 		  AND p.review_status = 'published'
 		  AND p.admission_quota > 0
-	`, identifier.AcademicYear, identifier.SchoolCode, identifier.ProgramCode)
+		  AND p.academic_year <= $4
+	`, identifier.AcademicYear, identifier.SchoolCode, identifier.ProgramCode, displayLatestYear)
 	program, err := scanProgram(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Program{}, ErrNotFound

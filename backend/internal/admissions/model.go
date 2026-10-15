@@ -690,6 +690,7 @@ func normalizeProgramInput(input ProgramInput) ProgramInput {
 		input.TimelineEvents[index].EndTime = normalizeDash(input.TimelineEvents[index].EndTime)
 		input.TimelineEvents[index].Notes = normalizeDash(input.TimelineEvents[index].Notes)
 	}
+	input.TimelineEvents = normalizeTimelineEventsForProgram(input.TimelineEvents, input.AdmissionProgramName)
 	// Order is whatever the caller sends (admin UI drags cards into place),
 	// not a recomputed date sort. Just re-number to match array position.
 	for index := range input.TimelineEvents {

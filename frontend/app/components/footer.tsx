@@ -6,6 +6,7 @@ import {
     TELEGRAM_URL,
     THREADS_URL
 } from "../lib/site-links";
+import { contactMailtoHref } from "../lib/mailto";
 
 const footerSections = [
     {
@@ -28,7 +29,7 @@ const footerSections = [
         title: "關於本站",
         links: [
             { label: "GitHub", href: GITHUB_REPOSITORY_URL },
-            { label: "聯絡信箱", href: "mailto:contact@mail.sta-tw.org" },
+            { label: "聯絡信箱", href: contactMailtoHref("general") },
             { label: "隱私權政策", href: "/privacy" },
             { label: "服務條款", href: "/terms" }
         ]

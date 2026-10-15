@@ -405,11 +405,16 @@ func (s *Service) ListInquiriesByRoute(ctx context.Context, mailRouteID uuid.UUI
 // predictable shape — a recipient always sees the same greeting/sign-off
 // shape regardless of which staff member replied. [簽名] is a separate,
 // required field (see discordmail's /re command definition), not just
-// appended free text, specifically so a reply can't go out without someone
-// attaching their name to it. [內容]/[簽名] are the only two placeholders
+// appended free text, specifically so a reply can't go out without a team
+// or staff identity. [內容]/[簽名] are the only two placeholders
 // admin.setMailReplyTemplate requires be present — see ReplyTemplateVars for
 // the full set a template may optionally also use.
-const defaultReplyTemplate = "您好，感謝您的來信，回覆如下：\n\n[內容]\n\n如有其他問題，歡迎再次與我們聯繫。\n\n[簽名]"
+const defaultReplyTemplate = "您好，感謝您的來信，回覆如下：\n\n[內容]\n\n如有其他問題，歡迎直接回覆此信。\n\n敬祝\n順心\n\n[簽名]"
+
+// DefaultReplyTemplate is the standard personal-email format used by /re.
+// Account-application corrections use the same template so recipients see a
+// consistent response regardless of which forum workflow staff used.
+func DefaultReplyTemplate() string { return defaultReplyTemplate }
 
 // ReplyTemplateVars is every placeholder renderReplyBody substitutes into an
 // admin-customized reply template. [內容]/[簽名] are mandatory (enforced by
@@ -435,6 +440,12 @@ func renderReplyBody(template string, vars ReplyTemplateVars) string {
 		"[日期]", vars.Date,
 	)
 	return replacer.Replace(template)
+}
+
+// RenderReplyBody expands the placeholders shared by mail-route and account
+// application replies.
+func RenderReplyBody(template string, vars ReplyTemplateVars) string {
+	return renderReplyBody(template, vars)
 }
 
 // InquiryDetail is the admin UI's expanded view of one inquiry — its full
@@ -468,8 +479,7 @@ func (s *Service) GetInquiryDetail(ctx context.Context, inquiryID uuid.UUID) (In
 // slash command inside the inquiry's Discord thread — back to the sender as
 // a plain "Re: <subject>" email, the way an ordinary person answering an
 // email would (not a branded system notification, unlike an application
-// decision — see accountapplications.Service.ReplyByTelegram). signature is
-// mandatory (enforced by the Discord command itself being a required
+// decision). The signature is mandatory (enforced by the Discord command as a required
 // option, and re-checked here) so every outbound reply is attributable to
 // whoever sent it.
 func (s *Service) ReplyByDiscord(ctx context.Context, threadID, staffName, staffDiscordID, body, signature string) (Inquiry, error) {
@@ -508,6 +518,7 @@ func (s *Service) ReplyByDiscord(ctx context.Context, threadID, staffName, staff
 	})
 	if err := s.mailer.Send(ctx, email.Message{
 		To: senderEmail, Subject: "Re: " + subject, Text: fullBody,
+		Bcc:       []string{email.SupportArchiveBCCAddress},
 		MessageID: s.messageIDFor(inquiry.ID),
 		InReplyTo: inReplyTo,
 	}); err != nil {

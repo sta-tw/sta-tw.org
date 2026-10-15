@@ -12,9 +12,10 @@ export interface AdmissionExamItem {
 
 /** One row of a program's admissions schedule (網路登錄報名, 初試結果公告,
  * 複試繳費期限, 榜單公告, 備取遞補截止, ...), in publication order. A blank
- * end_date means a one-day/point-in-time milestone (only start_date/
- * start_time matter); a set end_date means it spans a range. start_time/
- * end_time are "HH:MM" or "-" when the brochure gives no time of day. */
+ * end_date means a one-day/point-in-time milestone (start_date/start_time);
+ * a set end_date means it spans a range. Legacy deadline-only rows may have
+ * only end_date; the brochure view normalizes those into one-day events.
+ * start_time/end_time are "HH:MM" or "-" when the brochure gives no time. */
 export interface AdmissionTimelineEvent {
     name: string;
     start_date: string;
@@ -84,6 +85,17 @@ export interface AdmissionSchool {
     school_name: string;
 }
 
+export interface BrochureSearchProgram {
+    academic_year: number;
+    program_identifier: string;
+    school_name: string;
+    admission_program_name: string;
+    admission_quota: number;
+    admission_group: string;
+    cross_group: string;
+    admission_category: string;
+}
+
 export interface BrochureDocument {
     academic_year: number;
     school_code: string;
@@ -113,8 +125,7 @@ export interface BrochureDownloadResponse {
     expires_in: number;
 }
 
-export type ProgramReviewStatus =
-    "draft" | "pending" | "approved" | "published" | "rejected" | "archived";
+export type ProgramReviewStatus = "draft" | "pending" | "approved" | "published" | "rejected" | "archived";
 
 export interface AdminAdmissionProgram extends AdmissionProgram {
     review_status: ProgramReviewStatus;
@@ -277,6 +288,33 @@ export function listAdmissionPrograms(
     });
 }
 
+export function searchBrochurePrograms(
+    options: {
+        q?: string;
+        skillsTest?: "required" | "not-required";
+        interview?: "required" | "not-required";
+        portfolio?: "required" | "not-required";
+        limit?: number;
+        offset?: number;
+        signal?: AbortSignal;
+    } = {}
+) {
+    return apiFetch<AdmissionListResponse<BrochureSearchProgram>>(
+        "/api/v1/admissions/programs/search",
+        {
+            query: {
+                q: options.q,
+                skills_test: options.skillsTest,
+                interview: options.interview,
+                portfolio: options.portfolio,
+                limit: options.limit,
+                offset: options.offset
+            },
+            signal: options.signal
+        }
+    );
+}
+
 /**
  * All published years of the same school+program (matched by
  * school_code+program_code, which stays stable across a program's yearly
@@ -307,7 +345,9 @@ export async function listAllAdmissionPrograms(
         signal?: AbortSignal;
     } = {}
 ) {
-    const pageSize = 100;
+    // Request the largest supported page to reduce serial round trips while
+    // retaining pagination for catalogues that exceed that page size.
+    const pageSize = 500;
     const programs: AdmissionProgram[] = [];
     let offset = 0;
 

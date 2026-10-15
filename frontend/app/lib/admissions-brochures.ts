@@ -82,18 +82,23 @@ function formatTimelineEventDate(event: AdmissionTimelineEvent): string {
 // timeline_events (招生時程) is the single source for every schedule milestone.
 function registrationTimeline(program: AdmissionProgram): BrochureTimelineItem[] {
     if (program.timeline_events.length > 0) {
-        return program.timeline_events.map((event) => ({
-            id: `timeline-${event.sort_order}`,
-            title: event.name,
-            date: formatTimelineEventDate(event),
-            notes: hasValue(event.notes) ? event.notes : undefined,
-            isoStart: hasValue(event.start_date) ? event.start_date : undefined,
-            isoEnd: hasValue(event.end_date)
-                ? event.end_date
-                : hasValue(event.start_date)
-                  ? event.start_date
-                  : undefined
-        }));
+        return program.timeline_events.map((event) => {
+            const startDate = hasValue(event.start_date) ? event.start_date : undefined;
+            const endDate = hasValue(event.end_date) ? event.end_date : undefined;
+            // Older/imported deadline-only rows may store the date in
+            // end_date. Normalize them to a one-day calendar event so every
+            // consumer can rely on isoStart when an event has a usable date.
+            const calendarStart = startDate ?? endDate;
+            const calendarEnd = endDate ?? calendarStart;
+            return {
+                id: `timeline-${event.sort_order}`,
+                title: event.name,
+                date: formatTimelineEventDate(event),
+                notes: hasValue(event.notes) ? event.notes : undefined,
+                isoStart: calendarStart,
+                isoEnd: calendarEnd
+            };
+        });
     }
     return [
         {
@@ -105,27 +110,17 @@ function registrationTimeline(program: AdmissionProgram): BrochureTimelineItem[]
 }
 
 // school_code+program_code stays stable across yearly 大表 re-imports, so this is
-// just every academic_year row for that identity; years with no counts are dropped.
+// every published academic_year row before the configured display year.
 export function programHistoryFromYears(years: AdmissionProgram[]): BrochureHistory[] {
-    return years
-        .filter((year) =>
-            [
-                year.applicant_count,
-                year.admitted_count,
-                year.waitlisted_count,
-                year.promoted_count,
-                year.notes
-            ].some(hasValue)
-        )
-        .map((year) => ({
-            year: `${year.academic_year}`,
-            quota: year.admission_quota > 0 ? `${year.admission_quota}` : "-",
-            applicants: hasValue(year.applicant_count) ? year.applicant_count : "-",
-            admitted: hasValue(year.admitted_count) ? year.admitted_count : "-",
-            waitlisted: hasValue(year.waitlisted_count) ? year.waitlisted_count : "-",
-            promoted: hasValue(year.promoted_count) ? year.promoted_count : "-",
-            notes: hasValue(year.notes) ? year.notes : "-"
-        }));
+    return years.map((year) => ({
+        year: `${year.academic_year}`,
+        quota: year.admission_quota > 0 ? `${year.admission_quota}` : "-",
+        applicants: hasValue(year.applicant_count) ? year.applicant_count : "-",
+        admitted: hasValue(year.admitted_count) ? year.admitted_count : "-",
+        waitlisted: hasValue(year.waitlisted_count) ? year.waitlisted_count : "-",
+        promoted: hasValue(year.promoted_count) ? year.promoted_count : "-",
+        notes: hasValue(year.notes) ? year.notes : "-"
+    }));
 }
 
 export function admissionProgramToBrochure(program: AdmissionProgram): Brochure {

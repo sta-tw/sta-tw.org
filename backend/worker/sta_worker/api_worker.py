@@ -1,10 +1,10 @@
 """HTTP transport for the local extraction worker.
 
 The Go API owns uploads, private storage, job leases, and result persistence.
-This process only claims a job, downloads the source through the short-lived
-URL returned by the API, performs deterministic extraction, and posts the
-validated result back. No AI SDK, model endpoint, database, or object-storage
-credential is needed in this mode.
+This process only claims a job, downloads the source from private object
+storage (or the API's short-lived URL when direct storage access is not
+configured), performs deterministic extraction, and posts the validated
+result back. No AI SDK, model endpoint, or database is needed in this mode.
 """
 
 from __future__ import annotations
@@ -21,7 +21,8 @@ import urllib.request
 from typing import Any
 
 from .candidate_list import extract_candidate_list
-from .contracts import BrochureExtractJob, InvalidJob, RetryableProcessingError
+from .contracts import BrochureExtractJob, InvalidJob, RetryableProcessingError, sha256_file
+from .object_storage import ObjectStorageClient, object_storage_from_env
 from .processor import extract_document, safe_document_path
 from .runtime import configure_logging, install_shutdown
 
@@ -193,6 +194,7 @@ def _process_claim(
     claim: dict[str, Any],
     processor_version: str,
     max_bytes: int,
+    object_storage: ObjectStorageClient | None = None,
     traceparent: str | None = None,
 ) -> None:
     job = BrochureExtractJob.from_mapping(claim["job"])
@@ -200,7 +202,12 @@ def _process_claim(
     with tempfile.TemporaryDirectory(prefix="sta-api-extraction-") as directory:
         root = Path(directory)
         path = safe_document_path(root, job.storage_key)
-        client.download(download_url, path, job.sha256_hex, max_bytes)
+        if object_storage is None:
+            client.download(download_url, path, job.sha256_hex, max_bytes)
+        else:
+            object_storage.download(job, root, max_bytes)
+            if sha256_file(path, max_bytes) != job.sha256_hex:
+                raise InvalidJob("source checksum does not match job")
         if job.source_type == CANDIDATE_LIST_SOURCE:
             result = extract_candidate_list(job, path, processor_version, max_bytes)
         else:
@@ -217,6 +224,11 @@ def run() -> None:
     processor_version = os.environ.get("STA_WORKER_PROCESSOR_VERSION", DEFAULT_PROCESSOR_VERSION).strip() or DEFAULT_PROCESSOR_VERSION
     max_bytes = _positive_int("STA_WORKER_MAX_FILE_BYTES", DEFAULT_MAX_FILE_BYTES)
     poll_interval = _positive_duration("STA_EXTRACTION_POLL_INTERVAL", 5.0)
+    object_storage = (
+        object_storage_from_env()
+        if os.environ.get("STA_WORKER_OBJECT_STORAGE_ENDPOINT", "").strip()
+        else None
+    )
     stop = install_shutdown()
     LOGGER.info("STA HTTP local extraction worker started")
     while not stop.is_set():
@@ -237,7 +249,7 @@ def run() -> None:
             traceparent = str(claim.get("job", {}).get("traceparent", "")) or None
             log_extra = {"job_id": job_id, "source_type": source_type, "trace_id": _trace_id(traceparent)}
             try:
-                _process_claim(client, claim, processor_version, max_bytes, traceparent=traceparent)
+                _process_claim(client, claim, processor_version, max_bytes, object_storage, traceparent=traceparent)
                 LOGGER.info("extraction job completed", extra=log_extra)
             except InvalidJob as exc:
                 LOGGER.warning("extraction job rejected", extra={**log_extra, "error": str(exc)})

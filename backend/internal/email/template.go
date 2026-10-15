@@ -203,6 +203,29 @@ func AccountActivationEmail(data AccountActivationEmailData) string {
 	})
 }
 
+// ApprovedAccountActivationEmail renders the password-setting email sent
+// after a manually reviewed account application is approved. The account is
+// already approved; the link lets its owner choose the first password.
+func ApprovedAccountActivationEmail(data AccountActivationEmailData) string {
+	return renderSecurityEmail(securityEmailData{
+		LogoURL:   data.LogoURL,
+		Title:     "STA 帳號申請已通過",
+		Preheader: "你的帳號申請已通過，請設定密碼開始使用。",
+		Eyebrow:   "帳號申請通過",
+		Heading:   "帳號已核准",
+		Paragraphs: []string{
+			"你的 STA 帳號申請已通過審核。",
+			"請在 24 小時內按下方按鈕設定密碼，完成後即可登入使用。",
+		},
+		ButtonLabel:  "設定密碼",
+		ButtonURL:    data.SetURL,
+		ValidityNote: "此連結將在 24 小時後失效",
+		InfoTitle:    "安全提醒",
+		InfoBody:     "若這不是你提出的申請，請忽略此信。",
+		FooterNote:   "這是系統自動寄出的帳號通知。",
+	})
+}
+
 // InfoEmail renders the same styling as ButtonEmail but without a button —
 // for a notice with nothing to click (e.g. a rejection notice where the
 // reply-by-email itself is the call to action).

@@ -138,6 +138,82 @@ func (n *HTTPDiscordNotifier) CreateThread(ctx context.Context, forumChannelID, 
 	return result.ID, nil
 }
 
+// CreateAccountApplicationThread creates the review post for a no-school-email
+// account application. The actions are Discord message buttons; their custom
+// IDs are signed by Discord and routed back through the existing interactions
+// endpoint.
+func (n *HTTPDiscordNotifier) CreateAccountApplicationThread(ctx context.Context, forumChannelID, subject, body string, mentionRoleIDs []string, approveCustomID, rejectCustomID string) (string, error) {
+	name := strings.TrimSpace(subject)
+	if name == "" {
+		name = "帳號申請"
+	}
+	if len(name) > 100 {
+		name = name[:100]
+	}
+	components := []map[string]any{{
+		"type": 1,
+		"components": []map[string]any{
+			{"type": 2, "style": 3, "label": "通過", "custom_id": approveCustomID},
+			{"type": 2, "style": 4, "label": "不通過", "custom_id": rejectCustomID},
+		},
+	}}
+	payload, err := json.Marshal(struct {
+		Name    string `json:"name"`
+		Message struct {
+			Content         string           `json:"content,omitempty"`
+			Embeds          []discordEmbed   `json:"embeds"`
+			Components      []map[string]any `json:"components"`
+			AllowedMentions allowedMentions  `json:"allowed_mentions"`
+		} `json:"message"`
+	}{Name: name, Message: struct {
+		Content         string           `json:"content,omitempty"`
+		Embeds          []discordEmbed   `json:"embeds"`
+		Components      []map[string]any `json:"components"`
+		AllowedMentions allowedMentions  `json:"allowed_mentions"`
+	}{
+		Content:         mentionContent(mentionRoleIDs),
+		Embeds:          []discordEmbed{{Title: "待審核帳號申請", Description: truncateForDiscord(body), Color: embedColorInbound, Timestamp: time.Now().UTC().Format(time.RFC3339)}},
+		Components:      components,
+		AllowedMentions: allowedMentions{Roles: mentionRoleIDs},
+	}})
+	if err != nil {
+		return "", err
+	}
+	response, err := n.request(ctx, http.MethodPost, "/channels/"+url.PathEscape(forumChannelID)+"/threads", payload)
+	if err != nil {
+		return "", err
+	}
+	var result struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(response, &result); err != nil || strings.TrimSpace(result.ID) == "" {
+		return "", errors.New("discord thread response did not contain an id")
+	}
+	return result.ID, nil
+}
+
+// PostAccountApplicationMessage appends a follow-up to the application's
+// Discord forum thread, matching the inbound/outbound embed style used by
+// ordinary mail inquiries.
+func (n *HTTPDiscordNotifier) PostAccountApplicationMessage(ctx context.Context, threadID, title, author, body string, inbound bool) error {
+	kind := EmbedKindOutbound
+	if inbound {
+		kind = EmbedKindInbound
+	}
+	if strings.TrimSpace(title) == "" {
+		title = embedTitle(kind)
+	}
+	embed := buildEmbed(Embed{Kind: kind, Author: author, Body: body}, title)
+	payload, err := json.Marshal(struct {
+		Embeds []discordEmbed `json:"embeds"`
+	}{Embeds: []discordEmbed{embed}})
+	if err != nil {
+		return err
+	}
+	_, err = n.request(ctx, http.MethodPost, "/channels/"+url.PathEscape(threadID)+"/messages", payload)
+	return err
+}
+
 func (n *HTTPDiscordNotifier) PostEmbed(ctx context.Context, threadID string, embed Embed, mentionRoleIDs []string) error {
 	payload, err := json.Marshal(struct {
 		Content         string          `json:"content,omitempty"`
