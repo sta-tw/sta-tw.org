@@ -1,5 +1,5 @@
 -- Account applications now live in Discord forum threads so reviewers can
--- approve/reject from message buttons and staff can use /re for corrections.
+-- approve/reject from message buttons and staff can use /rc for corrections.
 ALTER TABLE account_applications
     ADD COLUMN discord_thread_id TEXT;
 
