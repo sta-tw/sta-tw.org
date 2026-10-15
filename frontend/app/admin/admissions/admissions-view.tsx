@@ -49,6 +49,7 @@ import {
     rejectAdminBrochureUpload,
     reviewAdminBrochure,
     reviewAdminAdmissionProgram,
+    deleteAdminAdmissionProgramHistory,
     setAdminAdmissionProgramArchived,
     setAdminBrochureVisibility,
     syncAdminAdmissionPrograms,
@@ -2681,6 +2682,10 @@ function ProgramYearHistorySection({
     >({});
     const [savingRow, setSavingRow] = useState<string | null>(null);
     const [rowError, setRowError] = useState<string | null>(null);
+    const [deleteTarget, setDeleteTarget] = useState<AdminAdmissionProgram | null>(null);
+    const [deleteReason, setDeleteReason] = useState("");
+    const [deletingYear, setDeletingYear] = useState(false);
+    const [deleteError, setDeleteError] = useState<string | null>(null);
 
     function reload() {
         return listAdminAdmissionPrograms(
@@ -2754,6 +2759,30 @@ function ProgramYearHistorySection({
             setRowError(describeError(cause));
         } finally {
             setSavingRow(null);
+        }
+    }
+
+    async function removeHistoricalYear() {
+        if (!deleteTarget) return;
+        if (!deleteReason.trim()) {
+            setDeleteError("請填寫移除原因，方便日後查閱管理紀錄。");
+            return;
+        }
+        setDeletingYear(true);
+        setDeleteError(null);
+        try {
+            await deleteAdminAdmissionProgramHistory(
+                deleteTarget.program_identifier,
+                deleteReason,
+                mfaCode || undefined
+            );
+            setDeleteTarget(null);
+            setDeleteReason("");
+            await reload();
+        } catch (cause) {
+            setDeleteError(describeError(cause));
+        } finally {
+            setDeletingYear(false);
         }
     }
 
@@ -2931,8 +2960,8 @@ function ProgramYearHistorySection({
                                     <tr key={entry.program_identifier}>
                                         <td className="py-1.5 pr-3 whitespace-nowrap">
                                             {entry.academic_year}
-                                            {entry.academic_year === program.academic_year
-                                                ? "（目前）"
+                                            {entry.academic_year === years?.[0]?.academic_year
+                                                ? "（最新年度）"
                                                 : ""}
                                         </td>
                                         <td className="py-1.5 pr-3">
@@ -3030,16 +3059,30 @@ function ProgramYearHistorySection({
                                                 entry.review_status}
                                         </td>
                                         <td className="py-1.5 pr-3">
-                                            <button
-                                                type="button"
-                                                onClick={() => void saveRow(entry)}
-                                                disabled={savingRow !== null}
-                                                className="font-sans text-xs font-bold text-ink underline underline-offset-2 disabled:opacity-50"
-                                            >
-                                                {savingRow === entry.program_identifier
-                                                    ? "儲存中…"
-                                                    : "儲存"}
-                                            </button>
+                                            <div className="flex items-center gap-3 whitespace-nowrap">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => void saveRow(entry)}
+                                                    disabled={savingRow !== null || deletingYear}
+                                                    className="font-sans text-xs font-bold text-ink underline underline-offset-2 disabled:opacity-50"
+                                                >
+                                                    {savingRow === entry.program_identifier
+                                                        ? "儲存中…"
+                                                        : "儲存"}
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setDeleteTarget(entry);
+                                                        setDeleteReason("");
+                                                        setDeleteError(null);
+                                                    }}
+                                                    disabled={savingRow !== null || deletingYear}
+                                                    className="font-sans text-xs font-bold text-red-600 underline underline-offset-2 disabled:opacity-50"
+                                                >
+                                                    移除
+                                                </button>
+                                            </div>
                                         </td>
                                     </tr>
                                 );
@@ -3048,6 +3091,64 @@ function ProgramYearHistorySection({
                     </table>
                 </div>
             )}
+            <Dialog.Root
+                open={deleteTarget !== null}
+                onOpenChange={(open) => {
+                    if (!open && !deletingYear) {
+                        setDeleteTarget(null);
+                        setDeleteReason("");
+                        setDeleteError(null);
+                    }
+                }}
+            >
+                <Dialog.Portal>
+                    <Dialog.Overlay className="fixed inset-0 z-[80] bg-ink/40" />
+                    <Dialog.Content className="fixed top-1/2 left-1/2 z-[90] max-h-[calc(100vh-2rem)] w-[calc(100vw-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-[var(--radius-panel)] bg-surface p-6 shadow-[var(--shadow-card)]">
+                        <Dialog.Title className="font-serif text-xl text-ink">
+                            移除歷史招生資料
+                        </Dialog.Title>
+                        <Dialog.Description className="mt-2 font-sans text-sm leading-6 text-copy-muted">
+                            {deleteTarget
+                                ? `確定移除 ${deleteTarget.academic_year} 學年度「${deleteTarget.school_name}・${deleteTarget.admission_program_name}」(${deleteTarget.program_identifier})？此操作會刪除該年度招生資料及其考試項目、招生時程，管理紀錄仍會保留。若已有報名或放榜資料引用此校系，系統會拒絕移除。`
+                                : "此操作會移除該年度招生資料。"}
+                        </Dialog.Description>
+                        <label className="mt-4 block font-sans text-sm font-medium text-ink">
+                            移除原因（必填）
+                            <textarea
+                                className={`${inputClass} mt-1 min-h-20 w-full resize-y`}
+                                value={deleteReason}
+                                onChange={(event) => setDeleteReason(event.target.value)}
+                                maxLength={2000}
+                                placeholder="例如：學年度輸入錯誤，應為 116"
+                                disabled={deletingYear}
+                            />
+                        </label>
+                        {deleteError ? (
+                            <p role="alert" className="mt-2 font-sans text-sm text-red-600">
+                                {deleteError}
+                            </p>
+                        ) : null}
+                        <div className="mt-5 flex justify-end gap-2">
+                            <button
+                                type="button"
+                                onClick={() => setDeleteTarget(null)}
+                                disabled={deletingYear}
+                                className="h-10 rounded-[var(--radius-small)] border border-ink/15 px-4 font-sans text-sm font-bold text-ink disabled:opacity-50"
+                            >
+                                取消
+                            </button>
+                            <Button
+                                type="button"
+                                onClick={() => void removeHistoricalYear()}
+                                disabled={deletingYear || !deleteReason.trim()}
+                                className="h-10 bg-red-600 px-4 font-sans text-sm hover:bg-red-700 active:bg-red-800"
+                            >
+                                {deletingYear ? "移除中…" : "確認移除"}
+                            </Button>
+                        </div>
+                    </Dialog.Content>
+                </Dialog.Portal>
+            </Dialog.Root>
         </div>
     );
 }

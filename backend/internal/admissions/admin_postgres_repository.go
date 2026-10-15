@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 const adminProgramSelect = `
@@ -398,6 +399,17 @@ func (r *PostgresRepository) SetProgramArchived(ctx context.Context, adminID uui
 // DeleteProgram removes an empty placeholder program (admission_quota == 0) and its
 // exam-item/timeline-event rows; ON DELETE RESTRICT elsewhere guards real applicant data.
 func (r *PostgresRepository) DeleteProgram(ctx context.Context, adminID uuid.UUID, identifier ProgramIdentifier, reason string) error {
+	return r.deleteProgram(ctx, adminID, identifier, reason, false)
+}
+
+// DeleteHistoricalProgram removes an entry from the historical admissions
+// list, even when it has a quota or imported count fields. Foreign-key
+// references to applications/results still prevent deleting a used program.
+func (r *PostgresRepository) DeleteHistoricalProgram(ctx context.Context, adminID uuid.UUID, identifier ProgramIdentifier, reason string) error {
+	return r.deleteProgram(ctx, adminID, identifier, reason, true)
+}
+
+func (r *PostgresRepository) deleteProgram(ctx context.Context, adminID uuid.UUID, identifier ProgramIdentifier, reason string, allowNonEmpty bool) error {
 	reason = strings.TrimSpace(reason)
 	if reason == "" || len([]rune(reason)) > 2000 {
 		return ErrInvalidProgram
@@ -416,7 +428,7 @@ func (r *PostgresRepository) DeleteProgram(ctx context.Context, adminID uuid.UUI
 	if err != nil {
 		return err
 	}
-	if before.AdmissionQuota != 0 {
+	if !allowNonEmpty && before.AdmissionQuota != 0 {
 		return ErrProgramNotDeletable
 	}
 	if _, err := tx.Exec(ctx, `DELETE FROM program_exam_items WHERE academic_year = $1 AND school_code = $2 AND program_code = $3`,
@@ -429,6 +441,10 @@ func (r *PostgresRepository) DeleteProgram(ctx context.Context, adminID uuid.UUI
 	}
 	if _, err := tx.Exec(ctx, `DELETE FROM academic_programs WHERE academic_year = $1 AND school_code = $2 AND program_code = $3`,
 		identifier.AcademicYear, identifier.SchoolCode, identifier.ProgramCode); err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+			return ErrProgramNotDeletable
+		}
 		return mapAdmissionRepositoryError(err)
 	}
 	if err := insertProgramAudit(ctx, tx, adminID, "delete", identifier.String(), adminProgramSnapshot(before), nil, reason); err != nil {

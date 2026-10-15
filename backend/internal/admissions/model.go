@@ -62,7 +62,7 @@ var (
 	ErrNotFound            = errors.New("admission program not found")
 	ErrInvalidStatus       = errors.New("invalid admission program status")
 	ErrAdminRequired       = errors.New("administrator role is required")
-	ErrProgramNotDeletable = errors.New("only an empty placeholder program (zero quota) can be deleted")
+	ErrProgramNotDeletable = errors.New("the program quota or related application/result records prevent this program from being deleted")
 )
 
 type ProgramIdentifier struct {

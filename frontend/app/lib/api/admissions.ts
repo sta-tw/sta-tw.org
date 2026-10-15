@@ -497,6 +497,21 @@ export function updateAdminAdmissionProgram(
     );
 }
 
+export function deleteAdminAdmissionProgramHistory(
+    identifier: string,
+    reason: string,
+    mfaCode?: string
+) {
+    return apiFetch<void>(
+        `/api/v1/admin/admissions/programs/${encodeURIComponent(identifier)}/history`,
+        {
+            method: "DELETE",
+            body: { reason },
+            headers: adminHeaders(mfaCode)
+        }
+    );
+}
+
 export function reviewAdminAdmissionProgram(
     identifier: string,
     approved: boolean,

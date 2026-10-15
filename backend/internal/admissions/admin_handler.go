@@ -41,6 +41,7 @@ func (h *AdminHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/admin/admissions/programs", h.list)
 	mux.HandleFunc("GET /api/v1/admin/admissions/programs/{identifier}", h.get)
 	mux.HandleFunc("GET /api/v1/admin/admissions/programs/{identifier}/history", h.history)
+	mux.HandleFunc("DELETE /api/v1/admin/admissions/programs/{identifier}/history", h.deleteHistory)
 	mux.HandleFunc("POST /api/v1/admin/admissions/programs/sync", h.sync)
 	mux.HandleFunc("PUT /api/v1/admin/admissions/programs/{identifier}", h.update)
 	mux.HandleFunc("DELETE /api/v1/admin/admissions/programs/{identifier}", h.delete)
@@ -213,6 +214,31 @@ func (h *AdminHandler) delete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (h *AdminHandler) deleteHistory(w http.ResponseWriter, r *http.Request) {
+	session, ok := h.requireAdminMutation(w, r)
+	if !ok {
+		return
+	}
+	identifier, err := parseAdminProgramIdentifier(r)
+	if err != nil {
+		writeAdmissionError(w, http.StatusBadRequest, "invalid_program_identifier", "program identifier is invalid")
+		return
+	}
+	var input struct {
+		Reason string `json:"reason"`
+	}
+	if err := decodeBrochureJSON(r, &input); err != nil {
+		writeAdmissionError(w, http.StatusBadRequest, "invalid_delete", "delete reason is required")
+		return
+	}
+	if err := h.repository.DeleteHistoricalProgram(r.Context(), session.Session.Account.ID, identifier, input.Reason); err != nil {
+		h.writeAdminError(w, err)
+		return
+	}
+	h.invalidate(r.Context(), identifier.String())
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // archive toggles a program between published and archived — for hiding a
 // program from the public site while still editing its data, without the
 // full delete/decision workflow.
@@ -294,7 +320,7 @@ func (h *AdminHandler) writeAdminError(w http.ResponseWriter, err error) {
 	case errors.Is(err, ErrInvalidStatus):
 		writeAdmissionError(w, http.StatusConflict, "invalid_status", "admission program state does not allow this operation")
 	case errors.Is(err, ErrProgramNotDeletable):
-		writeAdmissionError(w, http.StatusConflict, "not_deletable", "only an empty placeholder program can be deleted")
+		writeAdmissionError(w, http.StatusConflict, "not_deletable", "the program quota or related application/result records prevent this program from being deleted")
 	case errors.Is(err, ErrNotFound):
 		writeAdmissionError(w, http.StatusNotFound, "not_found", "admission program was not found")
 	default:
