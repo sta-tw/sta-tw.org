@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # ---- build stage -------------------------------------------------------------
-FROM golang:1.26 AS build
+FROM golang:1.26.9 AS build
 WORKDIR /src
 
 # Dependency layer (cached until go.mod/go.sum change).

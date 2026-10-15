@@ -13,9 +13,9 @@ import (
 
 const displayLatestAcademicYearSettingKey = "admissions_display_latest_year"
 
-// GetDisplayLatestAcademicYear returns the configured catalogue ceiling. If
+// GetDisplayLatestAcademicYear returns the configured catalog ceiling. If
 // no setting exists yet, it follows the newest published year with a positive
-// quota so installations keep their existing behaviour until an admin picks
+// quota so installations keep their existing behavior until an admin picks
 // a year explicitly.
 func (r *PostgresRepository) GetDisplayLatestAcademicYear(ctx context.Context) (int, bool, error) {
 	var storedValue string
@@ -62,7 +62,7 @@ func (r *PostgresRepository) SetDisplayLatestAcademicYear(ctx context.Context, a
 	if err != nil {
 		return fmt.Errorf("begin displayed latest academic year update: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	var before string
 	err = tx.QueryRow(ctx, `

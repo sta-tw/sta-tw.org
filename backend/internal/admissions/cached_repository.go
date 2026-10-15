@@ -10,7 +10,7 @@ import (
 )
 
 // CachedRepository decorates a Repository with a short-TTL Redis cache for
-// the public catalogue reads (ListPrograms/GetProgram/ListSchools). Admin
+// the public catalog reads (ListPrograms/GetProgram/ListSchools). Admin
 // writes actively invalidate this cache; the TTL also bounds staleness for
 // out-of-band database changes. This avoids re-running ListPrograms' per-row N+1 query
 // (loadExamItems/loadTimelineEvents once per program in the result set) on

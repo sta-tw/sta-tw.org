@@ -242,7 +242,7 @@ func (r *PostgresRepository) ListPrograms(ctx context.Context, query ProgramQuer
 			conditions = append(conditions, "("+strings.Join(orParts, " OR ")+")")
 		}
 	}
-	// The configured display year is an upper bound. Catalogue reads select
+	// The configured display year is an upper bound. Catalog reads select
 	// the newest published row at or below it; a history lookup returns only
 	// earlier rows so the configured year itself never appears in 歷年資料.
 	latestYearPosition := len(args) + 1
@@ -252,7 +252,7 @@ func (r *PostgresRepository) ListPrograms(ctx context.Context, query ProgramQuer
 		latestYearOperator = "<"
 	}
 	conditions = append(conditions, fmt.Sprintf("p.academic_year %s $%d", latestYearOperator, latestYearPosition))
-	// Catalogue-wide reads collapse every school+program pair down to its
+	// Catalog-wide reads collapse every school+program pair down to its
 	// newest published year within the configured ceiling. A per-program
 	// history lookup is handled above and returns only years before the ceiling.
 	dedupeToLatestYear := query.AcademicYear <= 0 && query.ProgramCode == ""
@@ -369,7 +369,7 @@ func (r *PostgresRepository) SearchBrochurePrograms(ctx context.Context, query B
 	if err != nil {
 		return nil, 0, fmt.Errorf("begin fuzzy brochure search: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 	if _, err := tx.Exec(ctx, "SET LOCAL pg_trgm.word_similarity_threshold = 0.45"); err != nil {
 		return nil, 0, fmt.Errorf("configure fuzzy brochure search: %w", err)
 	}
@@ -407,7 +407,7 @@ func buildBrochureSearchQuery(displayLatestYear int, query BrochureSearchQuery, 
 				args = append(args, candidate)
 				fuzzyPosition := len(args)
 				alternatives = append(alternatives, fmt.Sprintf(
-					"($%d <% REPLACE(s.school_name, '臺', '台') OR $%d <% REPLACE(p.admission_program_name, '臺', '台'))",
+					"($%d <%% REPLACE(s.school_name, '臺', '台') OR $%d <%% REPLACE(p.admission_program_name, '臺', '台'))",
 					fuzzyPosition, fuzzyPosition,
 				))
 				candidateScores = append(candidateScores,

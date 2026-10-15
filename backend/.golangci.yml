@@ -1,33 +1,48 @@
+version: "2"
 run:
-  timeout: 5m
   build-tags:
     - integration
-
 linters:
-  disable-all: true
+  default: none
   enable:
+    - bodyclose
     - errcheck
     - govet
     - ineffassign
-    - staticcheck
-    - unused
-    - bodyclose
+    - misspell
     - rowserrcheck
     - sqlclosecheck
-    - misspell
+    - staticcheck
     - unconvert
-
-linters-settings:
-  errcheck:
-    check-type-assertions: true
-  misspell:
-    locale: US
-
+    - unused
+  settings:
+    errcheck:
+      check-type-assertions: true
+    misspell:
+      locale: US
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - linters:
+          - bodyclose
+          - errcheck
+        path: _test\.go
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
 issues:
   max-issues-per-linter: 0
   max-same-issues: 0
-  exclude-rules:
-    - path: _test\.go
-      linters:
-        - errcheck
-        - bodyclose
+formatters:
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$

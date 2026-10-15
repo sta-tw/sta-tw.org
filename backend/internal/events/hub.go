@@ -149,6 +149,11 @@ func (h *Hub) deliver(ev Event) {
 }
 
 func (h *Hub) listenLoop(ctx context.Context) {
+	if h.pool == nil {
+		<-ctx.Done()
+		return
+	}
+
 	backoff := time.Second
 	for ctx.Err() == nil {
 		if err := h.listenOnce(ctx); err != nil && ctx.Err() == nil {

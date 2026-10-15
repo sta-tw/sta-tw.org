@@ -35,7 +35,9 @@ func TestCloudflareProgramPagePurgerInvalidatesProgramPrefix(t *testing.T) {
 	purger.Invalidate(context.Background(), "116-002-001", "116-003-005")
 
 	wantPrefixes := []string{
+		"sta-tw.org/bochures",
 		"sta-tw.org/bochures/program/",
+		"sta-tw.org/api/v1/admissions/programs",
 		"sta-tw.org/sitemap.xml",
 		"sta-tw.org/llms.txt",
 	}

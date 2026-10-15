@@ -120,7 +120,7 @@ func (h *Handler) allPublishedPrograms(r *http.Request) ([]Program, error) {
 	programs := make([]Program, 0, pageSize)
 	for offset := 0; ; offset += pageSize {
 		if offset > 10_000 {
-			return nil, errors.New("published admissions catalogue exceeds sitemap pagination limit")
+			return nil, errors.New("published admissions catalog exceeds sitemap pagination limit")
 		}
 		page, err := h.repository.ListPrograms(r.Context(), ProgramQuery{Limit: pageSize, Offset: offset})
 		if err != nil {

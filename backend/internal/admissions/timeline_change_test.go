@@ -30,8 +30,8 @@ func TestDiffTimelineChanges(t *testing.T) {
 	}
 	after := []TimelineEvent{
 		{SortOrder: 1, Name: "網路報名", StartDate: "2026-10-20", EndDate: "2026-10-27"}, // unchanged
-		{SortOrder: 2, Name: "正取生報到截止", StartDate: "2026-12-24", EndDate: "-"},     // admin corrected the date
-		{SortOrder: 3, Name: "備取生遞補作業截止", StartDate: "2027-03-03", EndDate: "-"},  // brand new row, nothing to sync yet
+		{SortOrder: 2, Name: "正取生報到截止", StartDate: "2026-12-24", EndDate: "-"},       // admin corrected the date
+		{SortOrder: 3, Name: "備取生遞補作業截止", StartDate: "2027-03-03", EndDate: "-"},     // brand new row, nothing to sync yet
 	}
 
 	// Both the corrected row (sort_order 2) and the brand-new row (sort_order
@@ -51,21 +51,17 @@ func TestDiffTimelineChanges(t *testing.T) {
 	}
 }
 
-// A timeline row moving off the old, buggy end-date-only convention (blank
-// start_date, a set end_date — see the formatTimelineEventDate fix earlier
-// this session) onto the corrected start_date-only convention is reported
-// as a change even when the real-world date didn't move: before the fix,
-// the frontend couldn't compute an isoStart for that row at all, so it was
-// never addable to a calendar — this now becomes addable for the first
-// time and should sync, not be treated as a no-op.
-func TestDiffTimelineChangesCatchesConventionFix(t *testing.T) {
+// Changing an end-date-only row to a start-date-only row on the same day does
+// not change its calendar dates. timelineEventISODates covers the single-day
+// fallback that makes end-date-only events addable to calendars.
+func TestDiffTimelineChangesIgnoresEquivalentSingleDayConvention(t *testing.T) {
 	before := []TimelineEvent{{SortOrder: 2, Name: "正取生報到截止", StartDate: "-", EndDate: "2026-12-23"}}
 	after := []TimelineEvent{{SortOrder: 2, Name: "正取生報到截止", StartDate: "2026-12-23", EndDate: "-"}}
 
 	changes := diffTimelineChanges("116-005-001", before, after)
 
-	if len(changes) != 1 || changes[0].ISOStart != "2026-12-23" {
-		t.Fatalf("expected the now-addable event to be reported, got %+v", changes)
+	if len(changes) != 0 {
+		t.Fatalf("equivalent single-day convention produced calendar changes: %+v", changes)
 	}
 }
 

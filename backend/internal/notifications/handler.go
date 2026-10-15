@@ -149,4 +149,3 @@ func writeNotificationJSON(w http.ResponseWriter, status int, payload any) {
 func writeNotificationError(w http.ResponseWriter, status int, code, message string) {
 	writeNotificationJSON(w, status, notificationErrorBody{Error: notificationError{Code: code, Message: message}})
 }
-
