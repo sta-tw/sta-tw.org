@@ -130,7 +130,7 @@ STA_TEST_DATABASE_URL='postgres://sta:sta@localhost:5432/sta_test?sslmode=disabl
 
 通用客服 Ticket、僅限註冊帳號使用的 `edu.tw` 信箱判定、Email 通知與 Discord 私人客服頻道設計見 [docs/support-system-design.md](docs/support-system-design.md)；追加申請仍使用既有的 `application_service_tickets` 流程。
 
-文件上傳、Python 本地擷取、job claim／result callback 與外部搜尋／AI 服務串接方式見 [docs/extraction-api.md](docs/extraction-api.md)。系統不會從 Go API 或 Python worker 對外呼叫 AI endpoint。
+文件上傳、Python worker、逐校簡章提示詞、第一頁本機校名辨識，以及選配的 Cloudflare Workers AI 資料擷取方式見 [docs/extraction-api.md](docs/extraction-api.md)。校名與校碼由本機比對學校主檔決定；Workers AI 僅在校碼確認後擷取校系、考試項目與時程候選。
 
 官方招生來源總清單見 [docs/admission-source-registry.md](docs/admission-source-registry.md)。來源清單只控制可擷取的公開官方來源，不直接發布招生資料。
 

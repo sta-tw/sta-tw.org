@@ -555,7 +555,7 @@ func validProgramCode(value string) bool {
 }
 
 func validateExamItem(item ExamItem) error {
-	if strings.TrimSpace(item.Name) == "" || len([]rune(item.Name)) > 500 || item.SortOrder < 1 || (item.WeightPercent == nil && item.Multiplier == nil) {
+	if strings.TrimSpace(item.Name) == "" || len([]rune(item.Name)) > 500 || item.SortOrder < 1 {
 		return ErrInvalidProgram
 	}
 	if len([]rune(item.Description)) > 10000 || len([]rune(item.SourcePage)) > 16 || len([]rune(item.Stage)) > 100 {

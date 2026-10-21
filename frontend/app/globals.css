@@ -9,7 +9,9 @@
     --button-hover: #4a4949;
     --button-active: #252424;
     --button-foreground: #ffffff;
+    --accent-yellow-strong: #ffc452;
     --accent-yellow: #ffe184;
+    --accent-yellow-light: #fdffab;
     --accent-green: #d9edbf;
     --accent-green-strong: #badaaf;
     --radius-control: 1rem;
@@ -45,6 +47,8 @@
     --color-button-active: var(--button-active);
     --color-button-foreground: var(--button-foreground);
     --color-accent-yellow: var(--accent-yellow);
+    --color-accent-yellow-strong: var(--accent-yellow-strong);
+    --color-accent-yellow-light: var(--accent-yellow-light);
     --color-accent-green: var(--accent-green);
     --color-accent-green-strong: var(--accent-green-strong);
     --color-copy-muted: var(--copy-muted);

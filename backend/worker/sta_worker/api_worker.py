@@ -14,6 +14,7 @@ import json
 import logging
 import os
 from pathlib import Path
+import re
 import tempfile
 import urllib.error
 import urllib.parse
@@ -137,6 +138,21 @@ class ExtractionAPIClient:
             raise ExtractionAPIError("extraction API claim response is invalid")
         return data
 
+    def brochure_prompt(self, school_code: str) -> str:
+        if not re.fullmatch(r"[0-9]{3}", school_code):
+            return ""
+        status, body = self._request(
+            f"/api/v1/internal/extraction/brochure-prompts/{school_code}",
+            method="GET",
+        )
+        if status != 200 or not body:
+            raise ExtractionAPIError("extraction API prompt response is invalid", status)
+        try:
+            prompt = json.loads(body.decode("utf-8"))["data"]["prompt"]
+        except (UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError) as exc:
+            raise ExtractionAPIError("extraction API prompt response is invalid") from exc
+        return str(prompt or "")
+
     def download(self, download_url: str, destination: Path, expected_sha256: str, max_bytes: int) -> None:
         parsed = urllib.parse.urlsplit(download_url)
         if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
@@ -211,7 +227,15 @@ def _process_claim(
         if job.source_type == CANDIDATE_LIST_SOURCE:
             result = extract_candidate_list(job, path, processor_version, max_bytes)
         else:
-            result = extract_document(job, root, processor_version, max_bytes, logger=LOGGER)
+            result = extract_document(
+                job,
+                root,
+                processor_version,
+                max_bytes,
+                logger=LOGGER,
+                school_registry=claim.get("school_registry") or [],
+                prompt_loader=client.brochure_prompt,
+            )
     client.submit_result(job.job_id, result, traceparent=traceparent)
 
 

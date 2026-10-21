@@ -41,6 +41,13 @@ const adminModules = [
         status: "open"
     },
     {
+        href: "/admin/admissions/contributions",
+        label: "資料回報",
+        description: "檢視使用者回報的招生人數與歷屆簡章。",
+        icon: FileText,
+        status: "open"
+    },
+    {
         href: "/admin/users",
         label: "使用者管理",
         description: "查看帳號狀態、身份與管理員權限。",

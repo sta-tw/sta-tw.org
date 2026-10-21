@@ -116,6 +116,12 @@ export default function BrochureSearch() {
                     <h1 className="font-serif text-4xl tracking-[-0.04em] text-ink sm:text-5xl lg:text-6xl">
                         簡章搜尋
                     </h1>
+                    <Link
+                        href={publicPath("/report-data")}
+                        className="font-sans text-sm font-bold text-ink underline decoration-ink/30 underline-offset-4 transition-colors hover:decoration-ink sm:text-base"
+                    >
+                        提供或補充招生資料
+                    </Link>
                     <p className="font-sans text-sm text-ink/60 sm:text-base lg:absolute lg:right-0 lg:bottom-10">
                         資料來源：{DATA_SOURCE_LABEL}
                     </p>

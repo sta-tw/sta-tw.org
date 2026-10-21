@@ -30,6 +30,7 @@ const footerSections = [
         links: [
             { label: "GitHub", href: GITHUB_REPOSITORY_URL },
             { label: "聯絡信箱", href: contactMailtoHref("general") },
+            { label: "資料回報", href: "/report-data" },
             { label: "隱私權政策", href: "/privacy" },
             { label: "服務條款", href: "/terms" }
         ]

@@ -37,6 +37,9 @@
 - `000077_account_application_discord_threads.sql`：記錄帳號申請的 Discord 論壇討論串，供審核按鈕與 `/re` 補正回覆使用。
 - `000078_admission_timeline_scope_labels.sql`：把時程適用範圍落在各校系事件資料列，並移除事件名稱中的範圍前綴。
 - `000079_formal_mail_reply_template.sql`：將仍使用舊版預設內容的客服回信範本更新為正式結尾；自訂範本不變。
+- `000080_brochure_extraction_prompts.sql`：保存各校簡章版型的 Workers AI 擷取補充提示詞。
+- `000081_admissions_contributions.sql`：本站招生資料回報表單的收件、附件、暱稱公開同意與審核狀態。
+- `000082_admissions_contribution_attachments.sql`：支援多個經安全掃描的私有回報檔案，並保留既有附件資料。
 
 招生科系資料不另建管理專用表；管理端 API 直接以 transaction 維護 `academic_programs` 與 `program_exam_items`，並以 `review_status` 控制待審／公開狀態，異動寫入既有 append-only `audit_log`。
 
@@ -58,6 +61,7 @@
 - 備審檔案本體只放 private object storage；資料庫保存 checksum、版本與狀態，不保存檔案內容。
 - 學生證明檔、學校信箱與一次性驗證資料是年度可清除資料；`student_verifications` 只保存驗證結果與年度／學校／科系欄位。
 - Email 與查榜提醒透過加密 payload 的 durable outbox；API 不直接連 SMTP。
+- 招生資料回報的聯絡信箱以欄位加密保存；附件只放 private object storage，只有招生管理員通過 MFA 後可經本站 API 預覽或下載。
 
 ## 套用方式
 

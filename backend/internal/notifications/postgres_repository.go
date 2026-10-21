@@ -101,14 +101,29 @@ func (r *PostgresRepository) EnqueueEmailForAccountWithMaxAttempts(ctx context.C
 	} else if err != nil {
 		return err
 	}
-	return r.enqueueEmail(ctx, accountID, nil, recipientCiphertext, dedupKey, subject, text, html, kind, maxAttempts)
+	return r.enqueueEmail(ctx, &accountID, nil, recipientCiphertext, dedupKey, subject, text, html, kind, maxAttempts)
 }
 
 func (r *PostgresRepository) EnqueueEmailTo(ctx context.Context, accountID uuid.UUID, recipientCiphertext []byte, dedupKey, subject, text, html string) error {
-	return r.enqueueEmail(ctx, accountID, nil, recipientCiphertext, dedupKey, subject, text, html, "verification", 8)
+	return r.enqueueEmail(ctx, &accountID, nil, recipientCiphertext, dedupKey, subject, text, html, "verification", 8)
 }
 
-func (r *PostgresRepository) enqueueEmail(ctx context.Context, accountID uuid.UUID, notificationID *uuid.UUID, recipientCiphertext []byte, dedupKey, subject, text, html, kind string, maxAttempts int) error {
+// EnqueueEmailAddress queues a transactional email to an address that is not
+// associated with a STA account. Both the recipient and message payload are
+// encrypted before they are stored in the shared email outbox.
+func (r *PostgresRepository) EnqueueEmailAddress(ctx context.Context, recipient, dedupKey, subject, text string) error {
+	recipient = auth.NormalizeEmail(recipient)
+	if recipient == "" {
+		return errors.New("email recipient is invalid")
+	}
+	recipientCiphertext, err := r.cipher.Seal(recipient)
+	if err != nil {
+		return err
+	}
+	return r.enqueueEmail(ctx, nil, nil, recipientCiphertext, dedupKey, subject, text, "", "admissions_contribution_receipt", 8)
+}
+
+func (r *PostgresRepository) enqueueEmail(ctx context.Context, accountID *uuid.UUID, notificationID *uuid.UUID, recipientCiphertext []byte, dedupKey, subject, text, html, kind string, maxAttempts int) error {
 	if len(recipientCiphertext) == 0 || strings.TrimSpace(dedupKey) == "" || strings.TrimSpace(subject) == "" || strings.TrimSpace(text) == "" || strings.TrimSpace(kind) == "" {
 		return errors.New("email notification data is invalid")
 	}
@@ -123,7 +138,7 @@ func (r *PostgresRepository) enqueueEmail(ctx context.Context, accountID uuid.UU
 	_, err = r.pool.Exec(ctx, `
 		INSERT INTO email_outbox (account_id, notification_id, dedup_key, recipient_ciphertext, payload_ciphertext, max_attempts)
 		VALUES ($1, $2, $3, $4, $5, $6)
-		ON CONFLICT (account_id, dedup_key) DO NOTHING
+		ON CONFLICT DO NOTHING
 	`, accountID, notificationID, dedupKey, recipientCiphertext, payloadCiphertext, maxAttempts)
 	return mapNotificationError(err)
 }

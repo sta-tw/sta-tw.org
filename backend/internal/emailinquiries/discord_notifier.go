@@ -18,8 +18,9 @@ const discordRequestTimeout = 15 * time.Second
 // Embed colors (Discord decimal RGB) — inbound (blurple, Discord's own
 // brand color for "incoming"), outbound (green, a completed action).
 const (
-	embedColorInbound  = 0x5865F2
-	embedColorOutbound = 0x57F287
+	embedColorInbound      = 0x5865F2
+	embedColorOutbound     = 0x57F287
+	embedColorContribution = 0x84CC16
 )
 
 // HTTPDiscordNotifier implements ForumNotifier against Discord's REST API,
@@ -54,6 +55,8 @@ func buildEmbed(embed Embed, title string) discordEmbed {
 	color := embedColorInbound
 	if embed.Kind == EmbedKindOutbound {
 		color = embedColorOutbound
+	} else if embed.Kind == EmbedKindContribution {
+		color = embedColorContribution
 	}
 	d := discordEmbed{
 		Title:       title,
@@ -75,6 +78,8 @@ func embedTitle(kind EmbedKind) string {
 		return "✅ 已回覆"
 	case EmbedKindSystem:
 		return "系統訊息"
+	case EmbedKindContribution:
+		return "📊 資料回報"
 	default:
 		return "📨 來信"
 	}

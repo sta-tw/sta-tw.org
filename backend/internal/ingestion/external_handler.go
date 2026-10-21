@@ -83,6 +83,7 @@ func (h *ExternalHandler) RegisterRoutes(mux *http.ServeMux) {
 	// always inferred from the PDF, exactly like an admin's own upload.
 	mux.HandleFunc("POST /api/v1/external/ai-system/brochures", h.aiSystemBrochure)
 	mux.HandleFunc("POST /api/v1/internal/extraction/jobs/claim", h.claim)
+	mux.HandleFunc("GET /api/v1/internal/extraction/brochure-prompts/{schoolCode}", h.extractionPrompt)
 	mux.HandleFunc("GET /api/v1/internal/extraction/jobs/{jobID}", h.jobStatus)
 	mux.HandleFunc("POST /api/v1/internal/extraction/jobs/{jobID}/result", h.result)
 	mux.HandleFunc("POST /api/v1/internal/extraction/jobs/{jobID}/failure", h.failure)
@@ -409,6 +410,15 @@ func (h *ExternalHandler) claim(w http.ResponseWriter, r *http.Request) {
 	if sourceType == "" {
 		sourceType = jobs.SourceTypeBrochure
 	}
+	var err error
+	var schoolRegistry []ExtractionSchool
+	if sourceType == jobs.SourceTypeBrochure {
+		schoolRegistry, err = h.repository.ListExtractionSchools(r.Context())
+		if err != nil {
+			h.writeExternalError(w, err)
+			return
+		}
+	}
 	job, err := h.repository.ClaimNextJob(r.Context(), sourceType, 15*time.Minute)
 	if errors.Is(err, ErrNotFound) {
 		w.WriteHeader(http.StatusNoContent)
@@ -424,9 +434,26 @@ func (h *ExternalHandler) claim(w http.ResponseWriter, r *http.Request) {
 		_ = h.repository.MarkJobFailure(r.Context(), job.JobID, JobFailureInput{Code: "source_unavailable", Message: "extraction source is unavailable", Retryable: true})
 		return
 	}
-	writeIngestionJSON(w, http.StatusOK, map[string]any{"data": map[string]any{
+	data := map[string]any{
 		"job": job, "download_url": downloadURL.String(), "expires_in": 300,
-	}})
+	}
+	if sourceType == jobs.SourceTypeBrochure {
+		data["school_registry"] = schoolRegistry
+	}
+	writeIngestionJSON(w, http.StatusOK, map[string]any{"data": data})
+}
+
+func (h *ExternalHandler) extractionPrompt(w http.ResponseWriter, r *http.Request) {
+	if !h.requireService(w, r) {
+		return
+	}
+	prompt, err := h.repository.GetBrochureExtractionPrompt(r.Context(), strings.TrimSpace(r.PathValue("schoolCode")))
+	if err != nil {
+		h.writeExternalError(w, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeIngestionJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"prompt": prompt}})
 }
 
 func (h *ExternalHandler) failure(w http.ResponseWriter, r *http.Request) {

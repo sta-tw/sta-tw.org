@@ -23,6 +23,7 @@ import {
 } from "../lib/api/calendar";
 import {
     getPublishedBrochureDownloadURL,
+    getPublishedBrochurePreviewURL,
     listPublishedBrochures,
     type BrochureDocument
 } from "../lib/api/admissions";
@@ -81,8 +82,18 @@ export default function BrochureDetailTabs({
     schoolCode,
     currentAcademicYear
 }: BrochureDetailTabsProps) {
+    const [activeTab, setActiveTab] = useState("overview");
+
+    useEffect(() => {
+        const requestedTab = new URLSearchParams(window.location.search).get("tab");
+        if (requestedTab && tabs.some((tab) => tab.value === requestedTab)) {
+            // eslint-disable-next-line react-hooks/set-state-in-effect
+            setActiveTab(requestedTab);
+        }
+    }, []);
+
     return (
-        <Tabs.Root defaultValue="overview" className="mt-7 sm:mt-9">
+        <Tabs.Root value={activeTab} onValueChange={setActiveTab} className="mt-7 sm:mt-9">
             <div className="-mx-5 overflow-x-auto px-5 pb-2 sm:mx-0 sm:px-0">
                 <Tabs.List
                     aria-label="簡章內容"
@@ -735,9 +746,7 @@ function HistoryTab({
     );
 }
 
-// 學校的簡章 PDF 依學年度分開存放，不會被隔年上傳的新簡章覆蓋，所以這裡列出的是
-// 這間學校目前所有已上架的年度，而不只是這個科系當年度的那一份。下載連結直接指向
-// 後端的串流端點（每次下載都會即時蓋入追蹤標記），不再經過一次 JSON 轉址。
+// 學校的簡章 PDF 依學年度分開存放，不會被隔年上傳的新簡章覆蓋，因此可以逐年預覽或下載。
 function HistoricalBrochuresList({
     schoolCode,
     currentAcademicYear
@@ -746,15 +755,13 @@ function HistoricalBrochuresList({
     currentAcademicYear: number;
 }) {
     const [documents, setDocuments] = useState<BrochureDocument[] | null>(null);
-    const [downloadingYear, setDownloadingYear] = useState<number | null>(null);
-    const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
         const controller = new AbortController();
         listPublishedBrochures(schoolCode, { signal: controller.signal })
             .then((response) => {
                 if (!controller.signal.aborted) {
-                    setDocuments(response.data.filter((item) => item.academic_year !== currentAcademicYear));
+                    setDocuments(response.data.filter((item) => item.academic_year < currentAcademicYear));
                 }
             })
             .catch(() => {
@@ -763,39 +770,40 @@ function HistoricalBrochuresList({
         return () => controller.abort();
     }, [schoolCode, currentAcademicYear]);
 
-    function download(year: number) {
-        setError(null);
-        setDownloadingYear(year);
-        try {
-            window.open(getPublishedBrochureDownloadURL(year, schoolCode), "_blank", "noopener,noreferrer");
-        } catch {
-            setError("目前無法開啟下載連結，請稍後再試。");
-        } finally {
-            setDownloadingYear(null);
-        }
-    }
-
     if (documents === null || documents.length === 0) return null;
 
     return (
         <div>
-            <h3 className="font-sans text-lg font-medium text-ink">歷史簡章下載</h3>
-            <ul className="mt-4 flex flex-wrap gap-2">
+            <h3 className="font-sans text-lg font-medium text-ink">歷屆簡章</h3>
+            <ul className="mt-4 divide-y divide-ink/10 border-y border-ink/10">
                 {documents.map((item) => (
-                    <li key={item.academic_year}>
-                        <button
-                            type="button"
-                            onClick={() => void download(item.academic_year)}
-                            disabled={downloadingYear === item.academic_year}
-                            className="inline-flex h-10 shrink-0 cursor-pointer items-center gap-2 rounded-full border border-ink/15 bg-surface px-3 font-sans text-sm font-medium whitespace-nowrap text-ink transition-colors hover:bg-ink/5 focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2 focus-visible:outline-none disabled:opacity-60"
-                        >
-                            <Download aria-hidden className="h-4 w-4 shrink-0" />
+                    <li key={item.academic_year} className="flex flex-wrap items-center justify-between gap-3 py-3">
+                        <span className="font-sans text-sm font-medium text-ink">
                             {item.academic_year} 學年度簡章
-                        </button>
+                        </span>
+                        <span className="flex items-center gap-4 font-sans text-sm">
+                            <a
+                                href={getPublishedBrochurePreviewURL(item.academic_year, schoolCode)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 font-bold text-ink underline underline-offset-4 hover:text-ink/70 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ink"
+                            >
+                                <ExternalLink aria-hidden className="size-4" />
+                                預覽
+                            </a>
+                            <a
+                                href={getPublishedBrochureDownloadURL(item.academic_year, schoolCode)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 font-bold text-ink underline underline-offset-4 hover:text-ink/70 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ink"
+                            >
+                                <Download aria-hidden className="size-4" />
+                                下載
+                            </a>
+                        </span>
                     </li>
                 ))}
             </ul>
-            {error ? <p className="mt-2 font-sans text-sm text-red-600">{error}</p> : null}
         </div>
     );
 }

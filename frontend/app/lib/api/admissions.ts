@@ -85,6 +85,14 @@ export interface AdmissionSchool {
     school_name: string;
 }
 
+export interface BrochureExtractionPrompt {
+    school_code: string;
+    school_name: string;
+    prompt: string;
+    is_custom: boolean;
+    updated_at?: string;
+}
+
 export interface BrochureSearchProgram {
     academic_year: number;
     program_identifier: string;
@@ -418,6 +426,24 @@ export async function publishedBrochureExists(
 }
 
 // --- admin admissions ---------------------------------------------------
+
+export function listAdminBrochureExtractionPrompts(mfaCode?: string) {
+    return apiFetch<{ data: BrochureExtractionPrompt[] }>(
+        "/api/v1/admin/admissions/brochure-prompts",
+        { headers: adminHeaders(mfaCode) }
+    );
+}
+
+export function saveAdminBrochureExtractionPrompt(
+    schoolCode: string,
+    prompt: string,
+    mfaCode?: string
+) {
+    return apiFetch<{ data: BrochureExtractionPrompt }>(
+        `/api/v1/admin/admissions/brochure-prompts/${encodeURIComponent(schoolCode)}`,
+        { method: "PUT", body: { prompt }, headers: adminHeaders(mfaCode) }
+    );
+}
 
 export interface AdminAdmissionProgramFilter {
     academicYear?: number;

@@ -30,7 +30,7 @@ declare global {
 }
 
 type Props = {
-    action: "login" | "signup";
+    action: "login" | "signup" | "admissions_contribution";
     onTokenChange: (token: string) => void;
     resetSignal: number;
 };

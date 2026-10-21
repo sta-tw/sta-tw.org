@@ -60,6 +60,7 @@ func (h *Handler) sitemap(w http.ResponseWriter, r *http.Request) {
 		h.siteURL("/article/what-is-special-admission/"),
 		h.siteURL("/article/who-is-special-admission-for/"),
 		h.siteURL("/faq/"),
+		h.siteURL("/report-data/"),
 	}
 	for _, program := range programs {
 		locations = append(locations, h.programURL(program.ProgramIdentifier))
@@ -93,6 +94,7 @@ func (h *Handler) llms(w http.ResponseWriter, r *http.Request) {
 	content.WriteString("- [特殊選才是什麼](" + h.siteURL("/article/what-is-special-admission/") + "): 特殊選才的招生目的與制度簡介。\n")
 	content.WriteString("- [適合哪些學生](" + h.siteURL("/article/who-is-special-admission-for/") + "): 認識可能適合特殊選才的經歷與才能。\n")
 	content.WriteString("- [常見問題](" + h.siteURL("/faq/") + "): 特殊選才準備與申請常見問題。\n\n")
+	content.WriteString("- [招生資料回報](" + h.siteURL("/report-data/") + "): 回報各校招生人數或提供歷屆簡章。\n\n")
 	content.WriteString("## 資料使用說明\n\n")
 	content.WriteString("- 校系招生資料由 S.T.A 整理公開資訊；招生條件、時程及名額可能更新，申請前請以各校當年度正式招生簡章為準。\n")
 	content.WriteString("- 各校官方招生網站與簡章 PDF 的連結列於對應校系資料頁。\n\n")

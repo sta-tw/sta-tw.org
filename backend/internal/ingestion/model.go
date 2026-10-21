@@ -91,6 +91,19 @@ type BrochureUpload struct {
 	Candidates           []UploadCandidate `json:"candidates,omitempty"`
 }
 
+type BrochureExtractionPrompt struct {
+	SchoolCode string     `json:"school_code"`
+	SchoolName string     `json:"school_name"`
+	Prompt     string     `json:"prompt"`
+	IsCustom   bool       `json:"is_custom"`
+	UpdatedAt  *time.Time `json:"updated_at,omitempty"`
+}
+
+type ExtractionSchool struct {
+	SchoolCode string `json:"school_code"`
+	SchoolName string `json:"school_name"`
+}
+
 type UploadCandidate struct {
 	ProgramCode string          `json:"program_code"`
 	Data        json.RawMessage `json:"data"`

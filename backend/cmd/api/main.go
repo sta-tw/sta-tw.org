@@ -87,6 +87,17 @@ type timelineChangedNotification struct {
 	EndDate      *string `json:"end_date"`
 }
 
+type admissionsContributionForumNotifier struct {
+	notifier *emailinquiries.HTTPDiscordNotifier
+}
+
+func (n admissionsContributionForumNotifier) CreateContributionThread(ctx context.Context, forumChannelID, subject, body string, mentionRoleIDs []string) (string, error) {
+	return n.notifier.CreateThread(ctx, forumChannelID, subject, emailinquiries.Embed{
+		Kind: emailinquiries.EmbedKindContribution,
+		Body: body,
+	}, mentionRoleIDs)
+}
+
 func run(logger *slog.Logger) error {
 	cfg, err := config.Load()
 	if err != nil {
@@ -96,6 +107,7 @@ func run(logger *slog.Logger) error {
 	var databasePool *pgxpool.Pool
 	var messageBroker *jobs.Broker
 	var authService *auth.Service
+	var turnstileVerifier *auth.TurnstileVerifier
 	var fieldCipher *auth.FieldCipher
 	var notificationRepository notifications.Repository
 	var blobStore storage.BlobStore
@@ -258,11 +270,11 @@ func run(logger *slog.Logger) error {
 			return err
 		}
 		if cfg.Environment == "production" || cfg.TurnstileSecret != "" {
-			verifier, err := auth.NewTurnstileVerifier(cfg.TurnstileSecret, cfg.TurnstileHostname)
+			turnstileVerifier, err = auth.NewTurnstileVerifier(cfg.TurnstileSecret, cfg.TurnstileHostname)
 			if err != nil {
 				return fmt.Errorf("configure Turnstile: %w", err)
 			}
-			authHandler.ConfigureTurnstile(verifier)
+			authHandler.ConfigureTurnstile(turnstileVerifier)
 		}
 		registrars = append(registrars, authHandler.RegisterRoutes)
 		var calendarService *calendar.Service
@@ -369,6 +381,16 @@ func run(logger *slog.Logger) error {
 			return err
 		}
 		registrars = append(registrars, admissionHandler.RegisterRoutes)
+		contributionHandler, err := admissions.NewContributionHandler(
+			authService, admissionRepository, fieldCipher, blobStore, fileScanner,
+		)
+		if err != nil {
+			return err
+		}
+		contributionHandler.ConfigureLogger(logger)
+		contributionHandler.ConfigureTurnstile(turnstileVerifier)
+		contributionHandler.ConfigureDistributedLimiter(distributedLimiter)
+		registrars = append(registrars, contributionHandler.RegisterRoutes)
 		admissionAdminHandler, err := admissions.NewAdminHandler(authService, admissionRepository, admissionsInvalidators...)
 		if err != nil {
 			return err
@@ -467,6 +489,7 @@ func run(logger *slog.Logger) error {
 		authService.ConfigureEmailVerification(notificationRepository, cfg.PublicBaseURL)
 		if pg, ok := notificationRepository.(*notifications.PostgresRepository); ok {
 			pg.SetEventPublisher(eventHub)
+			contributionHandler.ConfigureEmailQueue(pg)
 		}
 		notificationHandler, err := notifications.NewHandler(authService, notificationRepository)
 		if err != nil {
@@ -511,6 +534,18 @@ func run(logger *slog.Logger) error {
 				}
 			} else {
 				logger.Warn("STA_DISCORD_MAIL_BOT_TOKEN is not set; inbound mail inquiries and account application review posts will not be sent to Discord")
+			}
+			contributionRoute, contributionRouteErr := mailRoutesRepository.GetByLocalPart(context.Background(), "brochure")
+			if contributionRouteErr != nil {
+				logger.Warn("brochure mail route is not configured; admissions contributions will not be posted to Discord")
+			} else if forumNotifier == nil {
+				logger.Warn("Discord notifier is unavailable; admissions contributions will not be posted to Discord")
+			} else {
+				contributionHandler.ConfigureForumNotifier(
+					admissionsContributionForumNotifier{notifier: forumNotifier},
+					contributionRoute.DiscordForumChannelID,
+					contributionRoute.VisibleRoleIDs,
+				)
 			}
 			accountMailRoute, accountMailRouteErr := mailRoutesRepository.GetByLocalPart(context.Background(), "account")
 			if accountMailRouteErr != nil {

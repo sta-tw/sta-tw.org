@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"sta-backend/internal/admissions"
 	"sta-backend/internal/auth"
@@ -41,6 +42,165 @@ func (r *PostgresRepository) IsAdmin(ctx context.Context, accountID uuid.UUID) (
 	var exists bool
 	err := r.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM account_roles WHERE account_id = $1 AND role = 'admin')`, accountID).Scan(&exists)
 	return exists, err
+}
+
+func (r *PostgresRepository) ListBrochureExtractionPrompts(ctx context.Context) ([]BrochureExtractionPrompt, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT s.school_code, s.school_name, COALESCE(p.prompt, ''), p.updated_at
+		FROM schools s
+		LEFT JOIN brochure_extraction_prompts p ON p.school_code = s.school_code
+		WHERE s.is_active = TRUE
+		ORDER BY s.school_code
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("list brochure extraction prompts: %w", err)
+	}
+	defer rows.Close()
+	items := make([]BrochureExtractionPrompt, 0)
+	for rows.Next() {
+		var item BrochureExtractionPrompt
+		var updatedAt pgtype.Timestamptz
+		if err := rows.Scan(&item.SchoolCode, &item.SchoolName, &item.Prompt, &updatedAt); err != nil {
+			return nil, fmt.Errorf("scan brochure extraction prompt: %w", err)
+		}
+		item.IsCustom = strings.TrimSpace(item.Prompt) != ""
+		if updatedAt.Valid {
+			value := updatedAt.Time
+			item.UpdatedAt = &value
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate brochure extraction prompts: %w", err)
+	}
+	return items, nil
+}
+
+func (r *PostgresRepository) ListExtractionSchools(ctx context.Context) ([]ExtractionSchool, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT school_code, school_name
+		FROM schools
+		WHERE is_active = TRUE
+		ORDER BY school_code
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("list extraction schools: %w", err)
+	}
+	defer rows.Close()
+	items := make([]ExtractionSchool, 0)
+	for rows.Next() {
+		var item ExtractionSchool
+		if err := rows.Scan(&item.SchoolCode, &item.SchoolName); err != nil {
+			return nil, fmt.Errorf("scan extraction school: %w", err)
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate extraction schools: %w", err)
+	}
+	return items, nil
+}
+
+func (r *PostgresRepository) GetBrochureExtractionPrompt(ctx context.Context, schoolCode string) (string, error) {
+	if !threeDigitCode(schoolCode) || schoolCode == "000" {
+		return "", ErrInvalid
+	}
+	var prompt string
+	err := r.pool.QueryRow(ctx, `
+		SELECT COALESCE(p.prompt, '')
+		FROM schools s
+		LEFT JOIN brochure_extraction_prompts p ON p.school_code = s.school_code
+		WHERE s.school_code = $1 AND s.is_active = TRUE
+	`, schoolCode).Scan(&prompt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	if err != nil {
+		return "", fmt.Errorf("get brochure extraction prompt: %w", err)
+	}
+	return prompt, nil
+}
+
+func (r *PostgresRepository) SaveBrochureExtractionPrompt(ctx context.Context, actorID uuid.UUID, schoolCode, prompt string) (BrochureExtractionPrompt, error) {
+	schoolCode = strings.TrimSpace(schoolCode)
+	prompt = strings.TrimSpace(prompt)
+	if !threeDigitCode(schoolCode) || schoolCode == "000" || len([]rune(prompt)) > 20000 {
+		return BrochureExtractionPrompt{}, ErrInvalid
+	}
+	if ok, err := r.IsAdmin(ctx, actorID); err != nil {
+		return BrochureExtractionPrompt{}, err
+	} else if !ok {
+		return BrochureExtractionPrompt{}, ErrAdminRequired
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return BrochureExtractionPrompt{}, fmt.Errorf("begin brochure prompt update: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	var schoolName string
+	if err := tx.QueryRow(ctx, `SELECT school_name FROM schools WHERE school_code = $1 AND is_active = TRUE FOR UPDATE`, schoolCode).Scan(&schoolName); errors.Is(err, pgx.ErrNoRows) {
+		return BrochureExtractionPrompt{}, ErrNotFound
+	} else if err != nil {
+		return BrochureExtractionPrompt{}, err
+	}
+	var beforePrompt string
+	err = tx.QueryRow(ctx, `SELECT prompt FROM brochure_extraction_prompts WHERE school_code = $1 FOR UPDATE`, schoolCode).Scan(&beforePrompt)
+	hadBefore := err == nil
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return BrochureExtractionPrompt{}, err
+	}
+	var updatedAt pgtype.Timestamptz
+	if prompt == "" {
+		if _, err := tx.Exec(ctx, `DELETE FROM brochure_extraction_prompts WHERE school_code = $1`, schoolCode); err != nil {
+			return BrochureExtractionPrompt{}, mapRepositoryError(err)
+		}
+	} else {
+		if err := tx.QueryRow(ctx, `
+			INSERT INTO brochure_extraction_prompts (school_code, prompt, updated_by)
+			VALUES ($1, $2, $3)
+			ON CONFLICT (school_code) DO UPDATE
+			SET prompt = EXCLUDED.prompt, updated_by = EXCLUDED.updated_by
+			RETURNING updated_at
+		`, schoolCode, prompt, actorID).Scan(&updatedAt); err != nil {
+			return BrochureExtractionPrompt{}, mapRepositoryError(err)
+		}
+	}
+	var beforeData []byte
+	if hadBefore {
+		beforeData, err = json.Marshal(map[string]string{"prompt": beforePrompt})
+		if err != nil {
+			return BrochureExtractionPrompt{}, err
+		}
+	}
+	var afterData []byte
+	if prompt != "" {
+		afterData, err = json.Marshal(map[string]string{"prompt": prompt})
+		if err != nil {
+			return BrochureExtractionPrompt{}, err
+		}
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO audit_log (actor_account_id, action, entity_type, entity_key, before_data, after_data, reason)
+		VALUES ($1, 'update', 'brochure_extraction_prompt', $2, $3, $4, '更新各校簡章判讀提示詞')
+	`, actorID, schoolCode, nullableJSON(beforeData), nullableJSON(afterData)); err != nil {
+		return BrochureExtractionPrompt{}, fmt.Errorf("audit brochure prompt update: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return BrochureExtractionPrompt{}, fmt.Errorf("commit brochure prompt update: %w", err)
+	}
+	item := BrochureExtractionPrompt{SchoolCode: schoolCode, SchoolName: schoolName, Prompt: prompt, IsCustom: prompt != ""}
+	if updatedAt.Valid {
+		value := updatedAt.Time
+		item.UpdatedAt = &value
+	}
+	return item, nil
+}
+
+func nullableJSON(value []byte) any {
+	if len(value) == 0 {
+		return nil
+	}
+	return string(value)
 }
 
 func (r *PostgresRepository) queueDocumentJob(ctx context.Context, adminID *uuid.UUID, academicYear int, schoolCode, storageKey, sha256Hex, processor, sourceType, sourceURL, programCode string, now time.Time) (brochureJobRecord, error) {

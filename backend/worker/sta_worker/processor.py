@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Mapping
 
 from .brochure_local import (
     PROGRAM_CODE_PATTERN,
@@ -17,7 +17,11 @@ from .contracts import (
     result_payload,
     sha256_file,
 )
-from .ai_extract import PROCESSOR_SUFFIX as AI_PROCESSOR_SUFFIX, ai_extract_brochure
+from .ai_extract import (
+    PROCESSOR_SUFFIX as AI_PROCESSOR_SUFFIX,
+    ai_extract_brochure,
+    load_ai_settings,
+)
 from .pdf_ocr import ocr_sparse_pages
 
 
@@ -40,6 +44,8 @@ def extract_document(
     processor_version: str,
     max_bytes: int,
     logger=None,
+    school_registry: list[Mapping[str, Any]] | None = None,
+    prompt_loader: Callable[[str], str] | None = None,
 ) -> dict[str, Any]:
     path = safe_document_path(root, job.storage_key)
     if not path.is_file():
@@ -49,10 +55,29 @@ def extract_document(
 
     pages = _read_pdf_pages(path, logger=logger)
 
-    # Cloudflare Workers AI is the primary engine when configured; the
-    # rule-based parser stays as the fallback for when it is disabled, the API
-    # is unreachable, or the answer is unusable.
-    ai_result = ai_extract_brochure(job, pages, logger=logger)
+    # School identity is resolved locally from page one and the school master
+    # before any text is sent to Workers AI. The model never decides the school
+    # name or code and is not called when an upload-only brochure is unmatched.
+    identity = infer_brochure_identity(job, pages, school_registry)
+    ai_settings = load_ai_settings()
+    school_prompt = ""
+    if ai_settings.usable and identity.school_code and prompt_loader is not None:
+        try:
+            school_prompt = prompt_loader(identity.school_code)
+        except Exception as exc:
+            raise RetryableProcessingError("school extraction prompt is unavailable") from exc
+
+    # Workers AI extracts the programme data with the school-specific layout
+    # instructions; local rules remain the fallback when AI is disabled or its
+    # response cannot be used.
+    ai_result = ai_extract_brochure(
+        job,
+        pages,
+        logger=logger,
+        settings=ai_settings,
+        identity=identity,
+        school_prompt=school_prompt,
+    )
     if ai_result is not None:
         identity, candidates = ai_result
         return result_payload(
@@ -63,8 +88,6 @@ def extract_document(
             school_code=identity.school_code,
             school_name=identity.school_name,
         )
-
-    identity = infer_brochure_identity(job, pages)
     return result_payload(
         job,
         processor_version,

@@ -1,6 +1,6 @@
 # 文件擷取 API
 
-STA 的文件擷取流程不依賴任何內建 AI 服務。Go API 負責驗證來源、掃描檔案、寫入 private object storage、建立 durable job 與保存結果；外部 Python worker 只負責下載檔案、用本地規則解析，簡章文字層不足時使用本地 Tesseract OCR，再回傳結果。外部 AI／搜尋服務若找到檔案，也只需把原始檔送到下列 API。
+Go API 負責驗證來源、掃描檔案、寫入 private object storage、建立 durable job 與保存結果。Python worker 先讀取簡章第一頁，使用本機文字擷取／Tesseract OCR 對照學校主檔取得校碼，不使用 AI 判斷校名；確認校碼後，才依校碼載入管理端設定的逐校提示詞，並在 Cloudflare Workers AI 啟用時擷取科系、考試項目、費用、資格與時程。AI 關閉或回傳無法使用的資料時會改用本機規則；連線等暫時性錯誤會依工作佇列重試。候選資料仍須管理員審核。外部 AI／搜尋服務若找到檔案，只需把原始檔送到下列 API。
 
 ## 使用方式
 
@@ -13,6 +13,7 @@ STA 的文件擷取流程不依賴任何內建 AI 服務。Go API 負責驗證�
 - 退回這次上傳：`POST /api/v1/admin/admissions/brochure-uploads/{upload_id}/reject`。
 - 外部 API 人工複核清單：`GET /api/v1/admin/admissions/brochure-uploads`。
 - 外部 API 原始檔下載網址：`GET /api/v1/admin/admissions/brochure-uploads/{upload_id}/download`。
+- 各校簡章提示詞：`GET /api/v1/admin/admissions/brochure-prompts`、`PUT /api/v1/admin/admissions/brochure-prompts/{school_code}`；儲存空白內容會清除該校設定並改用共用提示詞。
 - 名單：`POST /api/v1/admin/extraction/candidate-lists`。
 - 工作狀態：`GET /api/v1/admin/ingestion/jobs/{job_id}`。
 
@@ -78,10 +79,12 @@ python -m worker.sta_worker.main
 worker 會輪詢兩種文件類型：
 
 1. `POST /api/v1/internal/extraction/jobs/claim`，body 為 `{"document_type":"brochure"}` 或 `{"document_type":"candidate_list"}`。
-2. API 回傳 job 與五分鐘有效的 `download_url`；沒有工作時回傳 `204 No Content`。
-3. worker 以 checksum 驗證下載檔案；簡章先讀取 PDF 文字層，文字不足的頁面再用 `chi_tra+eng` Tesseract OCR，名單則使用本地 PDF／表格／JSON 規則抽取。
+2. API 回傳 job 與五分鐘有效的 `download_url`；簡章工作另附啟用學校的校碼／校名清單；沒有工作時回傳 `204 No Content`。
+3. worker 以 checksum 驗證下載檔案；簡章先讀取 PDF 第一頁文字，文字不足時再用 `chi_tra+eng` Tesseract OCR，並在本機對照學校清單。校碼確定後，worker 使用服務憑證呼叫 `GET /api/v1/internal/extraction/brochure-prompts/{school_code}` 取得逐校提示詞，再開始資料擷取；名單則使用本地 PDF／表格／JSON 規則抽取。
 4. `POST /api/v1/internal/extraction/jobs/{job_id}/result` 回傳結果。
 5. 解析失敗時回傳 `POST /api/v1/internal/extraction/jobs/{job_id}/failure`；暫時性錯誤會在 30 秒後重試，格式或內容錯誤會標記為 `failed`。
+
+管理端「簡章判讀提示詞」卡片可依學校編號編輯版型補充說明。逐校提示詞只供資料欄位與版型判讀，不能改變本機決定的學校身分；所有擷取結果仍停留在人工確認流程。
 
 名單結果 callback 的 body 上限為 16 MiB（一般 JSON API 仍使用 `STA_MAX_JSON_BODY_BYTES`）；名單最多 10,000 筆。
 

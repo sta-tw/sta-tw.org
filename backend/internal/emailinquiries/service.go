@@ -93,6 +93,7 @@ const (
 	EmbedKindInbound EmbedKind = iota
 	EmbedKindOutbound
 	EmbedKindSystem
+	EmbedKindContribution
 )
 
 // Embed is one entry in a mail thread's Discord history — every inbound

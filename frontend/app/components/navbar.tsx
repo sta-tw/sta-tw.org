@@ -138,6 +138,12 @@ function DesktopNavigation({
                         {link.label}
                     </Link>
                 ))}
+                <Link
+                    href="/report-data"
+                    className="hidden font-sans text-nav tracking-[-0.1px] text-ink/75 transition-colors hover:text-ink xl:inline-flex"
+                >
+                    資料回報
+                </Link>
                 <RelatedSitesDesktopMenu />
             </div>
 
@@ -219,6 +225,13 @@ function MobileNavigation({
                         {link.label}
                     </Link>
                 ))}
+                <Link
+                    href="/report-data"
+                    onClick={onNavigate}
+                    className="rounded-[var(--radius-control)] px-3 py-3 font-sans text-lg tracking-[-0.1px] text-ink transition-colors hover:bg-ink/5"
+                >
+                    資料回報
+                </Link>
                 <RelatedSitesMobileMenu onNavigate={onNavigate} />
             </nav>
 

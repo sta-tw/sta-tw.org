@@ -29,13 +29,17 @@ const ADMISSIONS_ONLY_PATH = "/admin/admissions";
 const fullNavItems = [
     { href: "/admin", label: "總覽" },
     { href: "/admin/admissions", label: "簡章管理" },
+    { href: "/admin/admissions/contributions", label: "資料回報" },
     { href: "/admin/policies", label: "條款維護" },
     { href: "/admin/advertising", label: "廣告中心" },
     { href: "/admin/users", label: "使用者" },
     { href: "/admin/audit-log", label: "稽核紀錄" }
 ];
 
-const admissionsOnlyNavItems = [{ href: ADMISSIONS_ONLY_PATH, label: "簡章管理" }];
+const admissionsOnlyNavItems = [
+    { href: ADMISSIONS_ONLY_PATH, label: "簡章管理" },
+    { href: "/admin/admissions/contributions", label: "資料回報" }
+];
 
 const logoIcon = publicPath("/logo.svg");
 
@@ -220,7 +224,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
                             </span>
                         </Link>
 
-                        <nav className="hidden items-center gap-7 lg:flex">
+                        <nav className="hidden items-center gap-5 lg:flex">
                             {navItems.map((item) => (
                                 <Link
                                     key={item.href}

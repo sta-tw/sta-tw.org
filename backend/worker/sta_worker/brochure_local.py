@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 import re
-from typing import Any
+from typing import Any, Mapping
 import unicodedata
 
 from .contracts import BrochureExtractJob, ExtractionCandidate
@@ -250,19 +250,78 @@ class ProgramHeading:
     consumed_lines: int = 1
 
 
-def infer_brochure_identity(job: BrochureExtractJob, pages: list[str]) -> BrochureIdentity:
-    """Infer the brochure identity from its first pages for upload-only intake.
+def infer_brochure_identity(
+    job: BrochureExtractJob,
+    pages: list[str],
+    school_registry: list[Mapping[str, Any]] | None = None,
+) -> BrochureIdentity:
+    """Infer the brochure identity locally, using only page one for its school.
 
     Existing externally sourced jobs already carry the canonical identity. For
-    upload-only jobs this is only a candidate value; the Go admin flow lets a
-    reviewer correct it before publication.
+    upload-only jobs the school name is matched against the school master; the
+    Go admin flow still lets a reviewer correct it before publication.
     """
 
+    first_page = pages[0] if pages else ""
     sample = "\n".join(pages[:10])
     academic_year = job.academic_year or _academic_year(sample)
-    school_code = job.school_code or _school_code(sample)
-    school_name = _school_name(sample)
+    registry = school_registry or []
+    schools_by_code = {
+        str(school.get("school_code", "")).strip(): str(school.get("school_name", "")).strip()
+        for school in registry
+        if isinstance(school, Mapping)
+    }
+
+    school_code = job.school_code
+    if not school_code:
+        school_code = _match_school_code(first_page, registry)
+        if not school_code:
+            printed_code = _school_code(first_page)
+            if printed_code and (not schools_by_code or printed_code in schools_by_code):
+                school_code = printed_code
+
+    school_name = schools_by_code.get(school_code, "") or _school_name(first_page)
     return BrochureIdentity(academic_year, school_code, school_name)
+
+
+def _match_school_code(first_page: str, school_registry: list[Mapping[str, Any]]) -> str:
+    """Match a school-master name on page one without sending it to a model."""
+
+    normalized_page = _normalize_school_name(first_page)
+    if not normalized_page:
+        return ""
+
+    exact_matches: list[tuple[int, str]] = []
+    alias_matches: list[tuple[int, str]] = []
+    for school in school_registry:
+        if not isinstance(school, Mapping):
+            continue
+        code = str(school.get("school_code", "")).strip()
+        name = str(school.get("school_name", "")).strip()
+        normalized_name = _normalize_school_name(name)
+        if not code or not normalized_name:
+            continue
+        if normalized_name in normalized_page:
+            exact_matches.append((len(normalized_name), code))
+            continue
+        for prefix in ("國立", "私立", "市立"):
+            if name.startswith(prefix):
+                alias = _normalize_school_name(name[len(prefix):])
+                if len(alias) >= 4 and alias in normalized_page:
+                    alias_matches.append((len(alias), code))
+                break
+
+    matches = exact_matches or alias_matches
+    if not matches:
+        return ""
+    longest = max(length for length, _ in matches)
+    codes = {code for length, code in matches if length == longest}
+    return next(iter(codes)) if len(codes) == 1 else ""
+
+
+def _normalize_school_name(value: str) -> str:
+    value = unicodedata.normalize("NFKC", value).replace("臺", "台")
+    return re.sub(r"[\W_]+", "", value, flags=re.UNICODE).casefold()
 
 
 def extract_local_candidates(

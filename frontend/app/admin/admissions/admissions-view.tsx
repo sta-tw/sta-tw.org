@@ -44,6 +44,7 @@ import {
     listAdminBrochureUploads,
     listAdminAdmissionProgramHistory,
     listAdminAdmissionPrograms,
+    listAdminBrochureExtractionPrompts,
     listAllSchools,
     confirmAdminBrochureUpload,
     rejectAdminBrochureUpload,
@@ -53,6 +54,7 @@ import {
     setAdminAdmissionProgramArchived,
     setAdminBrochureVisibility,
     syncAdminAdmissionPrograms,
+    saveAdminBrochureExtractionPrompt,
     updateAdminAdmissionProgram,
     uploadAdminBrochure,
     type AdminAdmissionProgram,
@@ -60,6 +62,7 @@ import {
     type AdmissionExamItem,
     type AdmissionProgramInput,
     type AdmissionTimelineEvent,
+    type BrochureExtractionPrompt,
     type BrochureDocument,
     type BrochureEvent,
     type BrochureUpload,
@@ -205,7 +208,7 @@ const syncTemplate: AdmissionProgramInput = {
 
 export default function AdmissionsView() {
     const { mfaCode } = useAdmin();
-    const [activeTab, setActiveTab] = useState<"programs" | "brochures">("programs");
+    const [activeTab, setActiveTab] = useState<"programs" | "brochures" | "prompts">("programs");
 
     const [programYear, setProgramYear] = useState("");
     const [programSchool, setProgramSchool] = useState("");
@@ -459,9 +462,17 @@ export default function AdmissionsView() {
                     >
                         簡章檔案
                     </TabButton>
+                    <TabButton
+                        active={activeTab === "prompts"}
+                        onClick={() => setActiveTab("prompts")}
+                    >
+                        簡章判讀提示詞
+                    </TabButton>
                 </div>
 
-                {activeTab === "programs" ? (
+                {activeTab === "prompts" ? (
+                    <BrochurePromptManager mfaCode={mfaCode} />
+                ) : activeTab === "programs" ? (
                     <section className="flex flex-col gap-4">
                         <DisplayLatestYearControl />
                         <div className={panelClass}>
@@ -777,6 +788,237 @@ function TabButton({
         >
             {children}
         </button>
+    );
+}
+
+function BrochurePromptManager({ mfaCode }: { mfaCode: string }) {
+    const [items, setItems] = useState<BrochureExtractionPrompt[]>([]);
+    const [selectedCode, setSelectedCode] = useState("");
+    const [query, setQuery] = useState("");
+    const [drafts, setDrafts] = useState<Record<string, string>>({});
+    const [loading, setLoading] = useState(true);
+    const [saving, setSaving] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const [notice, setNotice] = useState<string | null>(null);
+
+    useEffect(() => {
+        let ignore = false;
+        void listAdminBrochureExtractionPrompts(mfaCode || undefined)
+            .then((response) => {
+                if (ignore) return;
+                setItems(response.data);
+                setSelectedCode((current) => current || response.data[0]?.school_code || "");
+            })
+            .catch((cause) => {
+                if (!ignore) setError(describeError(cause));
+            })
+            .finally(() => {
+                if (!ignore) setLoading(false);
+            });
+        return () => {
+            ignore = true;
+        };
+    }, [mfaCode]);
+
+    const selected = items.find((item) => item.school_code === selectedCode) ?? null;
+    const filteredItems = useMemo(() => {
+        const normalized = query.trim().toLocaleLowerCase();
+        if (!normalized) return items;
+        return items.filter((item) =>
+            `${item.school_name} ${item.school_code}`.toLocaleLowerCase().includes(normalized)
+        );
+    }, [items, query]);
+    const prompt = selected ? (drafts[selected.school_code] ?? selected.prompt) : "";
+    const dirty = Boolean(selected && prompt !== selected.prompt);
+
+    async function save() {
+        if (!selected) return;
+        if (prompt.length > 20000) {
+            setError("提示詞最多 20,000 個字元。");
+            return;
+        }
+        setSaving(true);
+        setError(null);
+        setNotice(null);
+        try {
+            const response = await saveAdminBrochureExtractionPrompt(
+                selected.school_code,
+                prompt,
+                mfaCode || undefined
+            );
+            setItems((current) =>
+                current.map((item) =>
+                    item.school_code === response.data.school_code ? response.data : item
+                )
+            );
+            setDrafts((current) => {
+                const next = { ...current };
+                delete next[selected.school_code];
+                return next;
+            });
+            setNotice(
+                response.data.is_custom
+                    ? `${response.data.school_name} 的提示詞已儲存。`
+                    : `${response.data.school_name} 已改回共用提示詞。`
+            );
+        } catch (cause) {
+            setError(describeError(cause));
+        } finally {
+            setSaving(false);
+        }
+    }
+
+    return (
+        <section className={`${panelClass} p-4 sm:p-6`}>
+            <div className="flex flex-wrap items-start justify-between gap-4 border-b border-ink/10 pb-5">
+                <div className="max-w-3xl">
+                    <p className="font-sans text-xs font-bold tracking-[0.16em] text-copy-muted">簡章匯入設定</p>
+                    <h2 className="mt-1 font-serif text-2xl text-ink">簡章判讀提示詞</h2>
+                    <p className="mt-2 font-sans text-sm leading-6 text-copy-muted">
+                        依 PDF 第一頁辨識出的學校套用專屬提示詞，擷取科系、考試項目、費用與招生時程。校名由系統比對；判讀結果仍需人工確認。
+                    </p>
+                </div>
+                <span className={`${badgePillClass} bg-ink/5 text-copy-muted`}>學校 {items.length} 間</span>
+            </div>
+
+            <div className="mt-5 grid gap-5 lg:grid-cols-[17rem_minmax(0,1fr)]">
+                <aside className="overflow-hidden rounded-[var(--radius-panel)] border border-ink/10 bg-ink/[0.025]">
+                    <div className="border-b border-ink/10 p-4">
+                        <div className="flex items-center justify-between gap-3">
+                            <h3 className="font-serif text-lg text-ink">選擇學校</h3>
+                            <span className="font-sans text-xs text-copy-muted">{filteredItems.length} 間</span>
+                        </div>
+                        <label className="relative mt-3 block">
+                            <Search aria-hidden className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-copy-muted" />
+                            <input
+                                type="search"
+                                className={`${inputClass} w-full pl-9`}
+                                placeholder="搜尋校名或編號"
+                                value={query}
+                                onChange={(event) => setQuery(event.target.value)}
+                                aria-label="搜尋學校"
+                            />
+                        </label>
+                    </div>
+                    <div className="max-h-[34rem] overflow-y-auto p-2" aria-label="學校清單">
+                        {loading ? (
+                            <p className="px-3 py-6 text-center font-sans text-sm text-copy-muted">載入學校清單…</p>
+                        ) : filteredItems.length > 0 ? (
+                            <div className="space-y-1">
+                                {filteredItems.map((item) => {
+                                    const active = item.school_code === selectedCode;
+                                    return (
+                                        <button
+                                            key={item.school_code}
+                                            type="button"
+                                            aria-pressed={active}
+                                            onClick={() => {
+                                                setSelectedCode(item.school_code);
+                                                setError(null);
+                                                setNotice(null);
+                                            }}
+                                            className={twMerge(
+                                                "flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-left transition-colors",
+                                                active ? "bg-ink text-white shadow-sm" : "text-ink hover:bg-surface"
+                                            )}
+                                        >
+                                            <span className="min-w-0">
+                                                <span className="block truncate font-sans text-sm font-semibold">{item.school_name}</span>
+                                                <span className={twMerge("mt-0.5 block font-sans text-xs", active ? "text-white/65" : "text-copy-muted")}>
+                                                    {item.school_code}
+                                                </span>
+                                            </span>
+                                            <span className={twMerge(
+                                                "shrink-0 rounded-full px-2 py-1 font-sans text-[10px] font-bold",
+                                                active
+                                                    ? "bg-white/15 text-white"
+                                                    : item.is_custom
+                                                      ? "bg-accent-green-strong/20 text-ink"
+                                                      : "bg-ink/5 text-copy-muted"
+                                            )}>
+                                                {item.is_custom ? "專屬" : "共用"}
+                                            </span>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        ) : (
+                            <p className="px-3 py-8 text-center font-sans text-sm text-copy-muted">
+                                {items.length ? "找不到符合的學校。" : "目前沒有可設定的學校。"}
+                            </p>
+                        )}
+                    </div>
+                </aside>
+
+                <div className="min-w-0 rounded-[var(--radius-panel)] border border-ink/10 bg-surface p-4 sm:p-5">
+                    {selected ? (
+                        <>
+                            <div className="flex flex-wrap items-start justify-between gap-3 border-b border-ink/10 pb-4">
+                                <div>
+                                    <p className="font-sans text-xs font-bold tracking-wide text-copy-muted">目前編輯</p>
+                                    <h3 className="mt-1 font-serif text-xl text-ink">{selected.school_name}</h3>
+                                    <p className="mt-1 font-sans text-xs text-copy-muted">學校編號 {selected.school_code}</p>
+                                </div>
+                                <span className={selected.is_custom ? statusBadgeClasses("approved") : statusBadgeClasses("draft")}>
+                                    {selected.is_custom ? "使用專屬提示詞" : "使用共用提示詞"}
+                                </span>
+                            </div>
+
+                            <div className="pt-4">
+                                <label className="font-sans text-sm font-bold text-ink" htmlFor="brochure-prompt">
+                                    版型補充提示詞
+                                </label>
+                                <p className="mt-1 font-sans text-xs leading-5 text-copy-muted">
+                                    寫下簡章的頁面結構、科系分組方式、欄位名稱與日期格式。留白後儲存會清除專屬設定，改用共用提示詞。
+                                </p>
+                                <textarea
+                                    id="brochure-prompt"
+                                    className={`${textareaClass} mt-3 min-h-[25rem] bg-ink/[0.015] p-4 leading-6`}
+                                    maxLength={20000}
+                                    placeholder={`例如：\n1. 科系與招生名額列在「招生學系及名額」表格，每個組別視為獨立科系資料。\n2. 「甄試方式」表格中的項目、佔分比例與說明填入 exam_items。\n3. 校級時程表適用全系；另有系所專屬日期時，以專屬日期覆蓋該系同名事件。\n4. 民國日期換算為西元日期；只有截止日也填入 start_date。`}
+                                    value={prompt}
+                                    disabled={loading}
+                                    onChange={(event) => {
+                                        setDrafts((current) => ({
+                                            ...current,
+                                            [selected.school_code]: event.target.value
+                                        }));
+                                        setNotice(null);
+                                    }}
+                                />
+                                <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                                    <p className="font-sans text-xs tabular-nums text-copy-muted">
+                                        {prompt.length.toLocaleString()} / 20,000 字元
+                                        {dirty ? <span className="ml-2 text-amber-700">尚未儲存</span> : null}
+                                    </p>
+                                    <Button
+                                        type="button"
+                                        onClick={() => void save()}
+                                        disabled={loading || saving || !dirty}
+                                        className="h-10 px-4 text-sm"
+                                    >
+                                        {saving ? "儲存中…" : selected.is_custom && !prompt.trim() ? "改回共用提示詞" : "儲存提示詞"}
+                                    </Button>
+                                </div>
+                            </div>
+
+                            {error ? <p role="alert" className="mt-3 rounded-lg bg-red-50 px-3 py-2 font-sans text-sm text-red-700">{error}</p> : null}
+                            {notice ? <p role="status" className="mt-3 rounded-lg bg-green-50 px-3 py-2 font-sans text-sm text-green-800">{notice}</p> : null}
+                        </>
+                    ) : (
+                        <div className="flex min-h-[25rem] flex-col items-center justify-center text-center">
+                            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-ink/5 text-copy-muted">
+                                <Search aria-hidden className="h-5 w-5" />
+                            </div>
+                            <p className="mt-4 font-serif text-lg text-ink">選擇一所學校開始編輯</p>
+                            <p className="mt-1 font-sans text-sm text-copy-muted">可用左側搜尋校名或學校編號。</p>
+                            {loading ? <Loader2 aria-label="載入中" className="mt-4 h-5 w-5 animate-spin text-copy-muted" /> : null}
+                            {error ? <p role="alert" className="mt-4 font-sans text-sm text-red-600">{error}</p> : null}
+                        </div>
+                    )}
+                </div>
+            </div>
+        </section>
     );
 }
 
@@ -2648,7 +2890,7 @@ function ProgramDialog({
     );
 }
 
-// Lets staff backfill past years' 報名/正取/候補 counts for 歷年招生資料.
+// Lets staff create and maintain each year's admission counts for 歷年招生資料.
 function ProgramYearHistorySection({
     program,
     mfaCode
@@ -2660,10 +2902,10 @@ function ProgramYearHistorySection({
     const [adding, setAdding] = useState(false);
     const [newYear, setNewYear] = useState("");
     const [admissionQuota, setAdmissionQuota] = useState("");
-    const [applicantCount, setApplicantCount] = useState("");
-    const [admittedCount, setAdmittedCount] = useState("");
-    const [waitlistedCount, setWaitlistedCount] = useState("");
-    const [promotedCount, setPromotedCount] = useState("");
+    const [applicantCount, setApplicantCount] = useState("待統計");
+    const [admittedCount, setAdmittedCount] = useState("待統計");
+    const [waitlistedCount, setWaitlistedCount] = useState("待統計");
+    const [promotedCount, setPromotedCount] = useState("待統計");
     const [notesInput, setNotesInput] = useState("");
     const [pending, setPending] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -2701,17 +2943,19 @@ function ProgramYearHistorySection({
                             entry.program_identifier,
                             {
                                 admission_quota: String(entry.admission_quota),
-                                applicant_count: displayFormValue(entry.applicant_count),
-                                admitted_count: displayFormValue(entry.admitted_count),
-                                waitlisted_count: displayFormValue(entry.waitlisted_count),
-                                promoted_count: displayFormValue(entry.promoted_count),
+                                applicant_count: historyStatFormValue(entry.applicant_count),
+                                admitted_count: historyStatFormValue(entry.admitted_count),
+                                waitlisted_count: historyStatFormValue(entry.waitlisted_count),
+                                promoted_count: historyStatFormValue(entry.promoted_count),
                                 notes: displayFormValue(entry.notes)
                             }
                         ])
                     )
                 );
             })
-            .catch(() => setYears([]));
+            .catch(() => {
+                setYears([]);
+            });
     }
 
     useEffect(() => {
@@ -2733,15 +2977,15 @@ function ProgramYearHistorySection({
             const item: AdmissionProgramInput = {
                 ...programToInput(entry),
                 admission_quota: quota,
-                applicant_count: edit.applicant_count.trim() || "-",
-                admitted_count: edit.admitted_count.trim() || "-",
-                waitlisted_count: edit.waitlisted_count.trim() || "-",
-                promoted_count: edit.promoted_count.trim() || "-",
+                applicant_count: edit.applicant_count.trim() || "待統計",
+                admitted_count: edit.admitted_count.trim() || "待統計",
+                waitlisted_count: edit.waitlisted_count.trim() || "待統計",
+                promoted_count: edit.promoted_count.trim() || "待統計",
                 notes: edit.notes.trim() || "-"
             };
             const response = await updateAdminAdmissionProgram(
                 entry.program_identifier,
-                `${entry.academic_year} 學年度歷史招生資料補登/修正`,
+                `${entry.academic_year} 學年度招生資料補登/修正`,
                 item,
                 mfaCode || undefined
             );
@@ -2750,7 +2994,7 @@ function ProgramYearHistorySection({
                 await reviewAdminAdmissionProgram(
                     updated.program_identifier,
                     true,
-                    "歷史資料補登，直接上架",
+                    "年度招生資料已確認，直接上架",
                     mfaCode || undefined
                 );
             }
@@ -2808,14 +3052,14 @@ function ProgramYearHistorySection({
                 ...programToInput(program),
                 academic_year: year,
                 admission_quota: quota,
-                applicant_count: applicantCount.trim() || "-",
-                admitted_count: admittedCount.trim() || "-",
-                waitlisted_count: waitlistedCount.trim() || "-",
-                promoted_count: promotedCount.trim() || "-",
+                applicant_count: applicantCount.trim() || "待統計",
+                admitted_count: admittedCount.trim() || "待統計",
+                waitlisted_count: waitlistedCount.trim() || "待統計",
+                promoted_count: promotedCount.trim() || "待統計",
                 notes: notesInput.trim() || "-"
             };
             const syncResponse = await syncAdminAdmissionPrograms(
-                `補登 ${year} 學年度歷史招生資料`,
+                `建立 ${year} 學年度招生資料`,
                 [item],
                 mfaCode || undefined
             );
@@ -2824,16 +3068,16 @@ function ProgramYearHistorySection({
                 await reviewAdminAdmissionProgram(
                     created.program_identifier,
                     true,
-                    "歷史資料補登，直接上架",
+                    "年度招生資料已確認，直接上架",
                     mfaCode || undefined
                 );
             }
             setNewYear("");
             setAdmissionQuota("");
-            setApplicantCount("");
-            setAdmittedCount("");
-            setWaitlistedCount("");
-            setPromotedCount("");
+            setApplicantCount("待統計");
+            setAdmittedCount("待統計");
+            setWaitlistedCount("待統計");
+            setPromotedCount("待統計");
             setNotesInput("");
             setAdding(false);
             await reload();
@@ -2847,17 +3091,17 @@ function ProgramYearHistorySection({
     return (
         <div className="border-t border-ink/10 pt-5">
             <div className="flex items-center justify-between gap-3">
-                <h4 className="font-sans text-sm font-bold text-ink">歷年招生資料</h4>
+                <h4 className="font-sans text-sm font-bold text-ink">各年度招生資料</h4>
                 <button
                     type="button"
                     onClick={() => setAdding((value) => !value)}
                     className="font-sans text-xs font-bold text-ink underline underline-offset-2"
                 >
-                    {adding ? "取消新增" : "+ 新增歷史年度"}
+                    {adding ? "取消新增" : "+ 新增學年度"}
                 </button>
             </div>
             <p className="mt-1 font-sans text-xs leading-5 text-copy-muted">
-                依「學校代碼＋科系代碼」歸類，同一個科系每個學年度各一筆。今年把舊年度資料補齊後，之後每年資料同步時會自動歸類進來，不用另外維護。
+                依「學校代碼＋科系代碼」歸類，同一個科系每學年度各一筆。後台可先建立及維護各年度資料；前台只會把已上架且早於目前最新學年度的資料列入歷屆，切換到下一年度後，前一年度才會顯示。統計欄位缺值時預填「待統計」，已有數字會保留。
             </p>
 
             {adding ? (
@@ -2955,14 +3199,11 @@ function ProgramYearHistorySection({
                             {years.map((entry) => {
                                 const edit = rowEdits[entry.program_identifier];
                                 if (!edit) return null;
-                                const rowInputClass = `${inputClass} w-20`;
+                                const rowInputClass = `${inputClass} w-[4.5rem]`;
                                 return (
                                     <tr key={entry.program_identifier}>
                                         <td className="py-1.5 pr-3 whitespace-nowrap">
                                             {entry.academic_year}
-                                            {entry.academic_year === years?.[0]?.academic_year
-                                                ? "（最新年度）"
-                                                : ""}
                                         </td>
                                         <td className="py-1.5 pr-3">
                                             <input
@@ -3059,17 +3300,7 @@ function ProgramYearHistorySection({
                                                 entry.review_status}
                                         </td>
                                         <td className="py-1.5 pr-3">
-                                            <div className="flex items-center gap-3 whitespace-nowrap">
-                                                <button
-                                                    type="button"
-                                                    onClick={() => void saveRow(entry)}
-                                                    disabled={savingRow !== null || deletingYear}
-                                                    className="font-sans text-xs font-bold text-ink underline underline-offset-2 disabled:opacity-50"
-                                                >
-                                                    {savingRow === entry.program_identifier
-                                                        ? "儲存中…"
-                                                        : "儲存"}
-                                                </button>
+                                            <div className="flex items-center gap-2 whitespace-nowrap">
                                                 <button
                                                     type="button"
                                                     onClick={() => {
@@ -3081,6 +3312,16 @@ function ProgramYearHistorySection({
                                                     className="font-sans text-xs font-bold text-red-600 underline underline-offset-2 disabled:opacity-50"
                                                 >
                                                     移除
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => void saveRow(entry)}
+                                                    disabled={savingRow !== null || deletingYear}
+                                                    className="font-sans text-xs font-bold text-ink underline underline-offset-2 disabled:opacity-50"
+                                                >
+                                                    {savingRow === entry.program_identifier
+                                                        ? "儲存中…"
+                                                        : "儲存"}
                                                 </button>
                                             </div>
                                         </td>
@@ -4386,6 +4627,11 @@ function asText(value: unknown, fallback = "-"): string {
 
 function displayFormValue(value: string): string {
     return value === "-" ? "" : value;
+}
+
+function historyStatFormValue(value: string): string {
+    const normalized = value.trim();
+    return !normalized || normalized === "-" ? "待統計" : normalized;
 }
 
 // Backend uses "-" as its missing-value marker, not "", so a plain `||` won't catch it.

@@ -1,6 +1,6 @@
 # STA admission worker
 
-Python worker 只負責檔案資料擷取，不呼叫任何 AI endpoint。Go API 負責上傳驗證、ClamAV、private object storage、job lease 與結果保存；Python 以本地規則解析簡章與准考證／考生名單，簡章遇到文字層不足的頁面時會 fallback 到本地 Tesseract OCR，結果仍須管理員審核後才會建立或發布資料。
+Go API 負責上傳驗證、ClamAV、private object storage、job lease 與結果保存。Python 先用 PDF 第一頁文字／本機 OCR 比對學校主檔，直接取得校名與校碼，不使用 AI 判斷學校；確認校碼後才讀取該校提示詞，並在 Cloudflare Workers AI 啟用時擷取校系與時程。AI 未設定或回應不可用時會改用本機規則。准考證／考生名單仍以本機規則處理，所有簡章候選資料仍須管理員審核後才會建立或發布。
 
 ## RabbitMQ 模式
 

@@ -35,6 +35,8 @@ func NewHandlerWithBlobStore(authService *auth.Service, repository Repository, s
 }
 
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /api/v1/admin/admissions/brochure-prompts", h.listBrochurePrompts)
+	mux.HandleFunc("PUT /api/v1/admin/admissions/brochure-prompts/{schoolCode}", h.saveBrochurePrompt)
 	mux.HandleFunc("GET /api/v1/admin/admissions/brochure-uploads", h.listBrochureUploads)
 	mux.HandleFunc("GET /api/v1/admin/admissions/brochure-uploads/{uploadID}", h.getBrochureUpload)
 	mux.HandleFunc("GET /api/v1/admin/admissions/brochure-uploads/{uploadID}/content", h.contentBrochureUpload)
@@ -47,6 +49,56 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/admin/ingestion/brochure-runs/{runID}/review", h.reviewRun)
 	mux.HandleFunc("POST /api/v1/admin/ingestion/brochure-candidates/{candidateID}/review", h.reviewCandidate)
 	mux.HandleFunc("POST /api/v1/admin/ingestion/jobs/{jobID}/retry", h.retryJob)
+}
+
+type brochurePromptRepository interface {
+	ListBrochureExtractionPrompts(context.Context) ([]BrochureExtractionPrompt, error)
+	SaveBrochureExtractionPrompt(context.Context, uuid.UUID, string, string) (BrochureExtractionPrompt, error)
+}
+
+func (h *Handler) listBrochurePrompts(w http.ResponseWriter, r *http.Request) {
+	_, ok := h.requireAdmin(w, r)
+	if !ok {
+		return
+	}
+	repository, ok := h.repository.(brochurePromptRepository)
+	if !ok {
+		writeIngestionError(w, http.StatusServiceUnavailable, "prompt_store_unavailable", "brochure prompt storage is unavailable")
+		return
+	}
+	items, err := repository.ListBrochureExtractionPrompts(r.Context())
+	if err != nil {
+		h.writeRepositoryError(w, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeIngestionJSON(w, http.StatusOK, map[string]any{"data": items})
+}
+
+func (h *Handler) saveBrochurePrompt(w http.ResponseWriter, r *http.Request) {
+	session, ok := h.requireAdminMutation(w, r)
+	if !ok {
+		return
+	}
+	repository, ok := h.repository.(brochurePromptRepository)
+	if !ok {
+		writeIngestionError(w, http.StatusServiceUnavailable, "prompt_store_unavailable", "brochure prompt storage is unavailable")
+		return
+	}
+	var input struct {
+		Prompt string `json:"prompt"`
+	}
+	if err := decodeIngestionJSON(r, &input); err != nil {
+		writeIngestionError(w, http.StatusBadRequest, "invalid_prompt", "brochure prompt is invalid")
+		return
+	}
+	item, err := repository.SaveBrochureExtractionPrompt(r.Context(), session.Session.Account.ID, r.PathValue("schoolCode"), input.Prompt)
+	if err != nil {
+		h.writeRepositoryError(w, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeIngestionJSON(w, http.StatusOK, map[string]any{"data": item})
 }
 
 func (h *Handler) listBrochureUploads(w http.ResponseWriter, r *http.Request) {

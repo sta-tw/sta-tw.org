@@ -272,6 +272,8 @@ func validateFileType(name, declared string, header []byte) (string, error) {
 		".jpg":  "image/jpeg",
 		".jpeg": "image/jpeg",
 		".png":  "image/png",
+		".gif":  "image/gif",
+		".webp": "image/webp",
 	}
 	contentType, ok := allowed[extension]
 	if !ok || (declared != "" && declared != contentType && !(strings.HasPrefix(declared, "application/vnd.openxmlformats-officedocument") && strings.HasPrefix(contentType, "application/vnd.openxmlformats-officedocument"))) {
@@ -298,6 +300,10 @@ func hasExpectedSignature(extension string, header []byte) bool {
 		return len(header) >= 3 && header[0] == 0xff && header[1] == 0xd8 && header[2] == 0xff
 	case ".png":
 		return len(header) >= 8 && string(header[:8]) == "\x89PNG\r\n\x1a\n"
+	case ".gif":
+		return len(header) >= 6 && (string(header[:6]) == "GIF87a" || string(header[:6]) == "GIF89a")
+	case ".webp":
+		return len(header) >= 12 && string(header[:4]) == "RIFF" && string(header[8:12]) == "WEBP"
 	case ".doc", ".xls", ".ppt":
 		return len(header) >= 8 && string(header[:8]) == "\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
 	case ".docx", ".xlsx", ".pptx":

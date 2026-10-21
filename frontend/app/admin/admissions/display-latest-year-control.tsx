@@ -53,7 +53,12 @@ export default function DisplayLatestYearControl() {
         try {
             const response = await setAdmissionsDisplayLatestYear(year, mfaCode || undefined);
             setSavedYear(response.data.academic_year);
-            setNotice(`簡章搜尋已切換為顯示 ${response.data.academic_year} 學年度資料。`);
+            window.dispatchEvent(
+                new CustomEvent("sta:admissions-display-latest-year-changed", {
+                    detail: response.data.academic_year
+                })
+            );
+            setNotice(`簡章搜尋已切換為顯示 ${response.data.academic_year} 學年度資料；早於此年度且已上架的招生資料會列入歷屆。`);
         } catch (cause) {
             setError(describeError(cause));
         } finally {
@@ -67,7 +72,7 @@ export default function DisplayLatestYearControl() {
                 <div className="max-w-3xl">
                     <h2 className="font-serif text-xl text-ink">簡章搜尋顯示最新年度資料</h2>
                     <p className="mt-1 font-sans text-sm leading-6 text-copy-muted">
-                        搜尋會優先顯示此年度已上架的校系資料；該校系尚無此年度已上架資料時，會沿用最近一筆較舊年度已上架資料。歷屆資料只列出早於此年度的資料。
+                        搜尋會優先顯示此年度已上架的校系資料；尚未有資料時會沿用最近一筆較舊年度已上架資料。後台可先建立各學年度資料；前台歷屆清單只列出早於目前設定年度且已上架的資料，當年度資料要等切換到下一年度後才會列入歷屆。
                     </p>
                 </div>
                 <form onSubmit={save} className="flex flex-wrap items-end gap-3">
@@ -93,7 +98,7 @@ export default function DisplayLatestYearControl() {
                 <span>
                     目前設定：{loading ? "讀取中…" : savedYear ? `${savedYear} 學年度` : "尚無資料"}
                 </span>
-                <span>切換到新年度後，原年度會列入歷屆；各校系的新年度資料上架前仍會顯示舊資料。</span>
+                <span>各年度資料可先在後台建檔；前台只會將早於目前設定年度且已上架的資料列為歷屆。</span>
             </div>
             {error ? <div className="mt-3"><ErrorText>{error}</ErrorText></div> : null}
             {notice ? <p role="status" className="mt-3 font-sans text-sm text-green-700">{notice}</p> : null}
