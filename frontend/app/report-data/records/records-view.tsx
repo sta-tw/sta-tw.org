@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, ExternalLink, LoaderCircle, Search } from "lucide-react";
 import {
+    getPublishedBrochurePreviewURL,
     listAllAdmissionPrograms,
     listPublishedBrochures,
     type AdmissionProgram
@@ -36,12 +37,15 @@ function normalizeSearch(value: string) {
     return value.replace(/\s+/g, "").replace(/台/g, "臺").toLocaleLowerCase("zh-TW");
 }
 
-function displayCount(value: string | number | undefined) {
+function displayCount(value: string | number | undefined, academicYear: number) {
     const text = String(value ?? "").trim();
-    return text && text !== "-" ? text : "—";
+    if (["", "-", "—", "待統計", "尚未公告", "暫無資料"].includes(text)) {
+        return academicYear >= latestAcademicYear ? "尚未公告" : "暫無資料";
+    }
+    return text;
 }
 
-function HistoricalBrochureStatus({
+function BrochureStatus({
     program,
     availability
 }: {
@@ -55,19 +59,21 @@ function HistoricalBrochureStatus({
         return <span className="text-copy-muted" title="目前無法確認簡章檔案狀態">無法確認</span>;
     }
 
-    const historicalYears = availability.years.filter((year) => year < program.academic_year);
-    if (historicalYears.length === 0) {
+    if (!availability.years.includes(program.academic_year)) {
         return <span className="text-copy-muted">尚無</span>;
     }
 
     return (
-        <Link
-            href={`/bochures/program/${encodeURIComponent(program.program_identifier)}/?tab=history`}
+        <a
+            href={getPublishedBrochurePreviewURL(program.academic_year, program.school_code)}
+            target="_blank"
+            rel="noopener noreferrer"
             className="font-bold text-ink underline underline-offset-4 hover:text-ink/70"
-            title={`可查看 ${historicalYears.join("、")} 學年度簡章`}
+            aria-label={`預覽 ${program.academic_year} 學年度簡章`}
+            title={`預覽 ${program.academic_year} 學年度簡章`}
         >
-            有（{historicalYears.length} 年）
-        </Link>
+            預覽
+        </a>
     );
 }
 
@@ -194,7 +200,7 @@ export default function ReportDataRecordsView() {
                         已收錄資料
                     </h1>
                     <p className="mt-4 font-sans leading-7 text-copy-muted sm:text-lg">
-                        查詢學年度、學校或科系，確認本站公開的招生數字與歷屆簡章。簡章欄位可直接查看已上架的檔案。
+                        查詢學年度、學校或科系，確認本站公開的招生數字與各年度簡章。簡章欄位可直接預覽已上架的檔案。
                     </p>
                     <Link
                         href="/report-data"
@@ -248,7 +254,10 @@ export default function ReportDataRecordsView() {
                         ) : (
                             <p>正在載入已公開的招生資料…</p>
                         )}
-                        <p>欄位顯示「—」代表尚無公開數字。</p>
+                        <p>
+                            空白欄位：{latestAcademicYear} 學年度顯示「尚未公告」；
+                            {latestAcademicYear - 1} 學年度及更早年度顯示「暫無資料」。
+                        </p>
                     </div>
 
                     {error ? (
@@ -277,12 +286,12 @@ export default function ReportDataRecordsView() {
                         <>
                             <div className="mt-4 hidden overflow-x-auto rounded-[var(--radius-small)] border border-ink/10 bg-surface/80 md:block">
                                 <table className="w-full min-w-[72rem] border-collapse text-left font-sans text-sm">
-                                    <caption className="sr-only">已收錄校系招生數字與歷屆簡章狀態</caption>
+                                    <caption className="sr-only">已收錄校系招生數字與各年度簡章狀態</caption>
                                     <thead className="bg-ink/[0.03] text-ink">
                                         <tr className="border-b border-ink/10">
                                             <th scope="col" className="whitespace-nowrap px-3 py-3 font-bold">學年度</th>
                                             <th scope="col" className="px-3 py-3 font-bold">學校與科系</th>
-                                            <th scope="col" className="whitespace-nowrap px-3 py-3 text-center font-bold">歷屆簡章</th>
+                                            <th scope="col" className="whitespace-nowrap px-3 py-3 text-center font-bold">簡章</th>
                                             {countFields.map((field) => (
                                                 <th key={field.key} scope="col" className="whitespace-nowrap px-3 py-3 text-center font-bold">
                                                     {field.label}
@@ -309,14 +318,14 @@ export default function ReportDataRecordsView() {
                                                     </Link>
                                                 </td>
                                                 <td className="whitespace-nowrap px-3 py-3 text-center">
-                                                    <HistoricalBrochureStatus
+                                                    <BrochureStatus
                                                         program={program}
                                                         availability={brochureAvailability[program.school_code]}
                                                     />
                                                 </td>
                                                 {countFields.map((field) => (
                                                     <td key={field.key} className="whitespace-nowrap px-3 py-3 text-center tabular-nums">
-                                                        {displayCount(program[field.key])}
+                                                        {displayCount(program[field.key], program.academic_year)}
                                                     </td>
                                                 ))}
                                             </tr>
@@ -345,9 +354,9 @@ export default function ReportDataRecordsView() {
                                         </div>
                                         <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 border-t border-ink/10 pt-3 font-sans text-sm">
                                             <div className="col-span-2 flex items-center justify-between gap-2">
-                                                <dt className="text-copy-muted">歷屆簡章</dt>
+                                                <dt className="text-copy-muted">簡章</dt>
                                                 <dd className="font-bold text-ink">
-                                                    <HistoricalBrochureStatus
+                                                    <BrochureStatus
                                                         program={program}
                                                         availability={brochureAvailability[program.school_code]}
                                                     />
@@ -356,7 +365,9 @@ export default function ReportDataRecordsView() {
                                             {countFields.map((field) => (
                                                 <div key={field.key} className="flex justify-between gap-2">
                                                     <dt className="text-copy-muted">{field.label}</dt>
-                                                    <dd className="font-bold tabular-nums text-ink">{displayCount(program[field.key])}</dd>
+                                                    <dd className="font-bold tabular-nums text-ink">
+                                                        {displayCount(program[field.key], program.academic_year)}
+                                                    </dd>
                                                 </div>
                                             ))}
                                         </dl>
