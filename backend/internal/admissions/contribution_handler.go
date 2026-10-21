@@ -332,7 +332,7 @@ func (h *ContributionHandler) postContributionToForum(input ContributionInput, r
 func contributionNotificationBody(input ContributionInput, receipt ContributionReceipt, files []ContributionFile) string {
 	category := map[string]string{
 		ContributionApplicants: "應屆報名人數",
-		ContributionSecond:     "應屆錄取二階人數",
+		ContributionSecond:     "進入二階人數",
 		ContributionWaitlist:   "應屆遞補人數",
 		ContributionBrochure:   "歷屆簡章",
 	}[input.Category]

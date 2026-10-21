@@ -24,7 +24,7 @@ import {
 
 const categoryLabels: Record<ContributionCategory, string> = {
     applicants: "應屆報名人數",
-    second_stage: "應屆錄取二階人數",
+    second_stage: "進入二階人數",
     waitlist: "應屆遞補人數",
     historical_brochure: "歷屆簡章"
 };

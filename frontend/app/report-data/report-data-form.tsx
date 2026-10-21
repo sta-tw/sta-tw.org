@@ -36,7 +36,7 @@ const categories: { value: ContributionCategory; label: string }[] = [
     },
     {
         value: "second_stage",
-        label: "應屆錄取二階人數"
+        label: "進入二階人數"
     },
     {
         value: "waitlist",
