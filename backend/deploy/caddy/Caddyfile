@@ -116,5 +116,13 @@
 # this hostname so the backend signs download links against it instead of
 # the internal minio:9000 service name, which a browser can't resolve).
 {$STA_OBJECT_STORAGE_PUBLIC_HOSTNAME} {
-	reverse_proxy minio:9000
+	# This public host only serves presigned downloads. Keep object mutations
+	# on the internal backend-to-MinIO connection.
+	@readOnly method GET HEAD OPTIONS
+	handle @readOnly {
+		reverse_proxy minio:9000
+	}
+	handle {
+		respond "Method Not Allowed" 405
+	}
 }
