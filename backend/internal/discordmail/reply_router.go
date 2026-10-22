@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"sta-backend/internal/accountapplications"
+	"sta-backend/internal/admissions"
 	"sta-backend/internal/emailinquiries"
 )
 
@@ -16,28 +17,42 @@ type applicationReplyService interface {
 	ReplyByDiscord(ctx context.Context, threadID, staffName, staffDiscordID, body, signature string) (accountapplications.Application, error)
 }
 
-// ReplyRouter routes /re by the Forum thread it is used in: ordinary inquiries
-// and account-application correction emails share the same personal-email
-// reply flow.
-type ReplyRouter struct {
-	inquiries    inquiryReplyService
-	applications applicationReplyService
+type contributionReplyService interface {
+	ReplyByDiscord(ctx context.Context, command, threadID, staffName, staffDiscordID, body, signature string) error
 }
 
-func NewReplyRouter(inquiries inquiryReplyService, applications applicationReplyService) (*ReplyRouter, error) {
-	if inquiries == nil || applications == nil {
+// ReplyRouter routes /re by the platform-managed Forum thread it is used in:
+// ordinary inquiries, account-application corrections, and admissions reports.
+type ReplyRouter struct {
+	inquiries     inquiryReplyService
+	applications  applicationReplyService
+	contributions contributionReplyService
+}
+
+func NewReplyRouter(inquiries inquiryReplyService, applications applicationReplyService, contributions contributionReplyService) (*ReplyRouter, error) {
+	if inquiries == nil || applications == nil || contributions == nil {
 		return nil, errors.New("discord mail reply dependencies are missing")
 	}
-	return &ReplyRouter{inquiries: inquiries, applications: applications}, nil
+	return &ReplyRouter{inquiries: inquiries, applications: applications, contributions: contributions}, nil
 }
 
-func (r *ReplyRouter) ReplyByDiscord(ctx context.Context, _ string, threadID, staffName, staffDiscordID, body, signature string) error {
+func (r *ReplyRouter) ReplyByDiscord(ctx context.Context, command, threadID, staffName, staffDiscordID, body, signature string) error {
 	if err := r.applicationsReply(ctx, threadID, staffName, staffDiscordID, body, signature); err == nil {
 		return nil
 	} else if !errors.Is(err, accountapplications.ErrNotFound) {
 		return normalizeApplicationReplyError(err)
 	}
 	_, err := r.inquiries.ReplyByDiscord(ctx, threadID, staffName, staffDiscordID, body, signature)
+	if err == nil || !errors.Is(err, emailinquiries.ErrNotFound) {
+		return err
+	}
+	err = r.contributions.ReplyByDiscord(ctx, command, threadID, staffName, staffDiscordID, body, signature)
+	if errors.Is(err, admissions.ErrContributionNotFound) {
+		return emailinquiries.ErrNotFound
+	}
+	if errors.Is(err, admissions.ErrContributionReplyInvalid) {
+		return emailinquiries.ErrInvalidInput
+	}
 	return err
 }
 

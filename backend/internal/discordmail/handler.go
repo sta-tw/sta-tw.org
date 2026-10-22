@@ -413,7 +413,7 @@ func (h *Handler) finishReply(applicationID, token string, draft replyDraft, pre
 	case err == nil:
 		title = "✅ 回覆已寄出"
 	case errors.Is(err, emailinquiries.ErrNotFound):
-		title, color = "/re 只能在信件或帳號申請討論串裡使用。", embedColorFailed
+		title, color = "/re 只能在平台信件系統建立的討論串裡使用。", embedColorFailed
 	case errors.Is(err, emailinquiries.ErrInvalidInput):
 		title, color = "回覆內容跟簽名都不能是空白。", embedColorFailed
 	default:

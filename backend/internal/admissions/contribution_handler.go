@@ -19,6 +19,8 @@ import (
 
 	"github.com/google/uuid"
 	"sta-backend/internal/auth"
+	"sta-backend/internal/email"
+	"sta-backend/internal/emailinquiries"
 	"sta-backend/internal/security"
 	"sta-backend/internal/storage"
 )
@@ -36,6 +38,8 @@ type ContributionHandler struct {
 	blobStore          storage.BlobStore
 	scanner            storage.Scanner
 	emailQueue         ContributionEmailQueue
+	replyMailer        email.Sender
+	replyTemplate      string
 	forumNotifier      ContributionForumNotifier
 	forumChannelID     string
 	forumRoleIDs       []string
@@ -51,6 +55,10 @@ type ContributionEmailQueue interface {
 
 type ContributionForumNotifier interface {
 	CreateContributionThread(ctx context.Context, forumChannelID, subject, body string, mentionRoleIDs []string) (string, error)
+}
+
+type ContributionForumReplyNotifier interface {
+	PostContributionReply(ctx context.Context, threadID, staffName, body string) error
 }
 
 func NewContributionHandler(
@@ -76,6 +84,14 @@ func NewContributionHandler(
 
 func (h *ContributionHandler) ConfigureEmailQueue(queue ContributionEmailQueue) {
 	h.emailQueue = queue
+}
+
+func (h *ContributionHandler) ConfigureReplyMailer(mailer email.Sender, replyTemplate *string) {
+	h.replyMailer = mailer
+	h.replyTemplate = emailinquiries.DefaultReplyTemplate()
+	if replyTemplate != nil && strings.TrimSpace(*replyTemplate) != "" {
+		h.replyTemplate = *replyTemplate
+	}
 }
 
 func (h *ContributionHandler) ConfigureForumNotifier(notifier ContributionForumNotifier, channelID string, roleIDs []string) {
@@ -300,7 +316,7 @@ func (h *ContributionHandler) queueContributionReceipt(input ContributionInput, 
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	subject := fmt.Sprintf("特殊選才資料回報副本（%s）", receipt.ID.String()[:8])
+	subject := contributionReceiptSubject(receipt.ID)
 	body := contributionNotificationBody(input, receipt, files)
 	if err := h.emailQueue.EnqueueEmailAddress(ctx, input.Email, "admissions-contribution:"+receipt.ID.String(), subject, body); err != nil {
 		h.logger.Warn("admissions contribution receipt could not be queued", "contribution_id", receipt.ID, "error", err)
@@ -326,7 +342,59 @@ func (h *ContributionHandler) postContributionToForum(input ContributionInput, r
 		h.logger.Warn("admissions contribution forum post failed", "contribution_id", receipt.ID, "error", err)
 		return false
 	}
-	return strings.TrimSpace(threadID) != ""
+	threadID = strings.TrimSpace(threadID)
+	if threadID == "" {
+		return false
+	}
+	if err := h.repository.SetContributionDiscordThread(ctx, receipt.ID, threadID); err != nil {
+		h.logger.Warn("admissions contribution forum thread could not be linked", "contribution_id", receipt.ID, "error", err)
+		return false
+	}
+	return true
+}
+
+// ReplyByDiscord sends a manually authored email from /re in a contribution's
+// Discord forum thread. The forum thread ID is looked up against a stored
+// contribution before its encrypted contact email is used.
+func (h *ContributionHandler) ReplyByDiscord(ctx context.Context, _ string, threadID, staffName, staffDiscordID, body, signature string) error {
+	body = strings.TrimSpace(body)
+	signature = strings.TrimSpace(signature)
+	if body == "" || signature == "" {
+		return ErrContributionReplyInvalid
+	}
+	if h.replyMailer == nil {
+		return errors.New("admissions contribution reply mailer is not configured")
+	}
+	target, err := h.repository.FindContributionReplyTarget(ctx, threadID)
+	if err != nil {
+		return err
+	}
+	to, err := h.fieldCipher.Open(target.EmailCiphertext)
+	if err != nil {
+		return fmt.Errorf("decrypt admissions contribution reply address: %w", err)
+	}
+	subject := contributionReceiptSubject(target.ID)
+	fullBody := emailinquiries.RenderReplyBody(h.replyTemplate, emailinquiries.ReplyTemplateVars{
+		Body: body, Signature: signature, Subject: subject, StaffName: staffName,
+		SenderEmail: to, Date: time.Now().Format("2006年01月02日"),
+	})
+	if err := h.replyMailer.Send(ctx, email.Message{
+		To: to, Subject: "Re: " + subject, Text: fullBody,
+		Bcc: []string{email.SupportArchiveBCCAddress},
+	}); err != nil {
+		return err
+	}
+	if notifier, ok := h.forumNotifier.(ContributionForumReplyNotifier); ok {
+		forumBody := body + "\n\n" + signature
+		if err := notifier.PostContributionReply(ctx, threadID, staffName, forumBody); err != nil {
+			h.logger.Warn("admissions contribution reply confirmation could not be posted", "contribution_id", target.ID, "staff_discord_id", staffDiscordID, "error", err)
+		}
+	}
+	return nil
+}
+
+func contributionReceiptSubject(id uuid.UUID) string {
+	return fmt.Sprintf("特殊選才資料回報副本（%s）", id.String()[:8])
 }
 
 func contributionNotificationBody(input ContributionInput, receipt ContributionReceipt, files []ContributionFile) string {

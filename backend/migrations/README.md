@@ -40,6 +40,7 @@
 - `000080_brochure_extraction_prompts.sql`：保存各校簡章版型的 Workers AI 擷取補充提示詞。
 - `000081_admissions_contributions.sql`：本站招生資料回報表單的收件、附件、暱稱公開同意與審核狀態。
 - `000082_admissions_contribution_attachments.sql`：支援多個經安全掃描的私有回報檔案，並保留既有附件資料。
+- `000083_admissions_contribution_discord_threads.sql`：保存資料回報對應的 Discord 討論串，讓管理員能用 `/re` 寄出後續信件。
 
 招生科系資料不另建管理專用表；管理端 API 直接以 transaction 維護 `academic_programs` 與 `program_exam_items`，並以 `review_status` 控制待審／公開狀態，異動寫入既有 append-only `audit_log`。
 

@@ -207,7 +207,7 @@ export default function ReportDataForm() {
                 <section className="mx-auto w-full max-w-4xl self-start border-l-4 border-l-accent-green-strong px-5 py-5 sm:px-7 sm:py-6">
                     <h1 className="font-serif text-2xl text-ink sm:text-3xl">資料已送出</h1>
                     <p className="mt-2 font-sans leading-7 text-copy-muted">
-                        感謝你協助提供特殊選才資料。聯絡信箱不會公開。
+                        感謝你協助提供特殊選才資料。聯絡信箱將用於身分驗證與後續追蹤，不會公開。
                     </p>
                     <p className="mt-2 font-sans text-sm leading-6 text-copy-muted">
                         {emailQueued
@@ -486,7 +486,7 @@ export default function ReportDataForm() {
                                     required
                                     maxLength={254}
                                     className={inputClass}
-                                    placeholder="僅供本站管理員聯絡與寄送回報副本"
+                                    placeholder="用於身分驗證、後續追蹤與寄送回報副本"
                                 />
                             </Field>
                             <Field label="暱稱（選填）" htmlFor="contribution-nickname">
@@ -538,7 +538,7 @@ export default function ReportDataForm() {
 
                             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                                 <p className="font-sans text-sm leading-6 text-copy-muted">
-                                    聯絡信箱不會公開；回報副本會寄到此信箱，PDF 不會附在確認信中。
+                                    聯絡信箱供身分驗證與後續追蹤使用；回報副本會寄到此信箱，PDF 不會附在確認信中。
                                 </p>
                                 <button
                                     type="submit"

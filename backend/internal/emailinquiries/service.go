@@ -413,8 +413,9 @@ func (s *Service) ListInquiriesByRoute(ctx context.Context, mailRouteID uuid.UUI
 const defaultReplyTemplate = "您好，感謝您的來信，回覆如下：\n\n[內容]\n\n如有其他問題，歡迎直接回覆此信。\n\n敬祝\n順心\n\n[簽名]"
 
 // DefaultReplyTemplate is the standard personal-email format used by /re.
-// Account-application corrections use the same template so recipients see a
-// consistent response regardless of which forum workflow staff used.
+// Account-application corrections and admissions-contribution replies use the
+// same template so recipients see a consistent response regardless of which
+// forum workflow staff used.
 func DefaultReplyTemplate() string { return defaultReplyTemplate }
 
 // ReplyTemplateVars is every placeholder renderReplyBody substitutes into an

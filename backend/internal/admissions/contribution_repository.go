@@ -4,10 +4,48 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
+
+func (r *PostgresRepository) SetContributionDiscordThread(ctx context.Context, contributionID uuid.UUID, threadID string) error {
+	threadID = strings.TrimSpace(threadID)
+	if threadID == "" || len(threadID) > 32 {
+		return ErrInvalidContribution
+	}
+	command, err := r.pool.Exec(ctx, `
+		UPDATE admissions_contributions
+		SET discord_thread_id = $2
+		WHERE id = $1 AND (discord_thread_id IS NULL OR discord_thread_id = $2)
+	`, contributionID, threadID)
+	if err != nil {
+		return fmt.Errorf("save admissions contribution discord thread: %w", err)
+	}
+	if command.RowsAffected() != 1 {
+		return ErrContributionNotFound
+	}
+	return nil
+}
+
+func (r *PostgresRepository) FindContributionReplyTarget(ctx context.Context, threadID string) (ContributionReplyTarget, error) {
+	var target ContributionReplyTarget
+	err := r.pool.QueryRow(ctx, `
+		SELECT id, email_ciphertext
+		FROM admissions_contributions
+		WHERE discord_thread_id = $1
+	`, strings.TrimSpace(threadID)).Scan(
+		&target.ID, &target.EmailCiphertext,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ContributionReplyTarget{}, ErrContributionNotFound
+	}
+	if err != nil {
+		return ContributionReplyTarget{}, fmt.Errorf("find admissions contribution reply target: %w", err)
+	}
+	return target, nil
+}
 
 func (r *PostgresRepository) CreateContribution(
 	ctx context.Context,

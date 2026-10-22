@@ -28,6 +28,7 @@ var (
 	ErrInvalidContribution       = errors.New("admissions contribution is invalid")
 	ErrContributionNotFound      = errors.New("admissions contribution was not found")
 	ErrContributionInvalidStatus = errors.New("admissions contribution is no longer pending")
+	ErrContributionReplyInvalid  = errors.New("admissions contribution reply is invalid")
 )
 
 // ContributionInput contains the public form values. Email is encrypted before
@@ -94,6 +95,13 @@ type Contribution struct {
 	ReviewedBy      *uuid.UUID               `json:"reviewed_by,omitempty"`
 	ReviewedAt      *time.Time               `json:"reviewed_at,omitempty"`
 	CreatedAt       time.Time                `json:"created_at"`
+}
+
+// ContributionReplyTarget is the minimum private data needed to reply to a
+// report from its Discord forum thread.
+type ContributionReplyTarget struct {
+	ID              uuid.UUID
+	EmailCiphertext []byte
 }
 
 type PublicContributor struct {

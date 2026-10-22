@@ -98,6 +98,12 @@ func (n admissionsContributionForumNotifier) CreateContributionThread(ctx contex
 	}, mentionRoleIDs)
 }
 
+func (n admissionsContributionForumNotifier) PostContributionReply(ctx context.Context, threadID, staffName, body string) error {
+	return n.notifier.PostEmbed(ctx, threadID, emailinquiries.Embed{
+		Kind: emailinquiries.EmbedKindOutbound, Author: staffName, Body: body,
+	}, nil)
+}
+
 func run(logger *slog.Logger) error {
 	cfg, err := config.Load()
 	if err != nil {
@@ -568,6 +574,7 @@ func run(logger *slog.Logger) error {
 				}
 				accountApplicationMailer = mailer
 			}
+			contributionHandler.ConfigureReplyMailer(accountApplicationMailer, contributionRoute.ReplyTemplate)
 			// Telegram notification is retired (moving to Discord); nil is a
 			// supported "no notifier configured" state throughout this service.
 			accountApplicationRepository, err := accountapplications.NewPostgresRepository(databasePool)
@@ -627,7 +634,7 @@ func run(logger *slog.Logger) error {
 			registrars = append(registrars, inquiryAdminHandler.RegisterRoutes)
 
 			if cfg.DiscordMailApplicationPublicKey != "" {
-				discordReplyRouter, err := discordmail.NewReplyRouter(inquiryService, accountApplicationService)
+				discordReplyRouter, err := discordmail.NewReplyRouter(inquiryService, accountApplicationService, contributionHandler)
 				if err != nil {
 					return err
 				}
