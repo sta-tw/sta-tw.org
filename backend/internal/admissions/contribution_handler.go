@@ -61,6 +61,10 @@ type ContributionForumReplyNotifier interface {
 	PostContributionReply(ctx context.Context, threadID, staffName, body string) error
 }
 
+type ContributionThreadResolver interface {
+	ResolveContributionThreadID(ctx context.Context, forumChannelID, threadID string) (string, error)
+}
+
 func NewContributionHandler(
 	authService *auth.Service,
 	repository *PostgresRepository,
@@ -366,6 +370,32 @@ func (h *ContributionHandler) ReplyByDiscord(ctx context.Context, _ string, thre
 		return errors.New("admissions contribution reply mailer is not configured")
 	}
 	target, err := h.repository.FindContributionReplyTarget(ctx, threadID)
+	if errors.Is(err, ErrContributionNotFound) {
+		resolver, ok := h.forumNotifier.(ContributionThreadResolver)
+		if !ok || h.forumChannelID == "" {
+			return ErrContributionNotFound
+		}
+		contributionIDText, resolveErr := resolver.ResolveContributionThreadID(ctx, h.forumChannelID, threadID)
+		if resolveErr != nil {
+			h.logger.Warn("legacy admissions contribution thread could not be verified", "error", resolveErr)
+			return ErrContributionNotFound
+		}
+		contributionID, parseErr := uuid.Parse(contributionIDText)
+		if parseErr != nil || contributionID.String() != strings.ToLower(strings.TrimSpace(contributionIDText)) {
+			return ErrContributionNotFound
+		}
+		target, err = h.repository.FindContributionReplyTargetByID(ctx, contributionID)
+		if err != nil {
+			return err
+		}
+		if err = h.repository.SetContributionDiscordThread(ctx, target.ID, threadID); err != nil {
+			h.logger.Warn("verified admissions contribution thread could not be linked", "contribution_id", target.ID, "error", err)
+			target, err = h.repository.FindContributionReplyTarget(ctx, threadID)
+			if err != nil || target.ID != contributionID {
+				return ErrContributionNotFound
+			}
+		}
+	}
 	if err != nil {
 		return err
 	}

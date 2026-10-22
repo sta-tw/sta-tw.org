@@ -104,6 +104,10 @@ func (n admissionsContributionForumNotifier) PostContributionReply(ctx context.C
 	}, nil)
 }
 
+func (n admissionsContributionForumNotifier) ResolveContributionThreadID(ctx context.Context, forumChannelID, threadID string) (string, error) {
+	return n.notifier.ResolvePlatformContributionThread(ctx, forumChannelID, threadID)
+}
+
 func run(logger *slog.Logger) error {
 	cfg, err := config.Load()
 	if err != nil {

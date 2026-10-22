@@ -236,6 +236,78 @@ func (n *HTTPDiscordNotifier) PostEmbed(ctx context.Context, threadID string, em
 	return err
 }
 
+// ResolvePlatformContributionThread returns the contribution UUID only when
+// the Discord thread can be verified as a legacy platform-created report:
+// it must belong to the configured forum, be owned by this bot, and have the
+// expected report embed in its starter message.
+func (n *HTTPDiscordNotifier) ResolvePlatformContributionThread(ctx context.Context, forumChannelID, threadID string) (string, error) {
+	threadID = strings.TrimSpace(threadID)
+	forumChannelID = strings.TrimSpace(forumChannelID)
+	if threadID == "" || forumChannelID == "" {
+		return "", errors.New("platform contribution thread could not be verified")
+	}
+
+	channelResponse, err := n.request(ctx, http.MethodGet, "/channels/"+url.PathEscape(threadID), nil)
+	if err != nil {
+		return "", err
+	}
+	var channel struct {
+		ID       string `json:"id"`
+		Type     int    `json:"type"`
+		ParentID string `json:"parent_id"`
+		OwnerID  string `json:"owner_id"`
+	}
+	if err := json.Unmarshal(channelResponse, &channel); err != nil {
+		return "", errors.New("discord thread response could not be decoded")
+	}
+	if channel.ID != threadID || channel.ParentID != forumChannelID || channel.Type != 11 || channel.OwnerID == "" {
+		return "", errors.New("discord thread is not a platform contribution thread")
+	}
+
+	botResponse, err := n.request(ctx, http.MethodGet, "/users/@me", nil)
+	if err != nil {
+		return "", err
+	}
+	var bot struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(botResponse, &bot); err != nil || bot.ID == "" || channel.OwnerID != bot.ID {
+		return "", errors.New("discord thread is not owned by the platform bot")
+	}
+
+	messageResponse, err := n.request(ctx, http.MethodGet, "/channels/"+url.PathEscape(threadID)+"/messages/"+url.PathEscape(threadID), nil)
+	if err != nil {
+		return "", err
+	}
+	var message struct {
+		ID     string `json:"id"`
+		Author struct {
+			ID string `json:"id"`
+		} `json:"author"`
+		Embeds []struct {
+			Title       string `json:"title"`
+			Description string `json:"description"`
+		} `json:"embeds"`
+	}
+	if err := json.Unmarshal(messageResponse, &message); err != nil {
+		return "", errors.New("discord starter message response could not be decoded")
+	}
+	if message.ID != threadID || message.Author.ID != bot.ID || len(message.Embeds) != 1 || message.Embeds[0].Title != "📊 資料回報" {
+		return "", errors.New("discord starter message is not a platform contribution report")
+	}
+
+	const reportIDPrefix = "回報編號："
+	for _, line := range strings.Split(message.Embeds[0].Description, "\n") {
+		if strings.HasPrefix(line, reportIDPrefix) {
+			id := strings.TrimSpace(strings.TrimPrefix(line, reportIDPrefix))
+			if len(id) == 36 && id[8] == '-' && id[13] == '-' && id[18] == '-' && id[23] == '-' {
+				return id, nil
+			}
+		}
+	}
+	return "", errors.New("discord starter message has no contribution report ID")
+}
+
 func (n *HTTPDiscordNotifier) request(ctx context.Context, method, path string, body []byte) ([]byte, error) {
 	request, err := http.NewRequestWithContext(ctx, method, "https://discord.com/api/v10"+path, bytes.NewReader(body))
 	if err != nil {

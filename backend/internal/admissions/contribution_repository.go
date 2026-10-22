@@ -47,6 +47,22 @@ func (r *PostgresRepository) FindContributionReplyTarget(ctx context.Context, th
 	return target, nil
 }
 
+func (r *PostgresRepository) FindContributionReplyTargetByID(ctx context.Context, contributionID uuid.UUID) (ContributionReplyTarget, error) {
+	var target ContributionReplyTarget
+	err := r.pool.QueryRow(ctx, `
+		SELECT id, email_ciphertext
+		FROM admissions_contributions
+		WHERE id = $1
+	`, contributionID).Scan(&target.ID, &target.EmailCiphertext)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ContributionReplyTarget{}, ErrContributionNotFound
+	}
+	if err != nil {
+		return ContributionReplyTarget{}, fmt.Errorf("find admissions contribution reply target by id: %w", err)
+	}
+	return target, nil
+}
+
 func (r *PostgresRepository) CreateContribution(
 	ctx context.Context,
 	input ContributionInput,
