@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { Heart } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
 import BrochureDetailTabs from "../../components/brochure-detail-tabs";
 import {
     getAdmissionProgramHistory,
@@ -15,7 +17,12 @@ import {
     admissionProgramToBrochure,
     programHistoryFromYears
 } from "../../lib/admissions-brochures";
+import { getSavedProgramStatus, saveProgram, unsaveProgram } from "../../lib/api/saved-programs";
 import type { BrochureHistory } from "../../lib/brochure-types";
+import { useCurrentAccount } from "../../lib/current-account";
+import { loginHref } from "../../lib/routes";
+import { useResource } from "../../lib/use-resource";
+import ToggleChip from "../../components/toggle-chip";
 import { contactMailtoHref } from "../../lib/mailto";
 
 export default function BrochureProgramView({ program }: { program: AdmissionProgram }) {
@@ -91,6 +98,7 @@ export default function BrochureProgramView({ program }: { program: AdmissionPro
                     previewUrl={previewUrl}
                     schoolCode={program.school_code}
                     currentAcademicYear={program.academic_year}
+                    actions={<InterestedButton identifier={program.program_identifier} />}
                 />
 
                 <aside className="mt-10 w-fit max-w-full rounded-[var(--radius-small)] bg-accent-green/45 px-4 py-2 font-sans text-sm leading-relaxed text-ink/75 sm:mt-12 sm:text-base">
@@ -108,5 +116,53 @@ export default function BrochureProgramView({ program }: { program: AdmissionPro
                 </aside>
             </article>
         </main>
+    );
+}
+
+/** "我對此學系有興趣" toggle, yellow like the brochure tabs' other action
+ * pills. Anonymous visitors are sent to log in and brought back here. */
+function InterestedButton({ identifier }: { identifier: string }) {
+    const router = useRouter();
+    const pathname = usePathname();
+    const { status } = useCurrentAccount();
+    const signedIn = status === "authenticated";
+    const load = useCallback(
+        async (signal: AbortSignal) => {
+            if (!signedIn) return false;
+            return getSavedProgramStatus(identifier, { signal }).then(
+                ({ data }) => data.saved,
+                () => false
+            );
+        },
+        [identifier, signedIn]
+    );
+    const { state, setData } = useResource(load);
+    const [busy, setBusy] = useState(false);
+    // Disabled until the saved state is known, so the pill never flips after load.
+    const saved = signedIn && state.status === "ready" && state.data;
+
+    function toggle(next: boolean) {
+        if (status === "anonymous") {
+            router.push(loginHref(pathname));
+            return;
+        }
+        setBusy(true);
+        setData(() => next);
+        (next ? saveProgram(identifier) : unsaveProgram(identifier))
+            .catch(() => setData(() => !next))
+            .finally(() => setBusy(false));
+    }
+
+    return (
+        <ToggleChip
+            tone="yellow"
+            pressed={saved}
+            onPressedChange={toggle}
+            disabled={busy || status === "loading" || state.status === "loading"}
+            className="h-10 min-h-0 shrink-0 gap-2 px-3 text-sm whitespace-nowrap text-ink disabled:cursor-wait disabled:opacity-60 sm:text-sm"
+        >
+            <Heart aria-hidden className={`h-4 w-4 shrink-0 ${saved ? "fill-current" : ""}`} />
+            我對此學系有興趣
+        </ToggleChip>
     );
 }

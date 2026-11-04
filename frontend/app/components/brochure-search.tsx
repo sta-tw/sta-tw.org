@@ -3,15 +3,18 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { ArrowRight, ChevronDown, Search } from "lucide-react";
-import { brochureFilters } from "../data/brochure-filters";
+import { ArrowRight, Search } from "lucide-react";
+import { brochureFilters, registrationStatusFilter } from "../data/brochure-filters";
 import type { BrochureSearchFilters } from "../lib/brochure-types";
 import { searchBrochurePrograms, type BrochureSearchProgram } from "../lib/api/admissions";
 import { ApiError } from "../lib/api/types";
 import { publicPath } from "../lib/public-path";
 import InfoTooltip from "./info-tooltip";
+import Select from "./select";
+import { programHref } from "../lib/routes";
 
 const DATA_SOURCE_LABEL = "日曆小幫手";
+const filterLabelClass = "font-serif text-lg text-ink sm:text-xl";
 const RESULTS_PER_PAGE = 50;
 
 type BrochureSearchState = {
@@ -131,7 +134,7 @@ export default function BrochureSearch() {
                     <label htmlFor="brochure-keyword" className="sr-only">
                         搜尋簡章
                     </label>
-                    <div className="group flex min-h-15 items-center gap-3 rounded-[var(--radius-control)] border-2 border-[#f6bd42] bg-accent-yellow/80 px-4 shadow-sm transition-shadow focus-within:shadow-[0_0_0_4px_rgba(255,225,132,0.45)] sm:min-h-17 sm:px-5">
+                    <div className="group flex min-h-15 items-center gap-3 rounded-[var(--radius-control)] border-2 border-accent-yellow-deep bg-accent-yellow/80 px-4 shadow-sm transition-shadow focus-within:shadow-[0_0_0_4px_rgba(255,225,132,0.45)] sm:min-h-17 sm:px-5">
                         <Search aria-hidden className="h-5 w-5 shrink-0 text-ink sm:h-6 sm:w-6" />
                         <input
                             id="brochure-keyword"
@@ -144,7 +147,7 @@ export default function BrochureSearch() {
                         />
                         <button
                             type="submit"
-                            className="hidden h-10 shrink-0 cursor-pointer rounded-[calc(var(--radius-control)-0.25rem)] bg-button px-4 font-sans text-sm font-bold text-button-foreground transition-colors hover:bg-button-hover focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2 focus-visible:outline-none sm:inline-flex sm:items-center"
+                            className="hidden h-10 shrink-0 cursor-pointer rounded-[calc(var(--radius-control)-0.25rem)] bg-button px-4 font-sans text-sm font-bold text-button-foreground focus-ring transition-colors hover:bg-button-hover sm:inline-flex sm:items-center"
                         >
                             搜尋
                         </button>
@@ -161,36 +164,41 @@ export default function BrochureSearch() {
                             </InfoTooltip>
                         </legend>
 
-                        <div className="mt-6 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 lg:gap-7">
+                        <div className="mt-6 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4 lg:gap-7">
                             {brochureFilters.map((filter) => (
-                                <div key={filter.id} className="min-w-0">
-                                    <label
-                                        htmlFor={filter.id}
-                                        className="mb-2 block font-serif text-lg text-ink sm:text-xl"
-                                    >
+                                <div key={filter.id} className="flex min-w-0 flex-col gap-2">
+                                    <label htmlFor={filter.id} className={filterLabelClass}>
                                         {filter.label}
                                     </label>
-                                    <div className="relative">
-                                        <select
-                                            id={filter.id}
-                                            name={filter.id}
-                                            defaultValue={filters[filter.id] ?? ""}
-                                            className="h-13 w-full cursor-pointer appearance-none rounded-[var(--radius-small)] border border-ink/15 bg-surface px-4 pr-11 font-sans text-base text-ink shadow-sm transition-colors hover:border-ink/30 focus:border-ink focus:ring-2 focus:ring-ink/15 focus:outline-none"
-                                        >
-                                            <option value="">請選擇</option>
-                                            {filter.options.map((option) => (
-                                                <option key={option.value} value={option.value}>
-                                                    {option.label}
-                                                </option>
-                                            ))}
-                                        </select>
-                                        <ChevronDown
-                                            aria-hidden
-                                            className="pointer-events-none absolute top-1/2 right-4 h-5 w-5 -translate-y-1/2 text-ink/70"
-                                        />
-                                    </div>
+                                    <Select
+                                        id={filter.id}
+                                        name={filter.id}
+                                        defaultValue={filters[filter.id] ?? ""}
+                                        placeholder="請選擇"
+                                        options={filter.options}
+                                    />
                                 </div>
                             ))}
+                            <div className="flex min-w-0 flex-col gap-2">
+                                <div className="flex items-center gap-1">
+                                    <label
+                                        htmlFor={registrationStatusFilter.id}
+                                        className={filterLabelClass}
+                                    >
+                                        {registrationStatusFilter.label}
+                                    </label>
+                                    <InfoTooltip label="開放報名狀態篩選說明">
+                                        簡章搜尋目前還不支援依報名時程篩選，功能開放前請到各校系頁面的「報名資訊」查看時程。
+                                    </InfoTooltip>
+                                </div>
+                                <Select
+                                    id={registrationStatusFilter.id}
+                                    disabled
+                                    defaultValue=""
+                                    placeholder="尚未支援"
+                                    options={registrationStatusFilter.options}
+                                />
+                            </div>
                         </div>
                     </fieldset>
                 </form>
@@ -277,9 +285,9 @@ export default function BrochureSearch() {
                                 return (
                                     <li key={program.program_identifier}>
                                         <Link
-                                            href={`/bochures/program/${encodeURIComponent(program.program_identifier)}/`}
+                                            href={programHref(program.program_identifier)}
                                             prefetch={false}
-                                            className="group flex h-full flex-col rounded-[var(--radius-panel)] border border-ink/10 bg-surface/80 p-5 shadow-sm transition-[border-color,box-shadow,transform] hover:-translate-y-0.5 hover:border-ink/25 hover:shadow-[var(--shadow-card)] focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2 focus-visible:outline-none sm:p-6"
+                                            className="group flex h-full flex-col rounded-[var(--radius-panel)] border border-ink/10 bg-surface/80 p-5 shadow-sm focus-ring transition-[border-color,box-shadow,transform] hover:-translate-y-0.5 hover:border-ink/25 hover:shadow-[var(--shadow-card)] sm:p-6"
                                         >
                                             <p className="font-sans text-sm text-ink/60">
                                                 {program.school_name}

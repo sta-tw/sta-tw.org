@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
     Award,
     CalendarPlus,
@@ -11,7 +11,8 @@ import {
     Download,
     ExternalLink
 } from "lucide-react";
-import { Tabs } from "radix-ui";
+import Checkbox from "./checkbox";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "./tabs";
 import type { Brochure, BrochureFact, BrochureTimelineItem } from "../lib/brochure-types";
 import type { OpenGraphPreview } from "../lib/open-graph";
 import {
@@ -65,6 +66,9 @@ type BrochureDetailTabsProps = {
      * "歷史簡章下載" list below, since that year's brochure is already the
      * main 簡章下載 button above; "歷史" means prior cycles only. */
     currentAcademicYear: number;
+    /** Extra pills appended to the download/preview row (e.g. the program
+     * page's "我對此學系有興趣" toggle). */
+    actions?: ReactNode;
 };
 
 const tabs = [
@@ -80,7 +84,8 @@ export default function BrochureDetailTabs({
     downloadUrl,
     previewUrl,
     schoolCode,
-    currentAcademicYear
+    currentAcademicYear,
+    actions
 }: BrochureDetailTabsProps) {
     const [activeTab, setActiveTab] = useState("overview");
 
@@ -93,23 +98,14 @@ export default function BrochureDetailTabs({
     }, []);
 
     return (
-        <Tabs.Root value={activeTab} onValueChange={setActiveTab} className="mt-7 sm:mt-9">
-            <div className="-mx-5 overflow-x-auto px-5 pb-2 sm:mx-0 sm:px-0">
-                <Tabs.List
-                    aria-label="簡章內容"
-                    className="flex w-max min-w-full gap-2 border-b border-ink/15 pb-3 sm:gap-3"
-                >
-                    {tabs.map((tab) => (
-                        <Tabs.Trigger
-                            key={tab.value}
-                            value={tab.value}
-                            className="cursor-pointer rounded-[var(--radius-small)] bg-accent-green/45 px-3 py-2 font-sans text-sm font-medium whitespace-nowrap text-ink transition-colors hover:bg-accent-green/80 focus-visible:ring-2 focus-visible:ring-ink focus-visible:outline-none data-[state=active]:bg-accent-green-strong sm:text-base"
-                        >
-                            {tab.label}
-                        </Tabs.Trigger>
-                    ))}
-                </Tabs.List>
-            </div>
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-7 sm:mt-9">
+            <TabsList aria-label="簡章內容">
+                {tabs.map((tab) => (
+                    <TabsTrigger key={tab.value} value={tab.value}>
+                        {tab.label}
+                    </TabsTrigger>
+                ))}
+            </TabsList>
 
             <div className="mt-4 flex flex-wrap gap-2 sm:mt-5">
                 {downloadUrl ? (
@@ -117,7 +113,7 @@ export default function BrochureDetailTabs({
                         href={downloadUrl}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="inline-flex h-10 shrink-0 cursor-pointer items-center gap-2 rounded-full bg-accent-yellow/75 px-3 font-sans text-sm font-medium whitespace-nowrap text-ink transition-colors hover:bg-accent-yellow focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2 focus-visible:outline-none"
+                        className="inline-flex h-10 shrink-0 cursor-pointer items-center gap-2 rounded-full bg-accent-yellow/75 px-3 font-sans text-sm font-medium whitespace-nowrap text-ink focus-ring transition-colors hover:bg-accent-yellow"
                     >
                         <Download aria-hidden className="h-4 w-4 shrink-0" />
                         簡章下載
@@ -138,31 +134,32 @@ export default function BrochureDetailTabs({
                         href={previewUrl}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="inline-flex h-10 shrink-0 cursor-pointer items-center gap-2 rounded-full border border-ink/15 bg-surface px-3 font-sans text-sm font-medium whitespace-nowrap text-ink transition-colors hover:bg-ink/5 focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2 focus-visible:outline-none"
+                        className="inline-flex h-10 shrink-0 cursor-pointer items-center gap-2 rounded-full border border-ink/15 bg-surface px-3 font-sans text-sm font-medium whitespace-nowrap text-ink focus-ring transition-colors hover:bg-ink/5"
                     >
                         <ExternalLink aria-hidden className="h-4 w-4 shrink-0" />
                         簡章預覽
                     </a>
                 ) : null}
+                {actions}
             </div>
 
-            <Tabs.Content value="overview" className="outline-none">
+            <TabsContent value="overview">
                 <OverviewTab brochure={brochure} />
-            </Tabs.Content>
-            <Tabs.Content value="about" className="outline-none">
+            </TabsContent>
+            <TabsContent value="about">
                 <ExternalLinksTab brochure={brochure} previews={externalLinkPreviews} />
-            </Tabs.Content>
-            <Tabs.Content value="registration" className="outline-none">
+            </TabsContent>
+            <TabsContent value="registration">
                 <RegistrationTab brochure={brochure} />
-            </Tabs.Content>
-            <Tabs.Content value="history" className="outline-none">
+            </TabsContent>
+            <TabsContent value="history">
                 <HistoryTab
                     brochure={brochure}
                     schoolCode={schoolCode}
                     currentAcademicYear={currentAcademicYear}
                 />
-            </Tabs.Content>
-        </Tabs.Root>
+            </TabsContent>
+        </Tabs>
     );
 }
 
@@ -181,7 +178,8 @@ function OverviewTab({ brochure }: Pick<BrochureDetailTabsProps, "brochure">) {
                     label="報名時程"
                     value={
                         <>
-                            詳見「報名資訊」頁面<span className="sm:hidden">，手機版介面請右滑</span>
+                            詳見「報名資訊」頁面
+                            <span className="sm:hidden">，手機版介面請右滑</span>
                         </>
                     }
                 />
@@ -219,7 +217,7 @@ function ExternalLinksTab({
                                 href={link.url}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="inline-flex h-10 shrink-0 cursor-pointer items-center gap-2 rounded-full bg-accent-green-strong px-4 font-sans text-sm font-medium whitespace-nowrap text-ink transition-colors hover:bg-accent-green focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2 focus-visible:outline-none"
+                                className="inline-flex h-10 shrink-0 cursor-pointer items-center gap-2 rounded-full bg-accent-green-strong px-4 font-sans text-sm font-medium whitespace-nowrap text-ink focus-ring transition-colors hover:bg-accent-green"
                             >
                                 {link.label}
                                 <ExternalLink aria-hidden className="h-4 w-4 shrink-0" />
@@ -236,7 +234,7 @@ function ExternalLinksTab({
                                 href={preview.url}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="group grid overflow-hidden rounded-[var(--radius-panel)] border border-ink/10 bg-surface/80 transition-[border-color,box-shadow,transform] hover:-translate-y-0.5 hover:border-ink/25 hover:shadow-[var(--shadow-card)] focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2 focus-visible:outline-none sm:grid-cols-[14rem_minmax(0,1fr)]"
+                                className="group grid overflow-hidden rounded-[var(--radius-panel)] border border-ink/10 bg-surface/80 focus-ring transition-[border-color,box-shadow,transform] hover:-translate-y-0.5 hover:border-ink/25 hover:shadow-[var(--shadow-card)] sm:grid-cols-[14rem_minmax(0,1fr)]"
                             >
                                 <div
                                     aria-hidden
@@ -248,7 +246,9 @@ function ExternalLinksTab({
                                     }
                                 />
                                 <div className="min-w-0 p-5 sm:p-6">
-                                    <p className="font-sans text-sm text-ink/55">{preview.siteName}</p>
+                                    <p className="font-sans text-sm text-ink/55">
+                                        {preview.siteName}
+                                    </p>
                                     <h2 className="mt-2 flex items-start gap-2 font-sans text-xl leading-snug font-medium text-ink sm:text-2xl">
                                         <span>{preview.title}</span>
                                         <ExternalLink
@@ -276,7 +276,10 @@ function RegistrationTab({ brochure }: Pick<BrochureDetailTabsProps, "brochure">
     const [checked, setChecked] = useState<Record<string, boolean>>({});
     const [busy, setBusy] = useState(false);
     const [calendarAdded, setCalendarAdded] = useState(false);
-    const [feedback, setFeedback] = useState<{ tone: "success" | "error" | "info"; text: string } | null>(null);
+    const [feedback, setFeedback] = useState<{
+        tone: "success" | "error" | "info";
+        text: string;
+    } | null>(null);
     const calendarAddedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     // Which of this programme's timeline items already have a Google
     // Calendar event on file for this account — drives "已加入 / 移除"
@@ -348,13 +351,15 @@ function RegistrationTab({ brochure }: Pick<BrochureDetailTabsProps, "brochure">
         return selected.flatMap((item) => {
             const start = item.isoStart;
             if (!start) return [];
-            return [{
-                title: `${brochure.university} ${brochure.department} - ${item.title}`,
-                iso_start: start,
-                iso_end: item.isoEnd ?? start,
-                details,
-                external_id: externalId(item)
-            }];
+            return [
+                {
+                    title: `${brochure.university} ${brochure.department} - ${item.title}`,
+                    iso_start: start,
+                    iso_end: item.isoEnd ?? start,
+                    details,
+                    external_id: externalId(item)
+                }
+            ];
         });
     }
 
@@ -363,7 +368,10 @@ function RegistrationTab({ brochure }: Pick<BrochureDetailTabsProps, "brochure">
         setFeedback(null);
         try {
             const result = await createCalendarEvents(events);
-            setFeedback({ tone: "success", text: `已新增 ${result.created} 筆到你的 Google 日曆。` });
+            setFeedback({
+                tone: "success",
+                text: `已新增 ${result.created} 筆到你的 Google 日曆。`
+            });
             if (result.created > 0) {
                 showCalendarAddedState();
             } else {
@@ -388,7 +396,10 @@ function RegistrationTab({ brochure }: Pick<BrochureDetailTabsProps, "brochure">
             }
         } catch (cause) {
             if (cause instanceof ApiError && cause.status === 401) {
-                setFeedback({ tone: "info", text: "請先登入 S.T.A 帳號，才能使用「新增至日曆」。" });
+                setFeedback({
+                    tone: "info",
+                    text: "請先登入 S.T.A 帳號，才能使用「新增至日曆」。"
+                });
                 return;
             }
             if (cause instanceof ApiError && cause.status === 428) {
@@ -479,7 +490,7 @@ function RegistrationTab({ brochure }: Pick<BrochureDetailTabsProps, "brochure">
                     type="button"
                     onClick={handleAddToCalendar}
                     disabled={busy}
-                    className="inline-flex h-10 w-fit shrink-0 cursor-pointer items-center gap-2 rounded-full bg-accent-yellow px-3.5 font-sans text-sm font-medium whitespace-nowrap text-ink transition-colors hover:bg-[#f6bd42] focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                    className="inline-flex h-10 w-fit shrink-0 cursor-pointer items-center gap-2 rounded-full bg-accent-yellow px-3.5 font-sans text-sm font-medium whitespace-nowrap text-ink focus-ring transition-colors hover:bg-accent-yellow-deep disabled:cursor-not-allowed disabled:opacity-60"
                 >
                     <CalendarPlus aria-hidden className="h-4 w-4 shrink-0" />
                     {busy ? "處理中…" : calendarAdded ? "已新增至日曆" : "新增至日曆"}
@@ -490,9 +501,9 @@ function RegistrationTab({ brochure }: Pick<BrochureDetailTabsProps, "brochure">
                 <p
                     className={`mt-3 font-sans text-sm ${
                         feedback.tone === "success"
-                            ? "text-[#D9D9D9]"
+                            ? "text-disabled"
                             : feedback.tone === "error"
-                              ? "text-red-600"
+                              ? "text-danger"
                               : "text-ink/70"
                     }`}
                     role="status"
@@ -529,7 +540,7 @@ type TimelineTemporalState = "past" | "current" | "future";
 
 const timelineTemporalClassName: Record<TimelineTemporalState, string> = {
     past: "border-ink/25 bg-surface text-ink/70",
-    current: "border-[#f6bd42] bg-accent-yellow text-ink",
+    current: "border-accent-yellow-deep bg-accent-yellow text-ink",
     future: "border-accent-green-strong bg-accent-green text-ink"
 };
 
@@ -557,11 +568,21 @@ const ADMISSION_CATEGORY_KEYWORDS = [
     "資格",
     "成績複查"
 ];
-const ASSESSMENT_CATEGORY_KEYWORDS = ["複試", "初試", "面試", "筆試", "口試", "名單", "術科", "考試"];
+const ASSESSMENT_CATEGORY_KEYWORDS = [
+    "複試",
+    "初試",
+    "面試",
+    "筆試",
+    "口試",
+    "名單",
+    "術科",
+    "考試"
+];
 
 function classifyTimelineCategory(title: string): TimelineCategory {
     if (ADMISSION_CATEGORY_KEYWORDS.some((keyword) => title.includes(keyword))) return "admission";
-    if (ASSESSMENT_CATEGORY_KEYWORDS.some((keyword) => title.includes(keyword))) return "assessment";
+    if (ASSESSMENT_CATEGORY_KEYWORDS.some((keyword) => title.includes(keyword)))
+        return "assessment";
     return "registration";
 }
 
@@ -624,7 +645,9 @@ function TimelineItem({
 }) {
     const className = timelineTemporalClassName[temporalState];
     const Icon =
-        temporalState === "past" ? CircleCheck : timelineCategoryIcon[classifyTimelineCategory(item.title)];
+        temporalState === "past"
+            ? CircleCheck
+            : timelineCategoryIcon[classifyTimelineCategory(item.title)];
 
     return (
         <li className="relative pb-7 pl-8 last:pb-0 sm:pb-8 sm:pl-10">
@@ -635,20 +658,17 @@ function TimelineItem({
                     disabled={removing}
                     aria-label={`從日曆移除 ${item.title}`}
                     title="從 Google 日曆移除"
-                    className="absolute top-3 -left-[3.3rem] flex h-4 w-4 cursor-pointer items-center justify-center text-ink/50 transition-colors hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-40 sm:-left-[3.8rem]"
+                    className="absolute top-3 -left-[3.3rem] flex h-4 w-4 cursor-pointer items-center justify-center text-ink/50 transition-colors hover:text-danger disabled:cursor-not-allowed disabled:opacity-40 sm:-left-[3.8rem]"
                 >
                     <CircleX aria-hidden className="h-4 w-4" />
                 </button>
             ) : (
-                <input
+                <Checkbox
                     id={`timeline-${item.id}`}
-                    type="checkbox"
-                    name="calendar-events"
-                    value={item.id}
                     checked={checked}
-                    onChange={onToggle}
+                    onCheckedChange={onToggle}
                     disabled={!item.isoStart}
-                    className="absolute top-3 -left-[3.3rem] h-4 w-4 cursor-pointer accent-button focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-40 sm:-left-[3.8rem]"
+                    className="absolute top-2.5 -left-[3.425rem] sm:-left-[3.925rem]"
                 />
             )}
             <label
@@ -675,7 +695,7 @@ function TimelineItem({
                     {item.date}
                 </p>
                 {linked && (
-                    <p className="mt-1 font-sans text-xs text-[#D9D9D9]">
+                    <p className="mt-1 font-sans text-xs text-disabled">
                         {removing ? "移除中…" : "已加入 Google 日曆"}
                     </p>
                 )}
@@ -693,7 +713,9 @@ function HistoryTab({
         <div className="mt-8 flex flex-col gap-8 sm:mt-10">
             {brochure.history.length === 0 ? (
                 <div className="rounded-[var(--radius-panel)] border border-dashed border-ink/20 bg-surface/55 px-5 py-10 text-center">
-                    <p className="font-sans text-base text-ink/65">目前沒有可公開的歷年招生資料。</p>
+                    <p className="font-sans text-base text-ink/65">
+                        目前沒有可公開的歷年招生資料。
+                    </p>
                 </div>
             ) : (
                 <div className="overflow-x-auto rounded-[var(--radius-small)] border border-ink/15 bg-surface/65">
@@ -741,7 +763,10 @@ function HistoryTab({
                 </div>
             )}
 
-            <HistoricalBrochuresList schoolCode={schoolCode} currentAcademicYear={currentAcademicYear} />
+            <HistoricalBrochuresList
+                schoolCode={schoolCode}
+                currentAcademicYear={currentAcademicYear}
+            />
         </div>
     );
 }
@@ -761,7 +786,9 @@ function HistoricalBrochuresList({
         listPublishedBrochures(schoolCode, { signal: controller.signal })
             .then((response) => {
                 if (!controller.signal.aborted) {
-                    setDocuments(response.data.filter((item) => item.academic_year < currentAcademicYear));
+                    setDocuments(
+                        response.data.filter((item) => item.academic_year < currentAcademicYear)
+                    );
                 }
             })
             .catch(() => {
@@ -777,25 +804,34 @@ function HistoricalBrochuresList({
             <h3 className="font-sans text-lg font-medium text-ink">歷屆簡章</h3>
             <ul className="mt-4 divide-y divide-ink/10 border-y border-ink/10">
                 {documents.map((item) => (
-                    <li key={item.academic_year} className="flex flex-wrap items-center justify-between gap-3 py-3">
+                    <li
+                        key={item.academic_year}
+                        className="flex flex-wrap items-center justify-between gap-3 py-3"
+                    >
                         <span className="font-sans text-sm font-medium text-ink">
                             {item.academic_year} 學年度簡章
                         </span>
                         <span className="flex items-center gap-4 font-sans text-sm">
                             <a
-                                href={getPublishedBrochurePreviewURL(item.academic_year, schoolCode)}
+                                href={getPublishedBrochurePreviewURL(
+                                    item.academic_year,
+                                    schoolCode
+                                )}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="inline-flex items-center gap-1 font-bold text-ink underline underline-offset-4 hover:text-ink/70 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ink"
+                                className={`inline-flex items-center gap-1 font-bold text-ink underline underline-offset-4 focus-ring hover:text-ink/70`}
                             >
                                 <ExternalLink aria-hidden className="size-4" />
                                 預覽
                             </a>
                             <a
-                                href={getPublishedBrochureDownloadURL(item.academic_year, schoolCode)}
+                                href={getPublishedBrochureDownloadURL(
+                                    item.academic_year,
+                                    schoolCode
+                                )}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="inline-flex items-center gap-1 font-bold text-ink underline underline-offset-4 hover:text-ink/70 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ink"
+                                className={`inline-flex items-center gap-1 font-bold text-ink underline underline-offset-4 focus-ring hover:text-ink/70`}
                             >
                                 <Download aria-hidden className="size-4" />
                                 下載

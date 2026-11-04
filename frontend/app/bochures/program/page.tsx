@@ -1,4 +1,5 @@
 import { notFound, permanentRedirect } from "next/navigation";
+import { programHref } from "../../lib/routes";
 
 type SearchParams = Promise<{ identifier?: string | string[] }>;
 
@@ -12,5 +13,5 @@ export default async function LegacyBrochureProgramPage({ searchParams }: PagePr
     const identifier = value?.trim() ?? "";
     if (!identifier) notFound();
 
-    permanentRedirect(`/bochures/program/${encodeURIComponent(identifier)}/`);
+    permanentRedirect(programHref(identifier));
 }
