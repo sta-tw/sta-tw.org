@@ -31,6 +31,7 @@ import {
     formatDate as formatDateTime,
     LoadingState
 } from "./admin-ui";
+import { identityStatusLabels } from "../lib/api/profile";
 
 const adminModules = [
     {
@@ -103,7 +104,7 @@ const adminModules = [
     },
     {
         label: "身份驗證",
-        description: "審核學生與應屆考生的身份申請。",
+        description: "審核本年度與往年特選錄取生的身份申請。",
         icon: ShieldCheck,
         status: "planned"
     },
@@ -303,8 +304,8 @@ export default function AdminDashboardPage() {
                                         ["啟用中", stats.accounts.active],
                                         ["已停權", stats.accounts.suspended],
                                         ["已驗證身份", stats.accounts.verified],
-                                        ["學生", stats.accounts.students],
-                                        ["應屆考生", stats.accounts.seniors]
+                                        [identityStatusLabels.student, stats.accounts.students],
+                                        [identityStatusLabels.senior, stats.accounts.seniors]
                                     ]}
                                 />
                                 <StatGroup

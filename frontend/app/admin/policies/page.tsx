@@ -22,7 +22,7 @@ export default function AdminPoliciesPage() {
                         集中管理服務條款與隱私權政策，更新後會同步套用到前台公開頁面。
                     </p>
                 </div>
-                <Button asChild variant="secondary" className="h-10 px-4 font-sans text-sm">
+                <Button asChild variant="secondary" size="sm">
                     <Link href="/admin">
                         <ArrowLeft aria-hidden className="mr-2 h-4 w-4" />
                         回到管理總覽
