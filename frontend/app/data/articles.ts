@@ -1,11 +1,9 @@
 export type Article = {
     slug: string;
     title: string;
-    listingTitle: string;
     summary: string;
     date: string;
     readTime: string;
-    accent: "green" | "yellow";
     tags: string[];
     content: ArticleSection[];
 };
@@ -20,11 +18,9 @@ export const articles: Article[] = [
     {
         slug: "what-is-special-admission",
         title: "特殊選才是什麼",
-        listingTitle: "特殊選才是什麼",
         summary: "特殊選才是給具備特殊才能與潛力學生的升學選擇，讓你的投入被看見。",
         date: "2026-04-25",
         readTime: "1.5 min",
-        accent: "green",
         tags: ["特選心得", "升學管道"],
         content: [
             {
@@ -37,11 +33,9 @@ export const articles: Article[] = [
     {
         slug: "who-is-special-admission-for",
         title: "適合哪些學生",
-        listingTitle: "適合哪些學生",
         summary: "只要你有足以展現特殊才能、經歷或發展潛力的故事，都值得了解這條路。",
         date: "2026-04-25",
         readTime: "1 min",
-        accent: "yellow",
         tags: ["特選心得", "升學管道"],
         content: [
             {

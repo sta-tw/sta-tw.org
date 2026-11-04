@@ -3,12 +3,16 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { getExperience, type Experience } from "../../lib/api/content";
+import { getExperience, type TaggedExperience } from "../../lib/api/content";
 import { ApiError } from "../../lib/api/types";
+import { describeError } from "../../lib/describe-error";
+import Button from "../../components/button";
+import ArticleHeader from "../article-header";
+import { readingTimeOf } from "../article-format";
 
 type ExperienceViewState = {
     id: string;
-    experience: Experience | null;
+    experience: TaggedExperience | null;
     error: string | null;
 };
 
@@ -39,9 +43,7 @@ export default function ExperienceView() {
                     error:
                         cause instanceof ApiError && cause.status === 404
                             ? "找不到這篇已公開的心得文章。"
-                            : cause instanceof ApiError
-                              ? cause.message
-                              : "目前無法取得心得文章，請稍後再試。"
+                            : describeError(cause)
                 });
             });
 
@@ -71,27 +73,28 @@ export default function ExperienceView() {
             <article className="mx-auto w-full max-w-screen-lg px-5 pt-12 pb-16 sm:px-6 sm:pt-16 sm:pb-20 lg:px-16 lg:pt-20 lg:pb-24">
                 <Link
                     href="/articlemain"
-                    className="font-sans text-sm text-ink/65 underline-offset-4 hover:text-ink hover:underline sm:text-base"
+                    className="font-sans text-sm text-copy-muted underline-offset-4 hover:text-ink hover:underline sm:text-base"
                 >
                     ← 回到文章總覽
                 </Link>
 
-                <header className="mt-6 border-b border-ink/10 pb-8 text-center sm:mt-8 sm:pb-10">
-                    <h1 className="font-sans text-3xl leading-tight font-medium tracking-[-0.03em] text-ink sm:text-4xl lg:text-5xl">
-                        {experience.title}
-                    </h1>
-                    <div className="mt-5 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 font-sans text-sm text-ink/70 sm:text-base">
-                        {experience.author_type !== "-" ? (
-                            <span>身份：{experience.author_type}</span>
-                        ) : null}
-                        {experience.admission_outcome !== "-" ? (
-                            <span>結果：{experience.admission_outcome}</span>
-                        ) : null}
-                        <time dateTime={experience.updated_at}>
-                            Update Date : {formatDate(experience.updated_at)}
-                        </time>
-                    </div>
-                </header>
+                <ArticleHeader
+                    className="mt-6 sm:mt-8"
+                    title={experience.title}
+                    readTime={readingTimeOf(experience.body)}
+                    date={experience.updated_at}
+                    tags={experience.tags}
+                    details={
+                        <>
+                            {experience.author_type !== "-" && (
+                                <span>身份：{experience.author_type}</span>
+                            )}
+                            {experience.admission_outcome !== "-" && (
+                                <span>結果：{experience.admission_outcome}</span>
+                            )}
+                        </>
+                    }
+                />
 
                 <div className="mx-auto mt-10 max-w-3xl font-sans text-base leading-8 text-ink/85 sm:mt-12 sm:text-lg sm:leading-9">
                     {toBodyBlocks(experience.body).map((block, index) => (
@@ -121,13 +124,10 @@ function ArticleMessage({ title = "心得文章", message }: { title?: string; m
         <main className="article-dots flex flex-1 items-center justify-center bg-surface px-5 py-20">
             <div className="max-w-md text-center">
                 <p className="font-sans text-lg font-medium text-ink">{title}</p>
-                <p className="mt-2 font-sans text-base leading-7 text-ink/65">{message}</p>
-                <Link
-                    href="/articlemain"
-                    className="mt-6 inline-flex rounded-full bg-button px-4 py-2 font-sans text-sm font-medium text-button-foreground hover:bg-button-hover"
-                >
-                    返回文章總覽
-                </Link>
+                <p className="mt-2 font-sans text-base leading-7 text-copy-muted">{message}</p>
+                <Button asChild size="sm" className="mt-6 font-medium">
+                    <Link href="/articlemain">返回文章總覽</Link>
+                </Button>
             </div>
         </main>
     );
@@ -152,12 +152,4 @@ function toBodyBlocks(body: string): BodyBlock[] {
                 ? { type: "list", items: lines.map((line) => line.replace(/^[-*]\s+/, "")) }
                 : { type: "paragraph", text: lines.join("\n") };
         });
-}
-
-function formatDate(iso: string): string {
-    try {
-        return new Date(iso).toLocaleDateString("zh-TW");
-    } catch {
-        return iso.slice(0, 10);
-    }
 }

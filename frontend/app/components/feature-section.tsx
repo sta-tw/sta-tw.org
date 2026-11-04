@@ -21,6 +21,14 @@ const features: Feature[] = [
         image: publicPath("/features/feature-community.webp"),
         imageAlt: "柔和色塊交疊的抽象社群圖像",
         imagePosition: "left"
+    },
+    {
+        title: "簡章搜尋，\n一次比對",
+        body: "依學校或科系搜尋特殊選才簡章，還能篩選是否需要術科、面試或作品集，快速找到適合你的校系。",
+        href: "/bochures",
+        image: publicPath("/features/feature-community.webp"),
+        imageAlt: "綠色與粉色漸層交織的抽象圖像，象徵在眾多校系簡章中找到方向",
+        imagePosition: "right"
     }
 ];
 

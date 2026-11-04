@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { articles, getArticle } from "../../data/articles";
+import ArticleHeader from "../article-header";
 
 type ArticlePageProps = {
     params: Promise<{ slug: string }>;
@@ -33,17 +34,11 @@ export default async function ArticlePage({ params }: ArticlePageProps) {
     return (
         <main className="article-dots flex-1 bg-surface">
             <article className="mx-auto w-full max-w-screen-lg px-5 pt-12 pb-16 sm:px-6 sm:pt-16 sm:pb-20 lg:px-16 lg:pt-20 lg:pb-24">
-                <header className="border-b border-ink/10 pb-8 text-center sm:pb-10">
-                    <h1 className="font-sans text-3xl leading-tight font-medium tracking-[-0.03em] text-ink sm:text-4xl lg:text-5xl">
-                        {article.title}
-                    </h1>
-                    <div className="mt-5 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 font-sans text-sm text-ink/70 sm:text-base">
-                        <span>閱讀時間: {article.readTime}</span>
-                        <time dateTime={article.date}>
-                            Update Date : {article.date.replaceAll("-", " / ")}
-                        </time>
-                    </div>
-                </header>
+                <ArticleHeader
+                    title={article.title}
+                    readTime={article.readTime}
+                    date={article.date}
+                />
 
                 <div className="mx-auto mt-10 max-w-3xl font-sans text-base leading-8 text-ink/85 sm:mt-12 sm:text-lg sm:leading-9">
                     {article.content.map((section, index) => (
