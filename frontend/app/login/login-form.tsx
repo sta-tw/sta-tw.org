@@ -1,19 +1,20 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
-import { Label } from "radix-ui";
+import { oauthProviderIcons } from "../components/brand-icons";
 import Button from "../components/button";
-import { login } from "../lib/api/auth";
-import { notifyAuthChanged } from "../lib/auth-events";
-import { ApiError } from "../lib/api/types";
+import Field from "../components/field";
+import { Input } from "../components/input";
 import TurnstileWidget from "../components/turnstile-widget";
+import { login } from "../lib/api/auth";
+import { oauthErrorMessage, oauthLoginUrl, oauthProviders } from "../lib/api/identities";
+import { ApiError } from "../lib/api/types";
+import { notifyAuthChanged } from "../lib/auth-events";
+import { safeNextPath } from "../lib/login-redirect";
 
-const focusStyle =
-    "focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ink";
-const inputStyle =
-    "h-12 w-full rounded-xl border border-ink/25 bg-white/70 px-4 text-base placeholder:text-ink/45 focus:border-ink focus:outline-2 focus:outline-offset-2 focus:outline-accent-green-strong";
+const linkStyle = `font-bold underline-offset-4 hover:underline focus-ring`;
 
 function loginErrorMessage(error: unknown): string {
     if (error instanceof ApiError) {
@@ -28,26 +29,40 @@ function loginErrorMessage(error: unknown): string {
                 return "驗證服務暫時無法使用，請稍後再試。";
             case "network_error":
                 return error.message;
-            default:
-                return "登入失敗，請稍後再試。";
         }
     }
     return "登入失敗，請稍後再試。";
 }
 
-export default function LoginForm() {
+/** Reads ?next= / ?oauth_error= (needs the Suspense boundary in page.tsx). */
+export function LoginFormFromParams() {
+    const searchParams = useSearchParams();
+    const oauthError = searchParams.get("oauth_error");
+    return (
+        <LoginForm
+            next={safeNextPath(searchParams.get("next"))}
+            oauthError={
+                oauthError ? oauthErrorMessage(oauthError, searchParams.get("provider")) : null
+            }
+        />
+    );
+}
+
+export default function LoginForm({
+    next = "/",
+    oauthError = null
+}: {
+    next?: string;
+    oauthError?: string | null;
+}) {
     const router = useRouter();
     const [notice, setNotice] = useState("");
     const [submitting, setSubmitting] = useState(false);
     const [turnstileToken, setTurnstileToken] = useState("");
     const [resetSignal, setResetSignal] = useState(0);
 
-    function showPreviewNotice(action: string) {
-        setNotice(`${action}功能尚未開放，敬請期待。`);
-    }
-
     return (
-        <div className="relative w-full max-w-md">
+        <div className="w-full max-w-md">
             <h1
                 id="login-title"
                 className="mb-8 text-center text-3xl leading-tight font-medium text-ink sm:text-4xl"
@@ -55,7 +70,43 @@ export default function LoginForm() {
                 登入帳號
             </h1>
 
+            {oauthError && (
+                <p
+                    role="alert"
+                    className="mb-6 rounded-[var(--radius-small)] border border-danger/30 bg-danger/5 px-4 py-3 text-sm leading-relaxed text-danger"
+                >
+                    {oauthError}
+                </p>
+            )}
+
+            <div className="flex flex-col gap-3">
+                {oauthProviders.map(({ id, label }) => {
+                    const Icon = oauthProviderIcons[id];
+                    return (
+                        <Button
+                            key={id}
+                            asChild
+                            variant="secondary"
+                            size="base"
+                            className="w-full gap-3"
+                        >
+                            <a href={oauthLoginUrl(id, next)}>
+                                <Icon className="size-5 shrink-0" />
+                                使用 {label} 登入
+                            </a>
+                        </Button>
+                    );
+                })}
+            </div>
+
+            <div className="my-6 flex items-center gap-4 text-sm text-copy-muted">
+                <span aria-hidden className="h-px flex-1 bg-ink/15" />
+                或以帳號密碼登入
+                <span aria-hidden className="h-px flex-1 bg-ink/15" />
+            </div>
+
             <form
+                className="flex flex-col gap-4"
                 onSubmit={(event) => {
                     event.preventDefault();
                     if (submitting) return;
@@ -73,7 +124,7 @@ export default function LoginForm() {
                     login({ username, password, turnstile_token: turnstileToken })
                         .then(() => {
                             notifyAuthChanged();
-                            router.push("/");
+                            router.push(next);
                             router.refresh();
                         })
                         .catch((error: unknown) => {
@@ -83,74 +134,48 @@ export default function LoginForm() {
                         .finally(() => setSubmitting(false));
                 }}
             >
-                <div className="mb-4 flex flex-col gap-2">
-                    <Label.Root htmlFor="login-username" className="text-base font-medium text-ink">
-                        帳號
-                    </Label.Root>
-                    <input
-                        id="login-username"
+                <Field label="帳號" required>
+                    <Input
                         name="username"
                         type="text"
                         autoComplete="username"
                         placeholder="使用者名稱"
-                        required
-                        className={inputStyle}
                     />
-                </div>
-                <div className="flex flex-col gap-2">
-                    <Label.Root htmlFor="login-password" className="text-base font-medium text-ink">
-                        密碼
-                    </Label.Root>
-                    <input
-                        id="login-password"
+                </Field>
+                <Field label="密碼" required>
+                    <Input
                         name="password"
                         type="password"
                         autoComplete="current-password"
                         placeholder="請輸入密碼"
-                        required
-                        className={inputStyle}
                     />
-                </div>
+                </Field>
                 <TurnstileWidget
                     action="login"
                     onTokenChange={setTurnstileToken}
                     resetSignal={resetSignal}
                 />
-                <Button
-                    type="submit"
-                    disabled={submitting || !turnstileToken}
-                    className={`mt-6 h-12 w-full rounded-xl bg-accent-green font-sans text-lg text-ink hover:bg-accent-green-strong active:bg-accent-green-strong disabled:cursor-not-allowed disabled:opacity-60 ${focusStyle}`}
-                >
+                <Button type="submit" disabled={submitting || !turnstileToken} className="w-full">
                     {submitting ? "登入中…" : "登入"}
                 </Button>
             </form>
 
-            <div className="mt-5 flex flex-wrap items-center justify-center gap-x-3 gap-y-2 text-sm text-ink">
-                <button
-                    type="button"
-                    onClick={() => showPreviewNotice("忘記密碼")}
-                    className={`cursor-pointer font-bold underline-offset-4 hover:underline ${focusStyle}`}
-                >
+            <p role="status" aria-live="polite" className="mt-3 text-center text-sm text-danger">
+                {notice}
+            </p>
+
+            <div className="mt-3 flex flex-wrap items-center justify-center gap-x-3 gap-y-2 text-sm text-ink">
+                <Link href="/reset-password" className={linkStyle}>
                     忘記密碼
-                </button>
-                <span aria-hidden="true" className="h-4 w-px bg-ink/25" />
+                </Link>
+                <span aria-hidden className="h-4 w-px bg-ink/25" />
                 <span>
                     沒有帳號？
-                    <Link
-                        href="/register"
-                        className={`cursor-pointer font-bold underline-offset-4 hover:underline ${focusStyle}`}
-                    >
+                    <Link href="/register" className={linkStyle}>
                         註冊
                     </Link>
                 </span>
             </div>
-            <p
-                role="status"
-                aria-live="polite"
-                className="absolute top-full right-0 left-0 mt-3 text-center text-xs text-ink"
-            >
-                {notice}
-            </p>
         </div>
     );
 }

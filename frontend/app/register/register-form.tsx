@@ -2,16 +2,12 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { Label } from "radix-ui";
 import Button from "../components/button";
+import Field from "../components/field";
+import { Input } from "../components/input";
 import TurnstileWidget from "../components/turnstile-widget";
 import { registerAccount } from "../lib/api/auth";
 import { ApiError } from "../lib/api/types";
-
-const focusStyle =
-    "focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ink";
-const inputStyle =
-    "h-12 w-full rounded-xl border border-ink/25 bg-white/70 px-4 text-base placeholder:text-ink/45 focus:border-ink focus:outline-2 focus:outline-offset-2 focus:outline-accent-green-strong";
 
 function registerErrorMessage(error: unknown): string {
     if (error instanceof ApiError) {
@@ -61,7 +57,7 @@ export default function RegisterForm() {
                 </p>
                 <Link
                     href="/"
-                    className={`mt-6 inline-block font-bold text-ink underline underline-offset-4 ${focusStyle}`}
+                    className={`mt-6 inline-block font-bold text-ink underline underline-offset-4 focus-ring`}
                 >
                     回首頁
                 </Link>
@@ -108,16 +104,9 @@ export default function RegisterForm() {
                         .finally(() => setSubmitting(false));
                 }}
             >
-                <div className="space-y-4">
-                    <div className="flex flex-col gap-2">
-                        <Label.Root
-                            htmlFor="register-nickname"
-                            className="text-base font-medium text-ink"
-                        >
-                            帳號名稱
-                        </Label.Root>
-                        <input
-                            id="register-nickname"
+                <div className="flex flex-col gap-4">
+                    <Field label="帳號名稱" required>
+                        <Input
                             name="nickname"
                             autoComplete="username"
                             placeholder="不可帶有除 . _ - 之外之特殊符號"
@@ -125,55 +114,40 @@ export default function RegisterForm() {
                             title="請使用文字、數字、半形句點、底線或連字號"
                             minLength={3}
                             maxLength={64}
-                            required
-                            className={inputStyle}
                         />
-                    </div>
-                    <div className="flex flex-col gap-2">
-                        <Label.Root
-                            htmlFor="register-email"
-                            className="text-base font-medium text-ink"
-                        >
-                            聯絡信箱
-                        </Label.Root>
-                        <input
-                            id="register-email"
+                    </Field>
+                    <Field label="聯絡信箱" required>
+                        <Input
                             name="email"
                             type="email"
                             autoComplete="email"
                             placeholder="日常使用的信箱，任何網域都可以"
-                            required
-                            className={inputStyle}
                         />
-                    </div>
-                    <div className="flex flex-col gap-2">
-                        <Label.Root
-                            htmlFor="register-school-email"
-                            className="text-base font-medium text-ink"
-                        >
-                            學校信箱
-                        </Label.Root>
-                        <input
-                            id="register-school-email"
+                    </Field>
+                    <Field
+                        label="學校信箱"
+                        required
+                        hint={
+                            <>
+                                兩個信箱可以填一樣的。沒有學校信箱看{" "}
+                                <Link
+                                    href="/faq#no-school-email"
+                                    className={`font-bold text-ink underline underline-offset-4 focus-ring`}
+                                >
+                                    沒有學校信箱怎麼辦
+                                </Link>
+                            </>
+                        }
+                    >
+                        <Input
                             name="school_email"
                             type="email"
                             autoComplete="email"
                             placeholder="必須是 *.edu.tw，設定密碼的連結會寄到這裡"
                             pattern={".+@.*\\.edu\\.tw$"}
                             title="請輸入 *.edu.tw 學校信箱"
-                            required
-                            className={inputStyle}
                         />
-                        <p className="text-xs text-copy-muted">
-                            兩個信箱可以填一樣的。沒有學校信箱看{" "}
-                            <Link
-                                href="/faq#no-school-email"
-                                className={`font-bold text-ink underline underline-offset-4 ${focusStyle}`}
-                            >
-                                沒有學校信箱怎麼辦
-                            </Link>
-                        </p>
-                    </div>
+                    </Field>
                 </div>
                 <TurnstileWidget
                     action="signup"
@@ -183,7 +157,7 @@ export default function RegisterForm() {
                 <Button
                     type="submit"
                     disabled={submitting || !turnstileToken}
-                    className={`mt-6 h-12 w-full rounded-xl bg-accent-green font-sans text-lg text-ink hover:bg-accent-green-strong active:bg-accent-green-strong disabled:cursor-not-allowed disabled:opacity-60 ${focusStyle}`}
+                    className="mt-6 w-full"
                 >
                     {submitting ? "送出中…" : "註冊"}
                 </Button>
@@ -191,14 +165,14 @@ export default function RegisterForm() {
                     註冊即表示您同意{" "}
                     <Link
                         href="/terms"
-                        className={`cursor-pointer font-bold text-ink underline underline-offset-4 ${focusStyle}`}
+                        className={`cursor-pointer font-bold text-ink underline underline-offset-4 focus-ring`}
                     >
                         服務條款
                     </Link>
                     {" 與 "}
                     <Link
                         href="/privacy"
-                        className={`cursor-pointer font-bold text-ink underline underline-offset-4 ${focusStyle}`}
+                        className={`cursor-pointer font-bold text-ink underline underline-offset-4 focus-ring`}
                     >
                         隱私權政策
                     </Link>
@@ -208,12 +182,12 @@ export default function RegisterForm() {
                 已經有帳號？
                 <Link
                     href="/login"
-                    className={`font-bold underline-offset-4 hover:underline ${focusStyle}`}
+                    className={`font-bold underline-offset-4 focus-ring hover:underline`}
                 >
                     登入
                 </Link>
             </p>
-            <p role="status" aria-live="polite" className="mt-3 text-center text-xs text-ink">
+            <p role="status" aria-live="polite" className="mt-3 text-center text-sm text-danger">
                 {notice}
             </p>
         </div>
