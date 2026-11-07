@@ -9,20 +9,38 @@ interface ButtonProps extends ComponentPropsWithoutRef<"button"> {
      * replace two className overrides that were being copy-pasted at 10+
      * call sites across the admin panel (see app/admin/admin-ui.tsx). */
     variant?: "primary" | "secondary" | "danger";
+    /** "md" (default) is the serif call-to-action size; "base" is the same
+     * height in sans-serif for in-app forms and panels; "sm" is the compact
+     * sans-serif size used for inline/row actions. */
+    size?: "md" | "base" | "sm";
 }
 
 const variantClasses: Record<NonNullable<ButtonProps["variant"]>, string> = {
     primary: "",
     secondary: "border border-ink/15 bg-surface text-ink hover:bg-ink/5 active:bg-ink/10",
-    danger: "bg-red-600 text-white hover:bg-red-700 active:bg-red-800"
+    danger: "bg-danger text-white hover:bg-danger/90 active:bg-danger/80"
 };
 
-export default function Button({ asChild, variant = "primary", className, children, ...props }: ButtonProps) {
+const sizeClasses: Record<NonNullable<ButtonProps["size"]>, string> = {
+    md: "h-12 px-6 font-serif text-xl",
+    base: "h-12 px-6 font-sans text-base",
+    sm: "h-10 px-4 font-sans text-sm"
+};
+
+export default function Button({
+    asChild,
+    variant = "primary",
+    size = "md",
+    className,
+    children,
+    ...props
+}: ButtonProps) {
     const Comp = asChild ? Slot.Root : "button";
     return (
         <Comp
             className={twMerge(
-                "inline-flex h-12 cursor-pointer items-center justify-center rounded-[var(--radius-control)] bg-button px-6 font-serif text-xl font-bold text-button-foreground transition-colors hover:bg-button-hover active:bg-button-active disabled:pointer-events-none disabled:opacity-50",
+                "inline-flex cursor-pointer items-center justify-center rounded-[var(--radius-control)] bg-button font-bold text-button-foreground focus-ring transition-colors hover:bg-button-hover active:bg-button-active disabled:pointer-events-none disabled:opacity-50",
+                sizeClasses[size],
                 variantClasses[variant],
                 className
             )}

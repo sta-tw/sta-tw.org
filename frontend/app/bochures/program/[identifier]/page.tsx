@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import BrochureProgramView from "../program-view";
 import { getProgramForPage } from "../../../lib/admissions-server";
 import type { AdmissionProgram } from "../../../lib/api/admissions";
+import { programHref } from "../../../lib/routes";
 
 type PageProps = {
     params: Promise<{ identifier: string }>;
@@ -32,7 +33,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
         title: `${program.academic_year} 學年度 ${program.school_name} ${program.admission_program_name} 簡章 | S.T.A`,
         description: programDescription(program),
         alternates: {
-            canonical: `/bochures/program/${encodeURIComponent(identifier)}/`
+            canonical: programHref(identifier)
         }
     };
 }

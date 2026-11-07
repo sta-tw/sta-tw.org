@@ -29,6 +29,7 @@ const footerSections = [
         title: "關於本站",
         links: [
             { label: "GitHub", href: GITHUB_REPOSITORY_URL },
+            { label: "開發者名單", href: `${GITHUB_REPOSITORY_URL}/graphs/contributors` },
             { label: "聯絡信箱", href: contactMailtoHref("general") },
             { label: "資料回報", href: "/report-data" },
             { label: "隱私權政策", href: "/privacy" },

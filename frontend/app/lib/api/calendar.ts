@@ -1,4 +1,5 @@
 import { apiFetch } from "./client";
+import { startOAuthBind } from "./identities";
 
 export interface CalendarStatus {
     linked: boolean;
@@ -57,8 +58,5 @@ export function removeCalendarEvent(externalId: string) {
  * same-origin relative path — the backend lands the browser back there,
  * appending `?oauth=success`, once the OAuth round trip completes. */
 export function startCalendarLink(returnTo: string) {
-    return apiFetch<{ authorization_url: string }>("/api/v1/auth/oauth/google/bind/start", {
-        method: "POST",
-        query: { return_to: returnTo }
-    });
+    return startOAuthBind("google", returnTo);
 }

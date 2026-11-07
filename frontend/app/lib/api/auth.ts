@@ -22,6 +22,16 @@ export function registerAccount(input: RegisterInput) {
     return apiFetch<RegisterResult>("/api/v1/auth/register", { method: "POST", body: input });
 }
 
+/** POST /api/v1/auth/password-reset/request — emails a reset link if the
+ * address belongs to an active account. Always 202 whether or not it does,
+ * so the UI must not imply either way. */
+export function requestPasswordReset(email: string) {
+    return apiFetch<void>("/api/v1/auth/password-reset/request", {
+        method: "POST",
+        body: { email }
+    });
+}
+
 /** POST /api/v1/auth/password-reset/confirm — sets a new password from a
  * reset/activation token (see /reset-password). For a school-email
  * registration token this also activates the account. */

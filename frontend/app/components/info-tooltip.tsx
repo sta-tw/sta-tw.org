@@ -16,7 +16,7 @@ export default function InfoTooltip({ children, label }: InfoTooltipProps) {
                     <button
                         type="button"
                         aria-label={label}
-                        className="inline-flex h-7 w-7 shrink-0 cursor-help items-center justify-center rounded-full text-ink/65 transition-colors hover:bg-ink/8 hover:text-ink focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2 focus-visible:outline-none"
+                        className="inline-flex h-7 w-7 shrink-0 cursor-help items-center justify-center rounded-full text-ink/65 focus-ring transition-colors hover:bg-ink/8 hover:text-ink"
                     >
                         <CircleHelp aria-hidden className="h-5 w-5" strokeWidth={1.9} />
                     </button>

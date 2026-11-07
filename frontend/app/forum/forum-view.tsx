@@ -1,10 +1,19 @@
 "use client";
 
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { AlertCircle, ArrowLeft, Loader2, MessageCircle } from "lucide-react";
+import { ArrowLeft, MessageCircle } from "lucide-react";
 import { twMerge } from "tailwind-merge";
 import Button from "../components/button";
-import { getCurrentAccount } from "../lib/api/auth";
+import { Card } from "../components/card";
+import { Input, Textarea } from "../components/input";
+import { EmptyState, ErrorText, LoadingState } from "../components/status";
+import { describeError } from "../lib/describe-error";
+import { formatDateTime } from "../lib/format";
+import { useCurrentAccount } from "../lib/current-account";
+import { loginHref } from "../lib/routes";
+import { useAction } from "../lib/use-resource";
 import {
     addPostReaction,
     createPost,
@@ -17,58 +26,17 @@ import {
     type ForumSpace,
     type ForumThread
 } from "../lib/api/forum";
-import { ApiError, type Account } from "../lib/api/types";
+import type { Account } from "../lib/api/types";
 
 type View = { name: "threads" } | { name: "posts"; thread: ForumThread };
 
-const panelClass =
-    "rounded-[var(--radius-panel)] border border-ink/10 bg-surface p-6 shadow-[var(--shadow-card)] sm:p-8";
-const inputClass =
-    "w-full rounded-[var(--radius-small)] border border-ink/15 bg-surface px-4 py-3 font-sans text-base text-ink outline-none transition-colors placeholder:text-copy-muted focus:border-ink/40";
 const reactionOptions = ["👍", "❤️", "🎉"];
 
-function describeError(cause: unknown): string {
-    if (cause instanceof ApiError) return cause.message || `發生錯誤（${cause.code}）`;
-    return "發生未知錯誤，請稍後再試。";
-}
-
-function LoadingState({ label = "載入中…" }: { label?: string }) {
-    return (
-        <div className="flex items-center justify-center gap-2 p-6 font-sans text-sm text-copy-muted">
-            <Loader2 aria-hidden className="h-4 w-4 animate-spin" />
-            {label}
-        </div>
-    );
-}
-
-function EmptyState({ label }: { label: string }) {
-    return <p className="p-6 text-center font-sans text-sm text-copy-muted">{label}</p>;
-}
-
-function ErrorText({ children }: { children: React.ReactNode }) {
-    return (
-        <p className="flex items-start gap-1.5 font-sans text-sm text-red-600">
-            <AlertCircle aria-hidden className="mt-0.5 h-4 w-4 shrink-0" />
-            {children}
-        </p>
-    );
-}
-
 export default function ForumView() {
-    const [account, setAccount] = useState<Account | null>(null);
+    const account = useCurrentAccount().me?.account ?? null;
     const [space, setSpace] = useState<ForumSpace | null>(null);
     const [spaceError, setSpaceError] = useState<string | null>(null);
     const [view, setView] = useState<View>({ name: "threads" });
-
-    useEffect(() => {
-        let ignore = false;
-        getCurrentAccount()
-            .then(({ account }) => !ignore && setAccount(account))
-            .catch(() => !ignore && setAccount(null));
-        return () => {
-            ignore = true;
-        };
-    }, []);
 
     useEffect(() => {
         let ignore = false;
@@ -79,7 +47,8 @@ export default function ForumView() {
                 // migration 000013); that's the only entry point this page
                 // exposes today, so jump straight into it instead of making
                 // people pick from a list of one.
-                const globalSpace = data.find((candidate) => candidate.space_type === "global") ?? null;
+                const globalSpace =
+                    data.find((candidate) => candidate.space_type === "global") ?? null;
                 setSpace(globalSpace);
                 if (!globalSpace) setSpaceError("目前沒有可用的討論空間。");
             })
@@ -91,13 +60,13 @@ export default function ForumView() {
 
     if (spaceError) {
         return (
-            <div className={panelClass}>
+            <Card>
                 <ErrorText>{spaceError}</ErrorText>
-            </div>
+            </Card>
         );
     }
     if (!space) {
-        return <LoadingState label="討論區載入中…" />;
+        return <LoadingState label="討論區載入中" />;
     }
     if (view.name === "posts") {
         return (
@@ -130,7 +99,8 @@ function ThreadList({
     const [error, setError] = useState<string | null>(null);
     const [showForm, setShowForm] = useState(false);
     const [form, setForm] = useState({ title: "", body: "" });
-    const [submitting, setSubmitting] = useState(false);
+    const { pending, error: actionError, run } = useAction();
+    const submitting = pending !== null;
 
     useEffect(() => {
         let ignore = false;
@@ -142,20 +112,14 @@ function ThreadList({
         };
     }, [space.id]);
 
-    async function handleCreate(event: React.FormEvent) {
+    function handleCreate(event: React.FormEvent) {
         event.preventDefault();
-        setSubmitting(true);
-        setError(null);
-        try {
+        void run(async () => {
             const { thread } = await createThread(space.id, form);
             setThreads((prev) => (prev ? [thread, ...prev] : [thread]));
             setForm({ title: "", body: "" });
             setShowForm(false);
-        } catch (cause) {
-            setError(describeError(cause));
-        } finally {
-            setSubmitting(false);
-        }
+        });
     }
 
     const canPost = account !== null && account.identity_status !== "temporary";
@@ -182,35 +146,37 @@ function ThreadList({
                 </p>
             ) : null}
 
-            {error ? <ErrorText>{error}</ErrorText> : null}
+            <ErrorText>{error ?? actionError}</ErrorText>
 
             {showForm ? (
-                <form className={twMerge(panelClass, "flex flex-col gap-4")} onSubmit={handleCreate}>
-                    <input
-                        className={inputClass}
-                        placeholder="標題"
-                        required
-                        maxLength={300}
-                        value={form.title}
-                        onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
-                    />
-                    <textarea
-                        className={twMerge(inputClass, "min-h-32 resize-y")}
-                        placeholder="內容"
-                        required
-                        value={form.body}
-                        onChange={(e) => setForm((f) => ({ ...f, body: e.target.value }))}
-                    />
-                    <Button type="submit" disabled={submitting} className="w-fit px-6">
-                        {submitting ? "送出中…" : "送出討論"}
-                    </Button>
-                </form>
+                <Card>
+                    <form className="flex flex-col gap-4" onSubmit={handleCreate}>
+                        <Input
+                            aria-label="標題"
+                            placeholder="標題"
+                            required
+                            maxLength={300}
+                            value={form.title}
+                            onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
+                        />
+                        <Textarea
+                            aria-label="內容"
+                            placeholder="內容"
+                            required
+                            value={form.body}
+                            onChange={(e) => setForm((f) => ({ ...f, body: e.target.value }))}
+                        />
+                        <Button type="submit" disabled={submitting} className="w-fit px-6">
+                            {submitting ? "送出中…" : "送出討論"}
+                        </Button>
+                    </form>
+                </Card>
             ) : null}
 
             {threads === null ? (
                 <LoadingState />
             ) : threads.length === 0 ? (
-                <EmptyState label="這裡還沒有討論串，當第一個發文的人吧！" />
+                <EmptyState title="這裡還沒有討論串，當第一個發文的人吧！" />
             ) : (
                 <div className="flex flex-col gap-3">
                     {threads.map((thread) => (
@@ -228,7 +194,7 @@ function ThreadList({
                                 {thread.title}
                             </span>
                             <span className="shrink-0 font-sans text-xs text-copy-muted">
-                                {formatDate(thread.updated_at)}
+                                {formatDateTime(thread.updated_at)}
                             </span>
                         </button>
                     ))}
@@ -247,11 +213,11 @@ function PostList({
     thread: ForumThread;
     onBack: () => void;
 }) {
+    const pathname = usePathname();
     const [posts, setPosts] = useState<ForumPost[] | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [reply, setReply] = useState("");
-    const [submitting, setSubmitting] = useState(false);
-    const [pendingReaction, setPendingReaction] = useState<string | null>(null);
+    const { pending, error: actionError, run } = useAction();
 
     useEffect(() => {
         let ignore = false;
@@ -263,28 +229,19 @@ function PostList({
         };
     }, [thread.id]);
 
-    async function handleReply(event: React.FormEvent) {
+    function handleReply(event: React.FormEvent) {
         event.preventDefault();
-        setSubmitting(true);
-        setError(null);
-        try {
+        void run("reply", async () => {
             const { data } = await createPost(thread.id, reply);
             setPosts((prev) => (prev ? [...prev, data] : [data]));
             setReply("");
-        } catch (cause) {
-            setError(describeError(cause));
-        } finally {
-            setSubmitting(false);
-        }
+        });
     }
 
-    async function toggleReaction(post: ForumPost, emoji: string) {
+    function toggleReaction(post: ForumPost, emoji: string) {
         if (!account) return;
         const current = post.reactions?.find((reaction) => reaction.emoji === emoji);
-        const reactionKey = `${post.id}:${emoji}`;
-        setPendingReaction(reactionKey);
-        setError(null);
-        try {
+        void run(`${post.id}:${emoji}`, async () => {
             if (current?.mine) {
                 await removePostReaction(post.id, emoji);
             } else {
@@ -297,11 +254,7 @@ function PostList({
                       )
                     : prev
             );
-        } catch (cause) {
-            setError(describeError(cause));
-        } finally {
-            setPendingReaction(null);
-        }
+        });
     }
 
     return (
@@ -316,17 +269,17 @@ function PostList({
             </button>
             <h1 className="font-serif text-hero-subtitle text-ink">{thread.title}</h1>
 
-            {error ? <ErrorText>{error}</ErrorText> : null}
+            <ErrorText>{error ?? actionError}</ErrorText>
 
             {posts === null ? (
                 <LoadingState />
             ) : (
                 <div className="flex flex-col gap-3">
                     {posts.map((post) => (
-                        <div key={post.id} className={panelClass}>
+                        <Card key={post.id}>
                             <p className="font-sans whitespace-pre-wrap text-ink">{post.body}</p>
                             <p className="mt-3 font-sans text-xs text-copy-muted">
-                                {formatDate(post.created_at)}
+                                {formatDateTime(post.created_at)}
                             </p>
                             <div className="mt-4 flex flex-wrap gap-2">
                                 {reactionOptions
@@ -346,9 +299,7 @@ function PostList({
                                             <button
                                                 key={emoji}
                                                 type="button"
-                                                disabled={
-                                                    !account || pendingReaction === reactionKey
-                                                }
+                                                disabled={!account || pending === reactionKey}
                                                 aria-label={`${emoji} 反應`}
                                                 aria-pressed={reaction?.mine ?? false}
                                                 title={
@@ -356,7 +307,7 @@ function PostList({
                                                         ? `以 ${emoji} 反應`
                                                         : "登入後才能使用反應"
                                                 }
-                                                onClick={() => void toggleReaction(post, emoji)}
+                                                onClick={() => toggleReaction(post, emoji)}
                                                 className={twMerge(
                                                     "inline-flex items-center gap-1 rounded-full border px-2.5 py-1 font-sans text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-60",
                                                     reaction?.mine
@@ -370,22 +321,23 @@ function PostList({
                                         );
                                     })}
                             </div>
-                        </div>
+                        </Card>
                     ))}
                 </div>
             )}
 
             {account && account.identity_status !== "temporary" ? (
                 <form className="flex flex-col gap-3" onSubmit={handleReply}>
-                    <textarea
-                        className={twMerge(inputClass, "min-h-24 resize-y")}
+                    <Textarea
+                        aria-label="回覆內容"
+                        className="min-h-24"
                         placeholder="回覆這則討論…"
                         required
                         value={reply}
                         onChange={(e) => setReply(e.target.value)}
                     />
-                    <Button type="submit" disabled={submitting} className="w-fit px-6">
-                        {submitting ? "送出中…" : "回覆"}
+                    <Button type="submit" disabled={pending === "reply"} className="w-fit px-6">
+                        {pending === "reply" ? "送出中…" : "回覆"}
                     </Button>
                 </form>
             ) : account ? (
@@ -394,22 +346,14 @@ function PostList({
                 </p>
             ) : (
                 <p className="font-sans text-sm text-copy-muted">
-                    <a href="/login" className="underline">
+                    <Link href={loginHref(pathname)} className="underline">
                         登入
-                    </a>{" "}
+                    </Link>{" "}
                     後才能回覆討論。
                 </p>
             )}
         </div>
     );
-}
-
-function formatDate(iso: string): string {
-    try {
-        return new Date(iso).toLocaleString("zh-TW", { dateStyle: "medium", timeStyle: "short" });
-    } catch {
-        return iso;
-    }
 }
 
 function updateReaction(post: ForumPost, emoji: string, mine: boolean): ForumPost {

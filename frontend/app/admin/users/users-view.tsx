@@ -21,6 +21,7 @@ import {
     type AdminUserDetail,
     type IdentityStatus
 } from "../../lib/api/admin";
+import { identityStatusLabels } from "../../lib/api/profile";
 import { useAdmin } from "../admin-context";
 import {
     AdminDialog,
@@ -37,11 +38,12 @@ import {
     Th
 } from "../admin-ui";
 
-const identityLabel: Record<IdentityStatus, string> = {
-    temporary: "未驗證",
-    student: "學生",
-    senior: "應屆考生"
-};
+const identityLabel: Record<IdentityStatus, string> = identityStatusLabels;
+const identityOptions = (Object.keys(identityLabel) as IdentityStatus[]).map((value) => (
+    <option key={value} value={value}>
+        {identityLabel[value]}
+    </option>
+));
 
 function describeIdentity(
     user: Pick<AdminUser, "identity_status" | "is_admissions_moderator" | "is_admin">
@@ -163,9 +165,7 @@ export default function UsersView() {
                         onChange={(e) => setIdentity(e.target.value as IdentityStatus | "")}
                     >
                         <option value="">全部</option>
-                        <option value="temporary">未驗證</option>
-                        <option value="student">學生</option>
-                        <option value="senior">應屆考生</option>
+                        {identityOptions}
                     </select>
                 </label>
                 <label className="flex items-center gap-2 pb-2 font-sans text-sm text-ink">
@@ -220,10 +220,7 @@ export default function UsersView() {
                                                 className="h-4 w-4 text-ink/50"
                                             />
                                         ) : user.is_admissions_moderator ? (
-                                            <BookOpen
-                                                aria-hidden
-                                                className="h-4 w-4 text-ink/50"
-                                            />
+                                            <BookOpen aria-hidden className="h-4 w-4 text-ink/50" />
                                         ) : null}
                                     </span>
                                 </Td>
@@ -236,7 +233,9 @@ export default function UsersView() {
                                 <Td className="text-copy-muted">
                                     {user.email_verified ? "已驗證" : "未驗證"}
                                 </Td>
-                                <Td className="text-copy-muted">{formatDate(user.last_login_at)}</Td>
+                                <Td className="text-copy-muted">
+                                    {formatDate(user.last_login_at)}
+                                </Td>
                                 <Td className="text-copy-muted">{formatDate(user.created_at)}</Td>
                                 <Td>
                                     <button
@@ -251,7 +250,9 @@ export default function UsersView() {
                         ))}
                     </tbody>
                 </table>
-                {users !== null && users.length === 0 ? <EmptyState label="沒有符合條件的使用者。" /> : null}
+                {users !== null && users.length === 0 ? (
+                    <EmptyState label="沒有符合條件的使用者。" />
+                ) : null}
             </div>
 
             {nextCursor ? (
@@ -348,8 +349,10 @@ function UserActionDialog({
         setEditError(null);
         try {
             const input: Parameters<typeof updateUser>[1] = {};
-            if (detail && editUsername.trim() !== detail.username) input.username = editUsername.trim();
-            if (detail && editIdentity !== detail.identity_status) input.identity_status = editIdentity;
+            if (detail && editUsername.trim() !== detail.username)
+                input.username = editUsername.trim();
+            if (detail && editIdentity !== detail.identity_status)
+                input.identity_status = editIdentity;
             if (detail && editEmail.trim() !== detail.email) input.email = editEmail.trim();
             if (detail && editSchoolEmail.trim() !== detail.school_email)
                 input.school_email = editSchoolEmail.trim();
@@ -441,7 +444,8 @@ function UserActionDialog({
             description={
                 user ? (
                     <>
-                        目前狀態：{statusLabel[user.account_status]}・身份／角色：{describeIdentity(user)}
+                        目前狀態：{statusLabel[user.account_status]}・身份／角色：
+                        {describeIdentity(user)}
                     </>
                 ) : undefined
             }
@@ -470,9 +474,7 @@ function UserActionDialog({
                                 value={editIdentity}
                                 onChange={(e) => setEditIdentity(e.target.value as IdentityStatus)}
                             >
-                                <option value="temporary">未驗證</option>
-                                <option value="student">學生</option>
-                                <option value="senior">應屆考生</option>
+                                {identityOptions}
                             </select>
                         </label>
                         <label className="flex flex-col gap-1">
@@ -493,7 +495,9 @@ function UserActionDialog({
                             <input
                                 type="email"
                                 className={inputClass}
-                                placeholder={detail.school_email ? undefined : "此帳號沒有登記學校信箱"}
+                                placeholder={
+                                    detail.school_email ? undefined : "此帳號沒有登記學校信箱"
+                                }
                                 value={editSchoolEmail}
                                 onChange={(e) => setEditSchoolEmail(e.target.value)}
                             />
@@ -516,7 +520,9 @@ function UserActionDialog({
                                 disabled={pending !== null}
                                 className="h-10 w-fit px-4 text-sm"
                             >
-                                {pending === "resend-activation" ? "處理中…" : "重寄啟用信到學校信箱"}
+                                {pending === "resend-activation"
+                                    ? "處理中…"
+                                    : "重寄啟用信到學校信箱"}
                             </Button>
                         ) : !detail.email_verified ? (
                             <Button
@@ -526,7 +532,9 @@ function UserActionDialog({
                                 disabled={pending !== null}
                                 className="h-10 w-fit px-4 text-sm"
                             >
-                                {pending === "resend-verification" ? "處理中…" : "重寄 Email 驗證信"}
+                                {pending === "resend-verification"
+                                    ? "處理中…"
+                                    : "重寄 Email 驗證信"}
                             </Button>
                         ) : null}
                     </>

@@ -10,7 +10,7 @@ export const metadata: Metadata = {
 function LoadingState() {
     return (
         <main className="article-dots flex flex-1 items-center justify-center bg-surface px-5 py-20">
-            <p className="font-sans text-base text-ink/65">正在載入心得文章…</p>
+            <p className="font-sans text-base text-copy-muted">正在載入心得文章…</p>
         </main>
     );
 }

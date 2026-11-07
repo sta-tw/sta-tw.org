@@ -2,31 +2,39 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { ChevronLeft, ChevronRight, Search } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { ChevronLeft, ChevronRight, Search, X } from "lucide-react";
+import { Suspense, useEffect, useMemo, useState, type FormEvent } from "react";
 import { twMerge } from "tailwind-merge";
-import { listExperiences, type Experience } from "../lib/api/content";
+import { readingTimeOf } from "../article/article-format";
+import { formatNumericDate } from "../lib/format";
+import { listExperienceTags, listExperiences } from "../lib/api/content";
 import {
     articleOverviewFallbackPath,
     getArticleOverviewImageMeta,
     getArticleOverviewImageUrl
 } from "../lib/api/site-assets";
-import { ApiError } from "../lib/api/types";
 import { publicPath } from "../lib/public-path";
+import { articleOverviewHref, experienceHref } from "../lib/routes";
 import { normalizeSearchText } from "../lib/text-normalize";
+import { useResource } from "../lib/use-resource";
+import { ContentCard } from "./card";
 import FaqAccordion from "./faq-accordion";
+import HashtagBadge from "./hashtag-badge";
+import IconButton from "./icon-button";
+import { EmptyState, LoadingState, Resource } from "./status";
 
 const fallbackArticleOverviewImage = publicPath(articleOverviewFallbackPath);
 
-// tagSizes/tagPositions give the hand-tuned "scattered word cloud" look
-// without needing real per-tag metadata — cycled by index over whatever
-// real tags deriveTags() finds, instead of a fixed hardcoded list.
+const CLOUD_TAG_LIMIT = 12;
+// Smallest to largest; a tag's size reflects how many articles use it.
 const tagSizes = [
     "text-xl sm:text-2xl",
     "text-2xl sm:text-3xl",
-    "text-4xl sm:text-5xl",
-    "text-3xl sm:text-4xl"
+    "text-3xl sm:text-4xl",
+    "text-4xl sm:text-5xl"
 ];
+// Hand-tuned offsets cycled by index for the "scattered word cloud" look.
 const tagPositions = [
     "self-start ml-[22%]",
     "self-end mr-[28%] -mt-2",
@@ -39,43 +47,30 @@ const tagPositions = [
     "self-end mr-[18%] -mt-5"
 ];
 
-// deriveTags pulls real words out of real published experience titles —
-// there's no dedicated tags/hashtags concept in the content backend yet, so
-// this is the only genuine signal available right now. Naturally returns
-// nothing (and the whole Hashtags section stays hidden) while there are no
-// real articles to derive anything from.
-function deriveTags(titles: string[]): string[] {
-    const counts = new Map<string, number>();
-    for (const title of titles) {
-        for (const token of title.split(/[\s、,，/|\-—]+/)) {
-            const trimmed = token.trim();
-            if (trimmed.length >= 2 && trimmed.length <= 6) {
-                counts.set(trimmed, (counts.get(trimmed) ?? 0) + 1);
-            }
-        }
-    }
-    return Array.from(counts.entries())
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 10)
-        .map(([label]) => label);
+type TagCount = { tag: string; count: number };
+
+function tagSizeClass(count: number, min: number, max: number) {
+    if (max === min) return tagSizes[1];
+    const level = Math.round(((count - min) / (max - min)) * (tagSizes.length - 1));
+    return tagSizes[level];
 }
 
-type ExperienceArticle = {
-    id: string;
-    title: string;
-    summary: string;
-    date: string;
-    readTime: string;
-    accent: "green" | "yellow";
-    searchText: string;
-};
+const searchable = (text: string) => normalizeSearchText(text.toLowerCase());
+
+// The backend only pages, so the overview loads one page and filters by
+// ?tag= / ?q= client-side; each item's search text is normalised once.
+const loadArticles = (signal: AbortSignal) =>
+    listExperiences({ limit: 100, signal }).then(({ data }) =>
+        data.map((article) => ({ article, text: searchable(`${article.title}\n${article.body}`) }))
+    );
+
+function excerptOf(body: string) {
+    const text = body.trim().replace(/\s+/g, " ");
+    return text.length > 200 ? `${text.slice(0, 200)}…` : text || "查看這篇特殊選才經驗分享。";
+}
 
 export default function ArticleOverview() {
     const [activeSlide, setActiveSlide] = useState(0);
-    const [query, setQuery] = useState("");
-    const [articles, setArticles] = useState<ExperienceArticle[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
     const [featuredImage, setFeaturedImage] = useState(fallbackArticleOverviewImage);
 
     useEffect(() => {
@@ -93,40 +88,6 @@ export default function ArticleOverview() {
             ignore = true;
         };
     }, []);
-
-    useEffect(() => {
-        const controller = new AbortController();
-
-        listExperiences({ limit: 100, signal: controller.signal })
-            .then((response) => {
-                if (controller.signal.aborted) return;
-                setArticles(response.data.map(experienceToArticle));
-                setError(null);
-            })
-            .catch((cause: unknown) => {
-                if (controller.signal.aborted) return;
-                setArticles([]);
-                setError(
-                    cause instanceof ApiError ? cause.message : "目前無法取得公開心得，請稍後再試。"
-                );
-            })
-            .finally(() => {
-                if (!controller.signal.aborted) setLoading(false);
-            });
-
-        return () => controller.abort();
-    }, []);
-
-    const filteredArticles = useMemo(() => {
-        const normalizedQuery = normalizeSearchText(query.trim().toLowerCase());
-        if (!normalizedQuery) return articles;
-
-        return articles.filter((article) =>
-            normalizeSearchText(article.searchText.toLowerCase()).includes(normalizedQuery)
-        );
-    }, [articles, query]);
-
-    const tags = useMemo(() => deriveTags(articles.map((article) => article.title)), [articles]);
 
     const slides = useMemo(
         () => [
@@ -210,72 +171,9 @@ export default function ArticleOverview() {
                 </section>
 
                 <div className="article-dots mt-0 px-4 py-7 sm:px-8 sm:py-10 lg:px-10">
-                    <label className="flex h-12 w-full items-center gap-3 rounded-[var(--radius-small)] border-2 border-[#ffc34e] bg-accent-yellow/70 px-4 text-ink shadow-sm sm:mx-auto sm:max-w-4xl">
-                        <Search aria-hidden className="h-6 w-6 shrink-0 stroke-[2.5]" />
-                        <span className="sr-only">搜尋文章</span>
-                        <input
-                            value={query}
-                            onChange={(event) => setQuery(event.target.value)}
-                            placeholder="嘗試搜尋「特選心得」"
-                            className="min-w-0 flex-1 bg-transparent font-sans text-base text-ink placeholder:text-ink/60 focus:outline-none sm:text-lg"
-                        />
-                    </label>
-
-                    <section
-                        aria-label="文章列表"
-                        className="mx-auto mt-8 flex max-w-6xl flex-col gap-5 sm:mt-10 sm:gap-6"
-                    >
-                        {loading ? (
-                            <p className="rounded-[var(--radius-small)] bg-ink/5 px-5 py-12 text-center text-lg text-ink/70">
-                                正在從後端載入公開心得…
-                            </p>
-                        ) : error ? (
-                            <div
-                                role="alert"
-                                className="rounded-[var(--radius-small)] border border-dashed border-ink/20 bg-ink/5 px-5 py-12 text-center"
-                            >
-                                <p className="text-lg font-medium text-ink">無法載入文章</p>
-                                <p className="mt-2 text-base text-ink/70">{error}</p>
-                            </div>
-                        ) : filteredArticles.length ? (
-                            filteredArticles.map((article) => (
-                                <ArticleCard key={article.title} article={article} />
-                            ))
-                        ) : (
-                            <p className="rounded-[var(--radius-small)] bg-ink/5 px-5 py-12 text-center text-lg text-ink/70">
-                                {query.trim()
-                                    ? `找不到符合「${query}」的文章。`
-                                    : "目前沒有可公開的心得文章。"}
-                            </p>
-                        )}
-                    </section>
-
-                    {tags.length > 0 && (
-                        <section aria-labelledby="hashtags-title" className="mt-16 sm:mt-20">
-                            <h2
-                                id="hashtags-title"
-                                className="font-serif text-3xl text-ink sm:text-4xl"
-                            >
-                                Hashtags
-                            </h2>
-                            <div className="mx-auto mt-5 flex max-w-2xl flex-col items-center gap-1 text-center sm:mt-7">
-                                {tags.map((label, index) => (
-                                    <button
-                                        key={label}
-                                        type="button"
-                                        onClick={() => setQuery(label)}
-                                        className={twMerge(
-                                            "rounded-[var(--radius-small)] bg-accent-yellow/80 px-2 py-0.5 font-sans leading-tight text-ink transition-transform hover:scale-105 focus-visible:ring-2 focus-visible:ring-ink focus-visible:outline-none",
-                                            tagSizes[index % tagSizes.length],
-                                            tagPositions[index % tagPositions.length]
-                                        )}
-                                    >
-                                        #{label}
-                                    </button>
-                                ))}
-                            </div>
-                        </section>
-                    )}
+                    <Suspense fallback={<LoadingState label="正在載入公開心得" />}>
+                        <ArticleExplorer />
+                    </Suspense>
 
                     <section aria-labelledby="article-faq-title" className="mt-20 sm:mt-24">
                         <h2
@@ -290,7 +188,7 @@ export default function ArticleOverview() {
                         <div className="mt-8 text-right sm:mt-10">
                             <Link
                                 href="/faq"
-                                className="text-base font-medium text-ink underline-offset-4 hover:underline focus-visible:ring-2 focus-visible:ring-ink focus-visible:outline-none sm:text-lg"
+                                className="text-base font-medium text-ink underline-offset-4 focus-ring hover:underline sm:text-lg"
                             >
                                 &gt;&gt; 查看完整常見問題
                             </Link>
@@ -302,53 +200,200 @@ export default function ArticleOverview() {
     );
 }
 
-function ArticleCard({ article }: { article: ExperienceArticle }) {
+/** Search bar, filtered list and tag cloud, all driven by ?tag= / ?q=. */
+function ArticleExplorer() {
+    const router = useRouter();
+    const searchParams = useSearchParams();
+    const tag = searchParams.get("tag")?.trim() ?? "";
+    const q = searchParams.get("q")?.trim() ?? "";
+    const { state, reload } = useResource(loadArticles);
+    const [tags, setTags] = useState<TagCount[]>([]);
+
+    const results = useMemo(() => {
+        if (state.status !== "ready") return [];
+        const query = searchable(q);
+        return state.data
+            .filter(
+                (item) =>
+                    (!tag || item.article.tags.includes(tag)) &&
+                    (!query || item.text.includes(query))
+            )
+            .map((item) => item.article);
+    }, [state, tag, q]);
+
+    useEffect(() => {
+        let ignore = false;
+        listExperienceTags()
+            .then(({ data }) => {
+                if (!ignore) setTags(data);
+            })
+            .catch(() => {
+                // The cloud simply stays hidden without tag data.
+            });
+        return () => {
+            ignore = true;
+        };
+    }, []);
+
+    const cloud = useMemo(() => {
+        const top = tags.slice(0, CLOUD_TAG_LIMIT);
+        const counts = top.map((item) => item.count);
+        const min = Math.min(...counts);
+        const max = Math.max(...counts);
+        // Alphabetical order scatters the big tags instead of stacking them on top.
+        return top
+            .map((item) => ({ ...item, size: tagSizeClass(item.count, min, max) }))
+            .sort((a, b) => a.tag.localeCompare(b.tag, "zh-TW"));
+    }, [tags]);
+
+    const onSearch = (event: FormEvent<HTMLFormElement>) => {
+        event.preventDefault();
+        const value = String(new FormData(event.currentTarget).get("q") ?? "").trim();
+        router.push(articleOverviewHref({ tag, q: value }), { scroll: false });
+    };
+
     return (
-        <Link
-            href={`/article/experience?id=${encodeURIComponent(article.id)}`}
-            className="block rounded-[var(--radius-small)] focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2 focus-visible:outline-none"
-            aria-label={`閱讀文章：${article.title}`}
-        >
-            <article className="grid gap-5 rounded-[var(--radius-small)] bg-ink/5 p-5 transition-colors hover:bg-ink/10 sm:grid-cols-[12rem_minmax(0,1fr)] sm:items-stretch sm:gap-7 sm:p-7 lg:grid-cols-[15.5rem_minmax(0,1fr)]">
-                <div
-                    aria-hidden
-                    className={twMerge(
-                        "min-h-40 rounded-[var(--radius-small)] sm:min-h-full",
-                        article.accent === "green" ? "bg-accent-green" : "bg-accent-yellow"
-                    )}
+        <>
+            <form
+                role="search"
+                key={q}
+                onSubmit={onSearch}
+                className="flex h-12 w-full items-center gap-1 rounded-[var(--radius-small)] border-2 border-accent-yellow-strong bg-accent-yellow/70 pr-4 pl-1 text-ink shadow-sm focus-within:ring-2 focus-within:ring-ink sm:mx-auto sm:max-w-4xl"
+            >
+                <IconButton
+                    type="submit"
+                    label="搜尋"
+                    icon={<Search className="h-6 w-6 stroke-[2.5]" />}
+                    className="h-10 w-10 shrink-0 hover:scale-105 focus-visible:outline-none"
                 />
-                <div className="flex min-w-0 flex-col">
-                    <h2 className="font-sans text-xl leading-snug font-medium text-ink sm:text-2xl lg:text-3xl">
-                        {article.title}
-                    </h2>
-                    <p className="mt-4 text-base leading-relaxed text-ink/80 sm:text-lg">
-                        {article.summary}
-                    </p>
-                    <time
-                        dateTime={article.date}
-                        className="mt-6 self-end text-base font-medium text-ink/80 sm:text-lg"
-                    >
-                        {article.date.replaceAll("-", " - ")}
-                    </time>
+                <label htmlFor="article-search" className="sr-only">
+                    搜尋文章
+                </label>
+                <input
+                    id="article-search"
+                    name="q"
+                    type="search"
+                    defaultValue={q}
+                    placeholder="嘗試搜尋「特選心得」"
+                    className="min-w-0 flex-1 bg-transparent font-sans text-base text-ink placeholder:text-ink/60 focus:outline-none sm:text-lg"
+                />
+            </form>
+
+            {(tag || q) && (
+                <div className="mx-auto mt-5 flex max-w-4xl flex-wrap items-center gap-2 font-sans text-sm text-copy-muted sm:text-base">
+                    <span>目前篩選：</span>
+                    {tag && (
+                        <FilterChip
+                            label={`#${tag}`}
+                            clearLabel={`清除標籤篩選 #${tag}`}
+                            href={articleOverviewHref({ q })}
+                        />
+                    )}
+                    {q && (
+                        <FilterChip
+                            label={`「${q}」`}
+                            clearLabel={`清除搜尋「${q}」`}
+                            href={articleOverviewHref({ tag })}
+                        />
+                    )}
                 </div>
-            </article>
-        </Link>
+            )}
+
+            <section
+                aria-labelledby="article-list-title"
+                className="mx-auto mt-8 flex max-w-6xl flex-col gap-5 sm:mt-10 sm:gap-6"
+            >
+                <h2 id="article-list-title" className="sr-only">
+                    文章列表
+                </h2>
+                <Resource state={state} reload={reload} loadingLabel="正在從後端載入公開心得">
+                    {() =>
+                        results.length ? (
+                            results.map((article) => (
+                                <ContentCard
+                                    key={article.id}
+                                    href={experienceHref(article.id)}
+                                    title={article.title}
+                                    excerpt={excerptOf(article.body)}
+                                    thumbnailSeed={article.id}
+                                    meta={
+                                        <>
+                                            <time dateTime={article.updated_at}>
+                                                {formatNumericDate(article.updated_at)}
+                                            </time>
+                                            <span>閱讀時間: {readingTimeOf(article.body)}</span>
+                                            {article.tags.slice(0, 3).map((item) => (
+                                                <HashtagBadge key={item} tag={item} />
+                                            ))}
+                                        </>
+                                    }
+                                />
+                            ))
+                        ) : (
+                            <EmptyState
+                                title={
+                                    tag || q
+                                        ? "找不到符合篩選條件的文章。"
+                                        : "目前沒有可公開的心得文章。"
+                                }
+                            />
+                        )
+                    }
+                </Resource>
+            </section>
+
+            {cloud.length > 0 && (
+                <section aria-labelledby="hashtags-title" className="mt-16 sm:mt-20">
+                    <h2 id="hashtags-title" className="font-serif text-3xl text-ink sm:text-4xl">
+                        Hashtags
+                    </h2>
+                    <ul className="mx-auto mt-5 flex max-w-2xl flex-col items-center gap-1 text-center sm:mt-7">
+                        {cloud.map((item, index) => (
+                            <li
+                                key={item.tag}
+                                className={tagPositions[index % tagPositions.length]}
+                            >
+                                <Link
+                                    href={articleOverviewHref({ tag: item.tag, q })}
+                                    scroll={false}
+                                    aria-current={item.tag === tag ? "true" : undefined}
+                                    className={twMerge(
+                                        "inline-block rounded-[var(--radius-small)] bg-accent-yellow/80 px-2 py-0.5 font-sans leading-tight text-ink focus-ring transition-transform hover:scale-105 aria-[current]:bg-accent-green aria-[current]:ring-2 aria-[current]:ring-ink",
+                                        item.size
+                                    )}
+                                >
+                                    #{item.tag}
+                                    <span className="sr-only">，{item.count} 篇文章</span>
+                                </Link>
+                            </li>
+                        ))}
+                    </ul>
+                </section>
+            )}
+        </>
     );
 }
 
-function experienceToArticle(experience: Experience, index: number): ExperienceArticle {
-    const body = experience.body.trim();
-    const summary = body.replace(/\s+/g, " ").slice(0, 160) || "查看這篇特殊選才經驗分享。";
-    const date = experience.updated_at.slice(0, 10);
-    const minutes = Math.max(1, Math.ceil(Array.from(body).length / 300));
-
-    return {
-        id: experience.id,
-        title: experience.title,
-        summary: summary.length < body.length ? `${summary}…` : summary,
-        date,
-        readTime: `${minutes} min`,
-        accent: index % 2 === 0 ? "green" : "yellow",
-        searchText: `${experience.title} ${body}`
-    };
+function FilterChip({
+    label,
+    clearLabel,
+    href
+}: {
+    label: string;
+    clearLabel: string;
+    href: string;
+}) {
+    return (
+        <span className="inline-flex items-center gap-1 rounded-full bg-accent-green/55 py-1 pr-1 pl-3 font-semibold text-ink">
+            {label}
+            <Link
+                href={href}
+                scroll={false}
+                aria-label={clearLabel}
+                className="inline-flex size-6 items-center justify-center rounded-full focus-ring hover:bg-ink/10"
+            >
+                <X aria-hidden className="size-4" />
+            </Link>
+        </span>
+    );
 }

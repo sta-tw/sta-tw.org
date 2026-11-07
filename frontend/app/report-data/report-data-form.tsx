@@ -2,8 +2,14 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { FileUp, Plus, Trash2, X } from "lucide-react";
-import { Label } from "radix-ui";
+import { Plus, Trash2, X } from "lucide-react";
+import Button from "../components/button";
+import Checkbox from "../components/checkbox";
+import Field, { FieldGroup } from "../components/field";
+import FileUpload from "../components/file-upload";
+import IconButton from "../components/icon-button";
+import { Input } from "../components/input";
+import Select from "../components/select";
 import TurnstileWidget from "../components/turnstile-widget";
 import {
     listPublicContributors,
@@ -12,16 +18,13 @@ import {
     type PublicContributor
 } from "../lib/api/contributions";
 import { ApiError } from "../lib/api/types";
+import { currentRocYear, formatBytes, rocYearOptions } from "../lib/format";
 
-const inputClass =
-    "w-full rounded-md border border-ink/20 bg-transparent px-3 py-2.5 font-sans text-base text-ink outline-none transition-colors placeholder:text-copy-muted focus:border-ink/50 focus:ring-2 focus:ring-ink/10";
-const focusClass =
-    "focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ink";
 const maxFileBytes = 10 * 1024 * 1024;
 const maxUploadFiles = 5;
 const maxContributionRows = 100;
-const latestAcademicYear = Math.max(116, new Date().getFullYear() - 1911);
-const academicYears = Array.from({ length: latestAcademicYear - 103 }, (_, index) => index + 104);
+const latestAcademicYear = Math.max(116, currentRocYear());
+const academicYearOptions = rocYearOptions({ from: 104, to: latestAcademicYear, order: "asc" });
 
 type ProgramCountRow = {
     id: number;
@@ -78,7 +81,7 @@ function contributionErrorMessage(cause: unknown): string {
 export default function ReportDataForm() {
     const [category, setCategory] = useState<ContributionCategory>("applicants");
     const [yearChoice, setYearChoice] = useState(String(latestAcademicYear));
-    const [fileName, setFileName] = useState("");
+    const [brochureFile, setBrochureFile] = useState<File | null>(null);
     const [nickname, setNickname] = useState("");
     const [publishNickname, setPublishNickname] = useState(false);
     const [submitting, setSubmitting] = useState(false);
@@ -115,19 +118,13 @@ export default function ReportDataForm() {
         }
         const form = event.currentTarget;
         const formData = new FormData(form);
-        const selectedFile = formData.get("file");
-        const brochureFile = selectedFile instanceof File && selectedFile.size > 0 ? selectedFile : null;
-        const hasSelectedFile = category === "historical_brochure"
-            ? brochureFile !== null
-            : dataInputMode === "upload" && uploadedFiles.length > 0;
-
         if (brochureFile && brochureFile.size > maxFileBytes) {
             setNotice("PDF 檔案大小不能超過 10 MB。");
             return;
         }
         if (
             category === "historical_brochure" &&
-            !hasSelectedFile &&
+            !brochureFile &&
             !String(formData.get("reference_url") ?? "").trim()
         ) {
             setNotice("請上傳歷屆簡章 PDF，或提供可檢閱的連結。");
@@ -147,11 +144,7 @@ export default function ReportDataForm() {
                 setNotice("每個檔案大小不能超過 10 MB，請移除超過上限的檔案。");
                 return;
             }
-            formData.delete("file");
             for (const file of uploadedFiles) formData.append("file", file, file.name);
-            formData.delete("data_text");
-            formData.delete("program_name");
-            formData.delete("people_count");
         } else if (category !== "historical_brochure") {
             const invalidRow = programRows.findIndex((row) => {
                 const countText = row.peopleCount.trim();
@@ -164,24 +157,22 @@ export default function ReportDataForm() {
                 );
             });
             if (invalidRow !== -1) {
-                setNotice(`第 ${invalidRow + 1} 列請填寫科系名稱和 0 到 1,000,000,000 之間的人數。`);
+                setNotice(
+                    `第 ${invalidRow + 1} 列請填寫科系名稱和 0 到 1,000,000,000 之間的人數。`
+                );
                 return;
             }
             if (programRows.length > maxContributionRows) {
                 setNotice(`資料最多可新增 ${maxContributionRows} 列。`);
                 return;
             }
-            formData.delete("file");
-            formData.delete("data_text");
-            formData.delete("program_name");
-            formData.delete("people_count");
             for (const row of programRows) {
                 formData.append("program_name", row.programName.trim());
                 formData.append("people_count", row.peopleCount.trim());
             }
         }
 
-        if (!hasSelectedFile) formData.delete("file");
+        if (brochureFile) formData.set("file", brochureFile);
         formData.set("academic_year", yearChoice);
         formData.set("category", category);
         formData.set("publish_nickname", publishNickname && nickname.trim() ? "true" : "false");
@@ -226,7 +217,7 @@ export default function ReportDataForm() {
                     ) : null}
                     <Link
                         href="/"
-                        className={`mt-4 inline-flex font-sans font-bold text-ink underline underline-offset-4 ${focusClass}`}
+                        className={`mt-4 inline-flex font-sans font-bold text-ink underline underline-offset-4 focus-ring`}
                     >
                         回到首頁
                     </Link>
@@ -260,15 +251,18 @@ export default function ReportDataForm() {
                         className="mb-6 border-l-2 border-l-accent-yellow-strong bg-accent-yellow-light/15 px-4 py-3"
                         aria-labelledby="contribution-help"
                     >
-                        <p id="contribution-help" className="font-sans text-sm leading-6 text-ink/80">
+                        <p
+                            id="contribution-help"
+                            className="font-sans text-sm leading-6 text-ink/80"
+                        >
                             避免重複回報，請先
                             <Link
                                 href="/report-data/records"
-                                className={`mx-1 font-bold text-ink underline underline-offset-4 ${focusClass}`}
+                                className={`mx-1 font-bold text-ink underline underline-offset-4 focus-ring`}
                             >
                                 查看資料清單
-                            </Link>。
-                            每次回報一間學校；人數資料可手動填寫或上傳檔案，擇一即可。
+                            </Link>
+                            。 每次回報一間學校；人數資料可手動填寫或上傳檔案，擇一即可。
                         </p>
                     </section>
                     <form
@@ -277,41 +271,30 @@ export default function ReportDataForm() {
                     >
                         <section className="grid gap-5 px-4 py-5 sm:px-6 sm:py-6">
                             <h2 className="font-sans text-base font-bold text-ink">基本資料</h2>
-                            <Field label="資料所屬學年度" htmlFor="contribution-year" required>
-                                <select
-                                    id="contribution-year"
+                            <Field label="資料所屬學年度" required>
+                                <Select
                                     name="academic_year"
                                     value={yearChoice}
                                     onChange={(event) => setYearChoice(event.target.value)}
-                                    className={inputClass}
-                                >
-                                    {academicYears.map((year) => (
-                                        <option key={year} value={year}>
-                                            {year}
-                                        </option>
-                                    ))}
-                                </select>
+                                    options={academicYearOptions}
+                                />
                             </Field>
-                            <Field label="提供資料的學校" htmlFor="contribution-school" required>
-                                <input
-                                    id="contribution-school"
+                            <Field label="提供資料的學校" required hint="不同學校請分次提交。">
+                                <Input
                                     name="school_name"
-                                    required
                                     maxLength={240}
-                                    className={inputClass}
                                     placeholder="請寫學校全名，例如：國立臺灣大學"
                                 />
-                                <span className="mt-1.5 block font-sans text-sm text-copy-muted">
-                                    不同學校請分次提交。
-                                </span>
                             </Field>
                         </section>
 
                         <section className="px-4 py-5 sm:px-6 sm:py-6">
-                            <fieldset className="border-0 p-0">
-                                <legend className="font-sans text-base font-bold text-ink sm:text-lg">
-                                    資料類別 <span className="text-red-700" aria-hidden="true">*</span>
-                                </legend>
+                            <FieldGroup
+                                label="資料類別"
+                                required
+                                className="block"
+                                legendClassName="mb-0 font-bold sm:text-lg"
+                            >
                                 <div className="mt-3 divide-y divide-ink/10 border-y border-ink/10">
                                     {categories.map((option) => (
                                         <label
@@ -330,7 +313,7 @@ export default function ReportDataForm() {
                                                 checked={category === option.value}
                                                 onChange={() => {
                                                     setCategory(option.value);
-                                                    setFileName("");
+                                                    setBrochureFile(null);
                                                     setUploadedFiles([]);
                                                 }}
                                                 className="mt-1 size-4 shrink-0 accent-ink"
@@ -341,17 +324,21 @@ export default function ReportDataForm() {
                                         </label>
                                     ))}
                                 </div>
-                            </fieldset>
+                            </FieldGroup>
                         </section>
 
                         {isCountContribution ? (
                             <section className="grid gap-5 px-4 py-5 sm:px-6 sm:py-6">
-                                <fieldset className="min-w-0 border-0 p-0">
-                                    <legend className="font-sans text-base font-bold text-ink sm:text-lg">
-                                        資料提供方式 <span className="text-red-700" aria-hidden="true">*</span>
-                                    </legend>
+                                <FieldGroup
+                                    label="資料提供方式"
+                                    required
+                                    className="block"
+                                    legendClassName="mb-0 font-bold sm:text-lg"
+                                >
                                     <div className="mt-3 divide-y divide-ink/10 border-y border-ink/10">
-                                        <label className={`flex cursor-pointer items-center gap-3 border-l-4 px-3 py-3 font-sans text-sm font-bold text-ink transition-colors ${dataInputMode === "manual" ? "border-l-accent-green-strong bg-accent-green/20" : "border-l-transparent hover:bg-accent-green/10"}`}>
+                                        <label
+                                            className={`flex cursor-pointer items-center gap-3 border-l-4 px-3 py-3 font-sans text-sm font-bold text-ink transition-colors ${dataInputMode === "manual" ? "border-l-accent-green-strong bg-accent-green/20" : "border-l-transparent hover:bg-accent-green/10"}`}
+                                        >
                                             <input
                                                 type="radio"
                                                 name="data_input_mode"
@@ -362,7 +349,9 @@ export default function ReportDataForm() {
                                             />
                                             手動填寫科系與人數
                                         </label>
-                                        <label className={`flex cursor-pointer items-center gap-3 border-l-4 px-3 py-3 font-sans text-sm font-bold text-ink transition-colors ${dataInputMode === "upload" ? "border-l-accent-green-strong bg-accent-green/20" : "border-l-transparent hover:bg-accent-green/10"}`}>
+                                        <label
+                                            className={`flex cursor-pointer items-center gap-3 border-l-4 px-3 py-3 font-sans text-sm font-bold text-ink transition-colors ${dataInputMode === "upload" ? "border-l-accent-green-strong bg-accent-green/20" : "border-l-transparent hover:bg-accent-green/10"}`}
+                                        >
                                             <input
                                                 type="radio"
                                                 name="data_input_mode"
@@ -385,29 +374,45 @@ export default function ReportDataForm() {
                                                         key={row.id}
                                                         className="grid grid-cols-[minmax(0,1fr)_1rem_5rem_1rem_2.5rem] items-center gap-1 border-b border-ink/10 py-2 sm:grid-cols-[minmax(0,1fr)_1.25rem_7rem_1.25rem_2.75rem] sm:gap-2 sm:py-2.5"
                                                     >
-                                                        <label className="sr-only" htmlFor={`contribution-program-${row.id}`}>
+                                                        <label
+                                                            className="sr-only"
+                                                            htmlFor={`contribution-program-${row.id}`}
+                                                        >
                                                             第 {index + 1} 列科系名稱
                                                         </label>
-                                                        <input
+                                                        <Input
                                                             id={`contribution-program-${row.id}`}
                                                             type="text"
                                                             required
                                                             maxLength={240}
                                                             value={row.programName}
                                                             onChange={(event) => {
-                                                                const programName = event.target.value;
-                                                                setProgramRows((rows) => rows.map((entry) =>
-                                                                    entry.id === row.id ? { ...entry, programName } : entry
-                                                                ));
+                                                                const programName =
+                                                                    event.target.value;
+                                                                setProgramRows((rows) =>
+                                                                    rows.map((entry) =>
+                                                                        entry.id === row.id
+                                                                            ? {
+                                                                                  ...entry,
+                                                                                  programName
+                                                                              }
+                                                                            : entry
+                                                                    )
+                                                                );
                                                             }}
-                                                            className={inputClass}
+                                                            className="px-3"
                                                             placeholder="科系名稱（不含「系」）"
                                                         />
-                                                        <span className="text-center font-sans text-sm font-bold text-copy-muted">系</span>
-                                                        <label className="sr-only" htmlFor={`contribution-people-${row.id}`}>
+                                                        <span className="text-center font-sans text-sm font-bold text-copy-muted">
+                                                            系
+                                                        </span>
+                                                        <label
+                                                            className="sr-only"
+                                                            htmlFor={`contribution-people-${row.id}`}
+                                                        >
                                                             第 {index + 1} 列人數
                                                         </label>
-                                                        <input
+                                                        <Input
                                                             id={`contribution-people-${row.id}`}
                                                             type="number"
                                                             required
@@ -416,59 +421,86 @@ export default function ReportDataForm() {
                                                             step={1}
                                                             value={row.peopleCount}
                                                             onChange={(event) => {
-                                                                const peopleCount = event.target.value;
-                                                                setProgramRows((rows) => rows.map((entry) =>
-                                                                    entry.id === row.id ? { ...entry, peopleCount } : entry
-                                                                ));
+                                                                const peopleCount =
+                                                                    event.target.value;
+                                                                setProgramRows((rows) =>
+                                                                    rows.map((entry) =>
+                                                                        entry.id === row.id
+                                                                            ? {
+                                                                                  ...entry,
+                                                                                  peopleCount
+                                                                              }
+                                                                            : entry
+                                                                    )
+                                                                );
                                                             }}
-                                                            className={`${inputClass} px-2 text-center sm:px-3`}
+                                                            className="px-2 text-center sm:px-3"
                                                             aria-label={`第 ${index + 1} 列人數`}
                                                         />
-                                                        <span className="text-center font-sans text-sm font-bold text-copy-muted">人</span>
-                                                        <button
+                                                        <span className="text-center font-sans text-sm font-bold text-copy-muted">
+                                                            人
+                                                        </span>
+                                                        <IconButton
                                                             type="button"
-                                                            onClick={() => setProgramRows((rows) => rows.length > 1 ? rows.filter((entry) => entry.id !== row.id) : rows)}
+                                                            onClick={() =>
+                                                                setProgramRows((rows) =>
+                                                                    rows.length > 1
+                                                                        ? rows.filter(
+                                                                              (entry) =>
+                                                                                  entry.id !==
+                                                                                  row.id
+                                                                          )
+                                                                        : rows
+                                                                )
+                                                            }
                                                             disabled={programRows.length === 1}
-                                                            aria-label={`刪除第 ${index + 1} 列`}
-                                                            className={`inline-flex size-10 items-center justify-center text-ink/65 transition-colors hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-35 ${focusClass}`}
-                                                        >
-                                                            <Trash2 aria-hidden className="size-4" />
-                                                        </button>
+                                                            label={`刪除第 ${index + 1} 列`}
+                                                            icon={<Trash2 className="size-4" />}
+                                                            className="size-10 text-copy-muted transition-colors hover:text-danger"
+                                                        />
                                                     </div>
                                                 ))}
                                             </div>
-                                            <button
+                                            <Button
                                                 type="button"
+                                                variant="secondary"
                                                 onClick={addProgramRow}
                                                 disabled={programRows.length >= maxContributionRows}
-                                                className={`mt-3 inline-flex h-10 items-center gap-2 border-b-2 border-accent-green-strong px-1 font-sans text-sm font-bold text-ink transition-colors hover:bg-accent-green/20 disabled:cursor-not-allowed disabled:opacity-50 ${focusClass}`}
+                                                size="sm"
+                                                className="mt-3 gap-2"
                                             >
                                                 <Plus aria-hidden className="size-4" />
                                                 新增
-                                            </button>
+                                            </Button>
                                         </>
                                     ) : (
-                                        <MultiFileInput files={uploadedFiles} onFilesChange={setUploadedFiles} />
+                                        <MultiFileInput
+                                            files={uploadedFiles}
+                                            onFilesChange={setUploadedFiles}
+                                        />
                                     )}
-                                </fieldset>
+                                </FieldGroup>
                             </section>
                         ) : (
                             <section className="grid gap-5 px-4 py-5 sm:px-6 sm:py-6">
                                 <h2 className="font-sans text-base font-bold text-ink">簡章資料</h2>
-                                <Field label="上傳簡章 PDF" htmlFor="contribution-file">
-                                    <FileInput fileName={fileName} onFileNameChange={setFileName} />
-                                    <span className="mt-2 block font-sans text-sm text-copy-muted">
-                                        檔案上限 10 MB。也可以只提供下方連結。
-                                    </span>
+                                <Field
+                                    label="上傳簡章 PDF"
+                                    hint="檔案上限 10 MB。也可以只提供下方連結。"
+                                >
+                                    <FileUpload
+                                        accept="application/pdf,.pdf"
+                                        label="選擇 PDF 檔案"
+                                        fileName={brochureFile?.name}
+                                        onFileSelected={setBrochureFile}
+                                    />
                                 </Field>
-                                <Field label="或提供可檢閱的連結" htmlFor="contribution-url">
-                                    <input
-                                        id="contribution-url"
+                                <Field label="或提供可檢閱的連結">
+                                    <Input
                                         name="reference_url"
                                         type="url"
                                         maxLength={2048}
-                                        required={!fileName}
-                                        className={inputClass}
+                                        required={!brochureFile}
                                         placeholder="https://..."
                                     />
                                 </Field>
@@ -477,39 +509,30 @@ export default function ReportDataForm() {
 
                         <section className="grid gap-5 px-4 py-5 sm:px-6 sm:py-6">
                             <h2 className="font-sans text-base font-bold text-ink">聯絡方式</h2>
-                            <Field label="聯絡信箱" htmlFor="contribution-email" required>
-                                <input
-                                    id="contribution-email"
+                            <Field label="聯絡信箱" required>
+                                <Input
                                     name="email"
                                     type="email"
                                     autoComplete="email"
-                                    required
                                     maxLength={254}
-                                    className={inputClass}
                                     placeholder="用於身分驗證、後續追蹤與寄送回報副本"
                                 />
                             </Field>
-                            <Field label="暱稱（選填）" htmlFor="contribution-nickname">
-                                <input
-                                    id="contribution-nickname"
+                            <Field label="暱稱（選填）">
+                                <Input
                                     name="nickname"
                                     value={nickname}
                                     onChange={(event) => setNickname(event.target.value)}
                                     maxLength={120}
-                                    className={inputClass}
                                     placeholder="可列入網站感謝名單"
                                 />
                             </Field>
-                            <label className="flex items-start gap-3 font-sans text-sm leading-6 text-ink/75">
-                                <input
-                                    type="checkbox"
-                                    checked={publishNickname}
-                                    onChange={(event) => setPublishNickname(event.target.checked)}
-                                    disabled={!nickname.trim()}
-                                    className="mt-1 size-4 shrink-0 accent-ink"
-                                />
-                                <span>我同意本站在資料採用後，將此暱稱公開於感謝名單。</span>
-                            </label>
+                            <Checkbox
+                                label="我同意本站在資料採用後，將此暱稱公開於感謝名單。"
+                                checked={publishNickname}
+                                onCheckedChange={setPublishNickname}
+                                disabled={!nickname.trim()}
+                            />
                         </section>
 
                         <section className="grid gap-5 px-4 py-5 sm:px-6 sm:py-6">
@@ -518,13 +541,18 @@ export default function ReportDataForm() {
                                 aria-hidden="true"
                             >
                                 網站
-                                <input name="website" type="text" tabIndex={-1} autoComplete="off" />
+                                <input
+                                    name="website"
+                                    type="text"
+                                    tabIndex={-1}
+                                    autoComplete="off"
+                                />
                             </label>
 
                             {notice ? (
                                 <p
                                     role="alert"
-                                    className="border-l-2 border-red-700 bg-red-50/40 px-3 py-2.5 font-sans text-sm text-red-800"
+                                    className="border-l-2 border-danger bg-danger/5 px-3 py-2.5 font-sans text-sm text-danger"
                                 >
                                     {notice}
                                 </p>
@@ -538,21 +566,25 @@ export default function ReportDataForm() {
 
                             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                                 <p className="font-sans text-sm leading-6 text-copy-muted">
-                                    聯絡信箱供身分驗證與後續追蹤使用；回報副本會寄到此信箱，PDF 不會附在確認信中。
+                                    聯絡信箱供身分驗證與後續追蹤使用；回報副本會寄到此信箱，PDF
+                                    不會附在確認信中。
                                 </p>
-                                <button
+                                <Button
                                     type="submit"
                                     disabled={submitting || !turnstileToken}
-                                    className={`inline-flex h-11 w-full shrink-0 items-center justify-center bg-button px-5 font-sans text-base font-bold text-button-foreground transition-colors hover:bg-button-hover disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto ${focusClass}`}
+                                    className="w-full shrink-0 sm:w-auto"
                                 >
                                     {submitting ? "送出中…" : "送出資料"}
-                                </button>
+                                </Button>
                             </div>
                         </section>
                     </form>
 
                     {contributors.length > 0 ? (
-                        <section className="mt-8 border-t border-ink/10 pt-6" aria-labelledby="contribution-thanks">
+                        <section
+                            className="mt-8 border-t border-ink/10 pt-6"
+                            aria-labelledby="contribution-thanks"
+                        >
                             <h3
                                 id="contribution-thanks"
                                 className="font-sans text-base font-bold text-ink"
@@ -577,60 +609,6 @@ export default function ReportDataForm() {
     );
 }
 
-function Field({
-    label,
-    htmlFor,
-    required = false,
-    children
-}: {
-    label: string;
-    htmlFor: string;
-    required?: boolean;
-    children: React.ReactNode;
-}) {
-    return (
-        <div className="min-w-0">
-            <Label.Root
-                htmlFor={htmlFor}
-                className="mb-2 block font-sans text-sm font-bold text-ink sm:text-base"
-            >
-                {label}
-                {required ? (
-                    <span className="ml-1 text-red-700" aria-hidden="true">
-                        *
-                    </span>
-                ) : null}
-            </Label.Root>
-            {children}
-        </div>
-    );
-}
-
-function FileInput({
-    fileName,
-    onFileNameChange
-}: {
-    fileName: string;
-    onFileNameChange: (value: string) => void;
-}) {
-    return (
-        <label className="inline-flex min-h-10 max-w-full cursor-pointer items-center gap-2 border-b border-ink/25 py-2 font-sans text-sm font-bold text-ink transition-colors hover:border-ink/60">
-            <FileUp aria-hidden className="size-4 shrink-0 text-ink/65" />
-            <span className="min-w-0 break-all">
-                {fileName || "選擇 PDF 檔案"}
-            </span>
-            <input
-                id="contribution-file"
-                name="file"
-                type="file"
-                accept="application/pdf,.pdf"
-                onChange={(event) => onFileNameChange(event.target.files?.[0]?.name ?? "")}
-                className="sr-only"
-            />
-        </label>
-    );
-}
-
 function MultiFileInput({
     files,
     onFilesChange
@@ -640,22 +618,12 @@ function MultiFileInput({
 }) {
     return (
         <div className="mt-3">
-            <label className="inline-flex min-h-10 max-w-full cursor-pointer items-center gap-2 border-b border-ink/25 py-2 font-sans text-sm font-bold text-ink transition-colors hover:border-ink/60">
-                <FileUp aria-hidden className="size-4 shrink-0 text-ink/65" />
-                <span className="min-w-0 break-words">
-                    {files.length > 0 ? `已選擇 ${files.length} 個檔案` : "選擇資料檔"}
-                </span>
-                <input
-                    type="file"
-                    multiple
-                    accept=".pdf,.csv,.tsv,.txt,.json,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.jpg,.jpeg,.png,.gif,.webp"
-                    onChange={(event) => {
-                        onFilesChange(Array.from(event.currentTarget.files ?? []));
-                        event.currentTarget.value = "";
-                    }}
-                    className="sr-only"
-                />
-            </label>
+            <FileUpload
+                multiple
+                accept=".pdf,.csv,.tsv,.txt,.json,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.jpg,.jpeg,.png,.gif,.webp"
+                label={files.length > 0 ? `已選擇 ${files.length} 個檔案` : "選擇資料檔"}
+                onFilesSelected={onFilesChange}
+            />
             {files.length > 0 ? (
                 <ul className="mt-3 grid gap-2">
                     {files.map((file, index) => (
@@ -663,20 +631,23 @@ function MultiFileInput({
                             key={`${file.name}-${file.size}-${file.lastModified}-${index}`}
                             className="flex min-w-0 items-center justify-between gap-3 border-b border-ink/10 py-2"
                         >
-                            <span className="min-w-0 break-all font-sans text-sm text-ink">
+                            <span className="min-w-0 font-sans text-sm break-all text-ink">
                                 {file.name}
-                                <span className="ml-2 whitespace-nowrap text-xs text-copy-muted">
-                                    {(file.size / (1024 * 1024)).toFixed(1)} MB
+                                <span className="ml-2 text-xs whitespace-nowrap text-copy-muted">
+                                    {formatBytes(file.size)}
                                 </span>
                             </span>
-                            <button
+                            <IconButton
                                 type="button"
-                                onClick={() => onFilesChange(files.filter((_, fileIndex) => fileIndex !== index))}
-                                aria-label={`移除 ${file.name}`}
-                                className={`inline-flex size-9 shrink-0 items-center justify-center text-ink/65 transition-colors hover:text-red-700 ${focusClass}`}
-                            >
-                                <X aria-hidden className="size-4" />
-                            </button>
+                                onClick={() =>
+                                    onFilesChange(
+                                        files.filter((_, fileIndex) => fileIndex !== index)
+                                    )
+                                }
+                                label={`移除 ${file.name}`}
+                                icon={<X className="size-4" />}
+                                className="size-9 shrink-0 text-copy-muted transition-colors hover:text-danger"
+                            />
                         </li>
                     ))}
                 </ul>

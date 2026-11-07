@@ -22,7 +22,7 @@ export default function AdminAdvertisingPage() {
                         管理文章總覽主視覺，未來可在這裡延伸廣告素材、版位與曝光設定。
                     </p>
                 </div>
-                <Button asChild variant="secondary" className="h-10 px-4 font-sans text-sm">
+                <Button asChild variant="secondary" size="sm">
                     <Link href="/admin">
                         <ArrowLeft aria-hidden className="mr-2 h-4 w-4" />
                         回到管理總覽

@@ -2,15 +2,12 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Label } from "radix-ui";
 import Button from "../components/button";
+import Field from "../components/field";
+import { Input } from "../components/input";
 import { confirmPasswordReset } from "../lib/api/auth";
 import { ApiError } from "../lib/api/types";
-
-const focusStyle =
-    "focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ink";
-const inputStyle =
-    "h-12 w-full rounded-xl border border-ink/25 bg-white/70 px-4 text-base placeholder:text-ink/45 focus:border-ink focus:outline-2 focus:outline-offset-2 focus:outline-accent-green-strong";
+import RequestResetForm from "./request-reset-form";
 
 function errorMessage(error: unknown): string {
     if (error instanceof ApiError) {
@@ -29,7 +26,8 @@ function errorMessage(error: unknown): string {
 }
 
 export default function ResetPasswordForm() {
-    const [token, setToken] = useState("");
+    // null until the query string has been read on the client.
+    const [token, setToken] = useState<string | null>(null);
     const [notice, setNotice] = useState("");
     const [password, setPassword] = useState("");
     const [confirmation, setConfirmation] = useState("");
@@ -43,16 +41,24 @@ export default function ResetPasswordForm() {
         setToken(params.get("token") ?? "");
     }, []);
 
+    if (token === null) return null;
+    if (!token) return <RequestResetForm />;
+
     if (done) {
         return (
             <div className="w-full max-w-md text-center">
-                <h1 id="reset-password-title" className="mb-4 text-3xl leading-tight font-medium text-ink sm:text-4xl">
+                <h1
+                    id="reset-password-title"
+                    className="mb-4 text-3xl leading-tight font-medium text-ink sm:text-4xl"
+                >
                     密碼設定完成
                 </h1>
-                <p className="text-base leading-relaxed text-copy-muted">帳號已經可以用了，用新密碼登入吧。</p>
+                <p className="text-base leading-relaxed text-copy-muted">
+                    帳號已經可以用了，用新密碼登入吧。
+                </p>
                 <Link
                     href="/login"
-                    className={`mt-6 inline-block font-bold text-ink underline underline-offset-4 ${focusStyle}`}
+                    className={`mt-6 inline-block font-bold text-ink underline underline-offset-4 focus-ring`}
                 >
                     前往登入
                 </Link>
@@ -72,10 +78,6 @@ export default function ResetPasswordForm() {
                 onSubmit={(event) => {
                     event.preventDefault();
                     if (submitting) return;
-                    if (!token) {
-                        setNotice("連結缺少必要參數，請確認網址完整。");
-                        return;
-                    }
                     if (password !== confirmation) {
                         setMismatch(true);
                         return;
@@ -90,12 +92,8 @@ export default function ResetPasswordForm() {
                 }}
             >
                 <div className="space-y-4">
-                    <div className="flex flex-col gap-2">
-                        <Label.Root htmlFor="reset-password" className="text-base font-medium text-ink">
-                            新密碼
-                        </Label.Root>
-                        <input
-                            id="reset-password"
+                    <Field label="新密碼">
+                        <Input
                             name="password"
                             type="password"
                             autoComplete="new-password"
@@ -109,15 +107,13 @@ export default function ResetPasswordForm() {
                                 setPassword(event.target.value);
                                 setMismatch(false);
                             }}
-                            className={inputStyle}
                         />
-                    </div>
-                    <div className="flex flex-col gap-2">
-                        <Label.Root htmlFor="reset-password-confirmation" className="text-base font-medium text-ink">
-                            再次輸入新密碼
-                        </Label.Root>
-                        <input
-                            id="reset-password-confirmation"
+                    </Field>
+                    <Field
+                        label="再次輸入新密碼"
+                        error={mismatch ? "兩次輸入的密碼不一致。" : undefined}
+                    >
+                        <Input
                             name="confirmation"
                             type="password"
                             autoComplete="new-password"
@@ -128,22 +124,10 @@ export default function ResetPasswordForm() {
                                 setConfirmation(event.target.value);
                                 setMismatch(false);
                             }}
-                            aria-invalid={mismatch}
-                            aria-describedby={mismatch ? "reset-password-error" : undefined}
-                            className={inputStyle}
                         />
-                        {mismatch && (
-                            <p id="reset-password-error" role="alert" className="text-sm text-red-700">
-                                兩次輸入的密碼不一致。
-                            </p>
-                        )}
-                    </div>
+                    </Field>
                 </div>
-                <Button
-                    type="submit"
-                    disabled={submitting}
-                    className={`mt-6 h-12 w-full rounded-xl bg-accent-green font-sans text-lg text-ink hover:bg-accent-green-strong active:bg-accent-green-strong disabled:cursor-not-allowed disabled:opacity-60 ${focusStyle}`}
-                >
+                <Button type="submit" disabled={submitting} className="mt-6 w-full">
                     {submitting ? "設定中…" : "設定密碼"}
                 </Button>
             </form>

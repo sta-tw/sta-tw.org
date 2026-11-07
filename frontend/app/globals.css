@@ -12,6 +12,8 @@
     --accent-yellow-strong: #ffc452;
     --accent-yellow: #ffe184;
     --accent-yellow-light: #fdffab;
+    /* Hover fill / border for accent-yellow surfaces. */
+    --accent-yellow-deep: #f6bd42;
     --accent-green: #d9edbf;
     --accent-green-strong: #badaaf;
     --radius-control: 1rem;
@@ -35,6 +37,9 @@
     --line-height-feature-title: 1.2;
     --line-height-feature-body: 1.45;
     --copy-muted: rgba(54, 53, 53, 0.7);
+    --danger: #dc2626;
+    /* Light grey for disabled controls and de-emphasised status text. */
+    --disabled: #d9d9d9;
 }
 
 @theme inline {
@@ -49,9 +54,12 @@
     --color-accent-yellow: var(--accent-yellow);
     --color-accent-yellow-strong: var(--accent-yellow-strong);
     --color-accent-yellow-light: var(--accent-yellow-light);
+    --color-accent-yellow-deep: var(--accent-yellow-deep);
     --color-accent-green: var(--accent-green);
     --color-accent-green-strong: var(--accent-green-strong);
     --color-copy-muted: var(--copy-muted);
+    --color-danger: var(--danger);
+    --color-disabled: var(--disabled);
     --radius-control: var(--radius-control);
     --radius-panel: var(--radius-panel);
     --radius-small: var(--radius-small);
@@ -73,6 +81,14 @@
     --text-feature-body--line-height: var(--line-height-feature-body);
     --font-sans: var(--font-noto-sans-tc);
     --font-serif: var(--font-noto-serif-tc);
+}
+
+/* The site's one keyboard focus indicator. */
+@utility focus-ring {
+    &:focus-visible {
+        outline: 2px solid var(--color-ink);
+        outline-offset: 2px;
+    }
 }
 
 body {

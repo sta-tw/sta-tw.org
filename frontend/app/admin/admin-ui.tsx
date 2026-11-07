@@ -11,12 +11,8 @@ import { Dialog } from "radix-ui";
 import { twMerge } from "tailwind-merge";
 import { AlertCircle, Loader2, X } from "lucide-react";
 import Button from "../components/button";
-import { ApiError } from "../lib/api/types";
 
-export function describeError(cause: unknown): string {
-    if (cause instanceof ApiError) return cause.message || `發生錯誤（${cause.code}）`;
-    return "發生未知錯誤，請稍後再試。";
-}
+export { describeError } from "../lib/describe-error";
 
 export function formatDate(iso?: string): string {
     if (!iso) return "—";
@@ -35,7 +31,8 @@ export const textareaClass = twMerge(inputClass, "min-h-20 w-full resize-y");
 /** The card container class repeated (with slightly different borders/
  * shadows each time) across every admin page. Exported as a plain string too
  * so a non-div element (e.g. a `<form>`) can still use it directly. */
-export const panelClassName = "rounded-[var(--radius-panel)] border border-ink/10 bg-surface p-5 shadow-[var(--shadow-card)]";
+export const panelClassName =
+    "rounded-[var(--radius-panel)] border border-ink/10 bg-surface p-5 shadow-[var(--shadow-card)]";
 
 export function AdminPanel({
     className,
@@ -56,7 +53,9 @@ export function Th({ children }: { children?: React.ReactNode }) {
 }
 
 export function Td({ children, className }: { children: React.ReactNode; className?: string }) {
-    return <td className={twMerge("px-4 py-3 font-sans text-sm text-ink", className)}>{children}</td>;
+    return (
+        <td className={twMerge("px-4 py-3 font-sans text-sm text-ink", className)}>{children}</td>
+    );
 }
 
 /** Wraps a `<table>` in the scroll/rounded/shadow shell every admin table
@@ -79,7 +78,9 @@ export function AdminTable({
                     {children}
                 </tbody>
             </table>
-            {isEmpty ? <p className="p-6 text-center font-sans text-sm text-copy-muted">{emptyLabel}</p> : null}
+            {isEmpty ? (
+                <p className="p-6 text-center font-sans text-sm text-copy-muted">{emptyLabel}</p>
+            ) : null}
         </div>
     );
 }
@@ -100,7 +101,13 @@ export const badgeToneClasses: Record<BadgeTone, string> = {
  * doesn't fit the {tone, children} shape (e.g. a badge-shaped dialog
  * trigger button) can still reuse the exact same colors via
  * badgePillClass/badgeToneClasses directly — see admissions-view.tsx. */
-export function Badge({ tone = "neutral", children }: { tone?: BadgeTone; children: React.ReactNode }) {
+export function Badge({
+    tone = "neutral",
+    children
+}: {
+    tone?: BadgeTone;
+    children: React.ReactNode;
+}) {
     return <span className={twMerge(badgePillClass, badgeToneClasses[tone])}>{children}</span>;
 }
 
@@ -156,9 +163,13 @@ export function AdminDialog({
                 >
                     <div className="flex items-start justify-between gap-4">
                         <div>
-                            <Dialog.Title className="font-serif text-xl text-ink">{title}</Dialog.Title>
+                            <Dialog.Title className="font-serif text-xl text-ink">
+                                {title}
+                            </Dialog.Title>
                             {description ? (
-                                <p className="mt-1 font-sans text-sm text-copy-muted">{description}</p>
+                                <p className="mt-1 font-sans text-sm text-copy-muted">
+                                    {description}
+                                </p>
                             ) : null}
                         </div>
                         <Dialog.Close asChild>
@@ -199,15 +210,25 @@ export function ConfirmDialog({
     onConfirm: () => void;
 }) {
     return (
-        <AdminDialog open={open} onOpenChange={onOpenChange} title={title} description={description}>
+        <AdminDialog
+            open={open}
+            onOpenChange={onOpenChange}
+            title={title}
+            description={description}
+        >
             <div className="flex justify-end gap-2 pt-2">
-                <Button type="button" variant="secondary" className="h-10 px-4 text-sm" onClick={() => onOpenChange(false)}>
+                <Button
+                    type="button"
+                    variant="secondary"
+                    className="h-10 px-4 text-sm"
+                    onClick={() => onOpenChange(false)}
+                >
                     取消
                 </Button>
                 <Button
                     type="button"
                     variant="danger"
-                    className="h-10 px-4 font-sans text-sm"
+                    size="sm"
                     disabled={pending}
                     onClick={onConfirm}
                 >
