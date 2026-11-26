@@ -1,4 +1,6 @@
 import { apiFetch } from "./client";
+import { mockResponse, mockStore } from "./mock";
+import { ApiError } from "./types";
 
 /** applications.Application — a 校系 the student applied to. Unrelated to
  * account-applications.ts (the sign-up request flow). */
@@ -12,6 +14,10 @@ export interface Application {
     academic_year: number;
     status: string;
     locked_at?: string;
+    /** Last four characters of the saved 准考證號碼; MOCK field, see below. */
+    candidate_number_last4?: string;
+    /** 1-based 志願序 among applications with a candidate number; MOCK. */
+    preference_rank?: number;
 }
 
 /** "115 學年度 國立臺灣大學 資訊工程學系" */
@@ -22,8 +28,8 @@ export const applicationLabel = (application: Application) =>
 export const APPLICATION_BATCH_LIMIT = 50;
 
 /** GET /api/v1/applications — needs a verified identity (403
- * verification_required otherwise). */
-export function listApplications(options?: { signal?: AbortSignal }) {
+ * verification_required otherwise). Wrapped below. */
+function realListApplications(options?: { signal?: AbortSignal }) {
     return apiFetch<{ data: Application[] }>("/api/v1/applications", {
         signal: options?.signal
     });
@@ -88,8 +94,8 @@ export function listApplicationInquiries(
 }
 
 /** PUT /api/v1/applications/{applicationID}/candidate-number — 4–64 chars
- * of [A-Za-z0-9-_]; responds 204. */
-export function setCandidateNumber(applicationID: string, candidateNumber: string) {
+ * of [A-Za-z0-9-_]; responds 204. Wrapped below. */
+function realSetCandidateNumber(applicationID: string, candidateNumber: string) {
     return apiFetch<void>(
         `/api/v1/applications/${encodeURIComponent(applicationID)}/candidate-number`,
         { method: "PUT", body: { candidate_number: candidateNumber } }
@@ -105,4 +111,87 @@ export function setWillingness(
         `/api/v1/applications/${encodeURIComponent(applicationID)}/willingness`,
         { method: "PUT", body: input }
     );
+}
+
+/** 報到意願 wording for each willingness value, strongest first. */
+export const willingnessLabels: Record<(typeof WILLINGNESS_VALUES)[number], string> = {
+    100: "必報到",
+    80: "很可能報到",
+    60: "傾向報到",
+    40: "觀望中",
+    20: "不太可能報到",
+    0: "確定放棄"
+};
+
+// ---------------------------------------------------------------------------
+// Not backed yet — see lib/api/mock.ts. The backend only reveals whether a
+// candidate number is set through the result (404 until results are out) and
+// has no 志願序, so this browser remembers both; the anonymous per-rank board
+// for 交叉查榜查詢 doesn't exist yet either.
+
+const CANDIDATE_KEY = "application-candidate-numbers";
+const ORDER_KEY = "application-preference-order";
+const BOARD_KEY = "application-result-boards";
+
+/** GET /api/v1/applications with MOCK: `candidate_number_last4` and
+ * `preference_rank` on every item. */
+export async function listApplications(options?: {
+    signal?: AbortSignal;
+}): Promise<{ data: Application[] }> {
+    const { data } = await realListApplications(options);
+    const last4 = mockStore.read<Record<string, string>>(CANDIDATE_KEY, {});
+    const order = mockStore
+        .read<string[]>(ORDER_KEY, [])
+        .filter((id) => last4[id] && data.some((item) => item.id === id));
+    // Applications given a number but missing from the stored order go last.
+    for (const item of data) if (last4[item.id] && !order.includes(item.id)) order.push(item.id);
+    return {
+        data: data.map((item) => ({
+            ...item,
+            candidate_number_last4: last4[item.id],
+            preference_rank: order.includes(item.id) ? order.indexOf(item.id) + 1 : undefined
+        }))
+    };
+}
+
+/** PUT /api/v1/applications/{applicationID}/candidate-number; MOCK: the
+ * last four characters are remembered for listApplications. */
+export async function setCandidateNumber(applicationID: string, candidateNumber: string) {
+    await realSetCandidateNumber(applicationID, candidateNumber);
+    mockStore.write(CANDIDATE_KEY, {
+        ...mockStore.read<Record<string, string>>(CANDIDATE_KEY, {}),
+        [applicationID]: candidateNumber.slice(-4)
+    });
+}
+
+/** MOCK: PUT /api/v1/applications/preferences — the full 志願序, most
+ * wanted first; only applications with a candidate number can be ranked. */
+export function setApplicationPreferences(applicationIDs: string[]) {
+    return mockResponse(() => {
+        mockStore.write(ORDER_KEY, applicationIDs);
+    });
+}
+
+/** One row of the anonymous 交叉查榜 board: everyone on the official list
+ * for the program, in list order. */
+export interface ResultBoardRow {
+    /** "正取" or "備取 3" style label from the official list. */
+    label: string;
+    result_status: "admitted" | "waitlisted";
+    /** Whether that candidate has registered for 交叉查榜 here. */
+    registered: boolean;
+    willingness?: (typeof WILLINGNESS_VALUES)[number];
+    is_me: boolean;
+}
+
+/** MOCK: GET /api/v1/applications/{applicationID}/result/board — 404
+ * result_not_found until the list is out, like the result itself. */
+export function getResultBoard(applicationID: string, options?: { signal?: AbortSignal }) {
+    return mockResponse(() => {
+        const board = mockStore.read<Record<string, ResultBoardRow[]>>(BOARD_KEY, {})[
+            applicationID
+        ];
+        if (!board) throw new ApiError(404, "result_not_found", "榜單尚未公布。");
+        return { data: board };
+    }, options?.signal);
 }
