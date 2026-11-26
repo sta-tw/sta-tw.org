@@ -221,7 +221,9 @@ function PreferencesForm() {
     );
 }
 
-const sectionClass = "flex flex-col gap-3 border-t border-ink/10 pt-5 first:border-t-0 first:pt-0";
+// Each fieldset sits in a div that carries the divider: a border on the
+// fieldset itself would run through its legend.
+const sectionClass = "py-5 first:pt-0";
 
 function PreferencesEditor({
     initial,
@@ -256,57 +258,61 @@ function PreferencesEditor({
     }
 
     return (
-        <form onSubmit={save} className="mt-5 flex flex-col gap-5">
-            <FieldGroup label="通知管道" className={sectionClass}>
-                <p className="-mt-1 font-sans text-sm text-copy-muted">
-                    站內通知一律會顯示在下方；勾選後也會另外寄送。帳號安全信件（驗證、密碼重設）不受影響。
-                </p>
-                <Checkbox
-                    label="Email（寄到你的聯絡信箱）"
-                    checked={preferences.channels.email}
-                    onCheckedChange={(checked) => setChannel("email", checked)}
-                />
-                <div className="flex flex-col gap-1">
+        <form onSubmit={save} className="mt-5 flex flex-col divide-y divide-ink/10">
+            <div className={sectionClass}>
+                <FieldGroup label="通知管道">
+                    <p className="-mt-1 font-sans text-sm text-copy-muted">
+                        站內通知一律會顯示在下方；勾選後也會另外寄送。帳號安全信件（驗證、密碼重設）不受影響。
+                    </p>
                     <Checkbox
-                        label="Discord（由特選群機器人私訊）"
-                        checked={discordLinked && preferences.channels.discord}
-                        disabled={!discordLinked}
-                        onCheckedChange={(checked) => setChannel("discord", checked)}
+                        label="Email（寄到你的聯絡信箱）"
+                        checked={preferences.channels.email}
+                        onCheckedChange={(checked) => setChannel("email", checked)}
                     />
-                    {!discordLinked && (
-                        <p className="pl-8 font-sans text-sm text-copy-muted">
-                            需先
-                            <Link
-                                href="/account/verification"
-                                className="mx-1 text-ink underline underline-offset-4"
-                            >
-                                綁定 Discord 帳號
-                            </Link>
-                            ，並加入特選群。
-                        </p>
-                    )}
-                </div>
-            </FieldGroup>
-            {kindGroups.map(({ group, title }) => (
-                <FieldGroup key={group} label={title} className={sectionClass}>
-                    {NOTIFICATION_KINDS.filter((item) => item.group === group).map(
-                        ({ kind, label }) => (
-                            <Checkbox
-                                key={kind}
-                                label={label}
-                                checked={preferences.kinds[kind] ?? false}
-                                onCheckedChange={(checked) =>
-                                    update((current) => ({
-                                        ...current,
-                                        kinds: { ...current.kinds, [kind]: checked }
-                                    }))
-                                }
-                            />
-                        )
-                    )}
+                    <div className="flex flex-col gap-1">
+                        <Checkbox
+                            label="Discord（由特選群機器人私訊）"
+                            checked={discordLinked && preferences.channels.discord}
+                            disabled={!discordLinked}
+                            onCheckedChange={(checked) => setChannel("discord", checked)}
+                        />
+                        {!discordLinked && (
+                            <p className="pl-8 font-sans text-sm text-copy-muted">
+                                需先
+                                <Link
+                                    href="/account/verification"
+                                    className="mx-1 text-ink underline underline-offset-4"
+                                >
+                                    綁定 Discord 帳號
+                                </Link>
+                                ，並加入特選群。
+                            </p>
+                        )}
+                    </div>
                 </FieldGroup>
+            </div>
+            {kindGroups.map(({ group, title }) => (
+                <div key={group} className={sectionClass}>
+                    <FieldGroup label={title}>
+                        {NOTIFICATION_KINDS.filter((item) => item.group === group).map(
+                            ({ kind, label }) => (
+                                <Checkbox
+                                    key={kind}
+                                    label={label}
+                                    checked={preferences.kinds[kind] ?? false}
+                                    onCheckedChange={(checked) =>
+                                        update((current) => ({
+                                            ...current,
+                                            kinds: { ...current.kinds, [kind]: checked }
+                                        }))
+                                    }
+                                />
+                            )
+                        )}
+                    </FieldGroup>
+                </div>
             ))}
-            <div className="flex flex-col gap-3 border-t border-ink/10 pt-5 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-col gap-3 pt-5 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex flex-col gap-1">
                     <StatusText>{saved ? "已儲存通知偏好。" : null}</StatusText>
                     <ErrorText>{error}</ErrorText>

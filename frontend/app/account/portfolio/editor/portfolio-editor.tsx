@@ -192,48 +192,51 @@ function EditorForm({ portfolio }: { portfolio: Portfolio | null }) {
                 </Field>
             </section>
 
-            <FieldGroup label="分享範圍" required className="border-t border-ink/10 pt-6">
-                <RadioGroup
-                    value={visibility}
-                    onValueChange={(value) => setVisibility(value as PortfolioVisibility)}
-                    options={[
-                        {
-                            value: "private",
-                            label: "私人",
-                            description: "只有自己看得到，不需要審核。"
-                        },
-                        {
-                            value: "exchange",
-                            label: "交換備審",
-                            disabled: !verified,
-                            description: verified ? (
-                                "僅限已驗證的特選生瀏覽，需經審核。"
-                            ) : (
-                                <>
-                                    需先
-                                    <Link
-                                        href="/account/verification"
-                                        className="mx-1 text-ink underline underline-offset-4"
-                                    >
-                                        完成身分驗證
-                                    </Link>
-                                    才能交換。
-                                </>
-                            )
-                        },
-                        {
-                            value: "public",
-                            label: "公開備審",
-                            description: "所有人都能瀏覽與下載，需經審核。"
-                        }
-                    ]}
-                />
-                {reviewed && (
-                    <p className="font-sans text-sm text-copy-muted">
-                        已分享的備審修改後需要重新送審，審核通過前其他人看不到這份備審。
-                    </p>
-                )}
-            </FieldGroup>
+            {/* The divider is on a wrapper: on the fieldset it would cross the legend. */}
+            <div className="border-t border-ink/10 pt-6">
+                <FieldGroup label="分享範圍" required>
+                    <RadioGroup
+                        value={visibility}
+                        onValueChange={(value) => setVisibility(value as PortfolioVisibility)}
+                        options={[
+                            {
+                                value: "private",
+                                label: "私人",
+                                description: "只有自己看得到，不需要審核。"
+                            },
+                            {
+                                value: "exchange",
+                                label: "交換備審",
+                                disabled: !verified,
+                                description: verified ? (
+                                    "僅限已驗證的特選生瀏覽，需經審核。"
+                                ) : (
+                                    <>
+                                        需先
+                                        <Link
+                                            href="/account/verification"
+                                            className="mx-1 text-ink underline underline-offset-4"
+                                        >
+                                            完成身分驗證
+                                        </Link>
+                                        才能交換。
+                                    </>
+                                )
+                            },
+                            {
+                                value: "public",
+                                label: "公開備審",
+                                description: "所有人都能瀏覽與下載，需經審核。"
+                            }
+                        ]}
+                    />
+                    {reviewed && (
+                        <p className="font-sans text-sm text-copy-muted">
+                            已分享的備審修改後需要重新送審，審核通過前其他人看不到這份備審。
+                        </p>
+                    )}
+                </FieldGroup>
+            </div>
 
             <section aria-labelledby="portfolio-items" className="flex flex-col gap-4">
                 <div className="flex flex-wrap items-baseline justify-between gap-2 border-t border-ink/10 pt-6">
