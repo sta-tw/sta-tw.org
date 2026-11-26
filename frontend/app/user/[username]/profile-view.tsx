@@ -7,34 +7,32 @@ import { EmptyState, Resource, StatusBadge } from "../../components/status";
 import Markdown from "../../components/markdown";
 import Avatar from "../../components/avatar";
 import Button from "../../components/button";
-import { Card, ContentCard } from "../../components/card";
-import HashtagBadge from "../../components/hashtag-badge";
+import { Card } from "../../components/card";
+import ExperienceCard from "../../components/experience-card";
+import PortfolioCard from "../../components/portfolio-card";
 import StatusPage from "../../components/status-page";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/tabs";
-import { readingTimeOf } from "../../article/article-format";
-import { formatNumericDate } from "../../lib/format";
 import { listUserExperiences, type TaggedExperience } from "../../lib/api/content";
 import {
     displayNameOf,
     getPublicProfile,
     getPublicProfileDetails,
     identityStatusLabels,
-    listUserPortfolio,
     profileAvatarSrc,
     resolveUser,
     type Profile,
-    type PublicPortfolioItem,
     type PublicProfileDetails
 } from "../../lib/api/profile";
+import { listUserPortfolios, type Portfolio } from "../../lib/api/portfolio";
 import { ApiError } from "../../lib/api/types";
-import { experienceHref, loginHref, userHref } from "../../lib/routes";
+import { loginHref, userHref } from "../../lib/routes";
 import { useResource } from "../../lib/use-resource";
 
 type ProfilePage = {
     profile: Profile;
     details: PublicProfileDetails;
     articles: TaggedExperience[];
-    portfolio: PublicPortfolioItem[];
+    portfolio: Portfolio[];
 };
 
 const isStatus = (cause: unknown, status: number) =>
@@ -51,7 +49,7 @@ export default function ProfileView({ username: segment }: { username: string })
                 getPublicProfile(username, { signal }),
                 getPublicProfileDetails(username, { signal }),
                 listUserExperiences(username, { signal }),
-                listUserPortfolio(username, { signal })
+                listUserPortfolios(username, { signal })
             ]);
             return {
                 profile: profile.data,
@@ -190,23 +188,7 @@ function ProfileContent({ profile, details, articles, portfolio }: ProfilePage) 
                             <ul className="flex flex-col gap-4">
                                 {articles.map((article) => (
                                     <li key={article.id}>
-                                        <ContentCard
-                                            href={experienceHref(article.id)}
-                                            title={article.title}
-                                            excerpt={article.body.slice(0, 160)}
-                                            thumbnailSeed={article.id}
-                                            meta={
-                                                <>
-                                                    <time dateTime={article.created_at}>
-                                                        {formatNumericDate(article.created_at)}
-                                                    </time>
-                                                    <span>{readingTimeOf(article.body)}</span>
-                                                    {article.tags.map((tag) => (
-                                                        <HashtagBadge key={tag} tag={tag} />
-                                                    ))}
-                                                </>
-                                            }
-                                        />
+                                        <ExperienceCard experience={article} />
                                     </li>
                                 ))}
                             </ul>
@@ -219,20 +201,10 @@ function ProfileContent({ profile, details, articles, portfolio }: ProfilePage) 
                 {details.show_portfolio && (
                     <TabsContent value="portfolio" className="mt-6">
                         {portfolio.length > 0 ? (
-                            <ul className="grid gap-4 sm:grid-cols-2">
+                            <ul className="flex flex-col gap-3">
                                 {portfolio.map((item) => (
-                                    <li key={item.file_id}>
-                                        <Card className="h-full">
-                                            <p className="font-sans text-sm text-copy-muted">
-                                                {item.academic_year} 學年度・{item.school_name}
-                                            </p>
-                                            <h3 className="mt-1 font-sans text-xl font-medium text-ink">
-                                                {item.project_title}
-                                            </h3>
-                                            <p className="mt-2 font-sans text-sm text-copy-muted">
-                                                {item.program_name}
-                                            </p>
-                                        </Card>
+                                    <li key={item.id}>
+                                        <PortfolioCard portfolio={item} showAuthor={false} />
                                     </li>
                                 ))}
                             </ul>

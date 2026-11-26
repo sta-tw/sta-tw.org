@@ -209,20 +209,3 @@ export function getPublicProfileDetails(username: string, options?: { signal?: A
         };
     }, options?.signal);
 }
-
-/** A published portfolio file as it will appear on someone's public profile. */
-export interface PublicPortfolioItem {
-    file_id: string;
-    project_title: string;
-    school_name: string;
-    program_name: string;
-    academic_year: number;
-    published_at: string;
-}
-
-/** MOCK: GET /api/v1/users/{username}/portfolio — published files only. There
- * is no public portfolio listing yet, so the mock is always empty. */
-export function listUserPortfolio(username: string, options?: { signal?: AbortSignal }) {
-    void username;
-    return mockResponse((): { data: PublicPortfolioItem[] } => ({ data: [] }), options?.signal);
-}
