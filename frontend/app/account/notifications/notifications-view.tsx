@@ -1,24 +1,30 @@
 "use client";
 
+import Link from "next/link";
 import { Bell, CheckCheck } from "lucide-react";
 import { useState } from "react";
 import { twMerge } from "tailwind-merge";
 import Button from "../../components/button";
 import { Card } from "../../components/card";
 import Checkbox from "../../components/checkbox";
+import { listLinkedIdentities } from "../../lib/api/identities";
 import {
+    DEFAULT_NOTIFICATION_PREFERENCES,
     getNotificationPreferences,
     listNotifications,
     markAllNotificationsRead,
     markNotificationRead,
     NOTIFICATION_KINDS,
+    notificationKindLabel,
     updateNotificationPreferences,
     type Notification,
+    type NotificationChannel,
+    type NotificationGroup,
     type NotificationPreferences
 } from "../../lib/api/notifications";
 import AccountPage from "../account-page";
 import { FieldGroup } from "../../components/field";
-import { EmptyState, ErrorText, Resource, SaveBar, StatusBadge } from "../../components/status";
+import { EmptyState, ErrorText, Resource, StatusBadge, StatusText } from "../../components/status";
 import { useAction, useResource } from "../../lib/use-resource";
 import { formatDateTime } from "../../lib/format";
 
@@ -33,16 +39,25 @@ const fetchPage = (cursor?: string, signal?: AbortSignal) =>
 const loadFirstPage = (signal: AbortSignal) => fetchPage(undefined, signal);
 
 const loadPreferences = (signal: AbortSignal) =>
-    getNotificationPreferences({ signal }).then(({ data }) => data);
+    Promise.all([
+        getNotificationPreferences({ signal }),
+        // Only decides whether the Discord channel can be turned on.
+        listLinkedIdentities({ signal }).then(
+            ({ data }) => data.some((identity) => identity.provider === "discord"),
+            () => false
+        )
+    ]).then(([{ data }, discordLinked]) => ({ preferences: data, discordLinked }));
 
-const kindLabel = (kind: string) =>
-    NOTIFICATION_KINDS.find((item) => item.kind === kind)?.label ?? "系統通知";
+const kindGroups: { group: NotificationGroup; title: string }[] = [
+    { group: "personal", title: "通知項目 - 個人" },
+    { group: "interaction", title: "通知項目 - 互動" }
+];
 
 export default function NotificationsView() {
     return (
-        <AccountPage title="通知設定" description="查看站內通知，並選擇想收到哪些提醒。">
-            <NotificationList />
+        <AccountPage title="通知設定" description="選擇想收到哪些提醒，以及要寄到哪裡。">
             <PreferencesForm />
+            <NotificationList />
         </AccountPage>
     );
 }
@@ -71,7 +86,7 @@ function NotificationList() {
 
     return (
         <Card
-            title="站內通知"
+            title="最近的通知"
             className="flex flex-col gap-5"
             actions={
                 hasUnread && (
@@ -130,7 +145,7 @@ function NotificationList() {
                                                         </StatusBadge>
                                                     )}
                                                     <StatusBadge>
-                                                        {kindLabel(item.kind)}
+                                                        {notificationKindLabel(item.kind)}
                                                     </StatusBadge>
                                                     <time
                                                         dateTime={item.created_at}
@@ -198,18 +213,36 @@ function PreferencesForm() {
     return (
         <Card title="通知偏好" className="flex flex-col gap-5">
             <Resource state={state} reload={reload}>
-                {(initial) => <PreferencesEditor initial={initial} />}
+                {({ preferences, discordLinked }) => (
+                    <PreferencesEditor initial={preferences} discordLinked={discordLinked} />
+                )}
             </Resource>
         </Card>
     );
 }
 
-function PreferencesEditor({ initial }: { initial: NotificationPreferences }) {
+const sectionClass = "flex flex-col gap-3 border-t border-ink/10 pt-5 first:border-t-0 first:pt-0";
+
+function PreferencesEditor({
+    initial,
+    discordLinked
+}: {
+    initial: NotificationPreferences;
+    discordLinked: boolean;
+}) {
     const [preferences, setPreferences] = useState(initial);
     const { pending, error, run } = useAction();
     const [saved, setSaved] = useState(false);
 
-    const kindEnabled = (kind: string) => preferences.kinds[kind] ?? true;
+    const update = (next: (current: NotificationPreferences) => NotificationPreferences) => {
+        setSaved(false);
+        setPreferences(next);
+    };
+    const setChannel = (channel: NotificationChannel, checked: boolean) =>
+        update((current) => ({
+            ...current,
+            channels: { ...current.channels, [channel]: checked }
+        }));
 
     async function save(event: React.FormEvent) {
         event.preventDefault();
@@ -223,44 +256,76 @@ function PreferencesEditor({ initial }: { initial: NotificationPreferences }) {
     }
 
     return (
-        <form onSubmit={save} className="flex flex-col gap-6">
-            <FieldGroup label="通知類型" className="gap-4">
-                {NOTIFICATION_KINDS.map(({ kind, label, description }) => (
-                    <div key={kind} className="flex flex-col gap-1">
-                        <Checkbox
-                            label={label}
-                            checked={kindEnabled(kind)}
-                            onCheckedChange={(checked) =>
-                                setPreferences((current) => ({
-                                    ...current,
-                                    kinds: { ...current.kinds, [kind]: checked }
-                                }))
-                            }
-                        />
-                        <p className="pl-8 font-sans text-sm text-copy-muted">{description}</p>
-                    </div>
-                ))}
-            </FieldGroup>
-            <fieldset className="flex flex-col gap-1 border-t border-ink/10 pt-5">
-                <legend className="sr-only">寄送方式</legend>
-                <Checkbox
-                    label="同時以 Email 寄送通知"
-                    checked={preferences.email_enabled}
-                    onCheckedChange={(checked) =>
-                        setPreferences((current) => ({ ...current, email_enabled: checked }))
-                    }
-                />
-                <p className="pl-8 font-sans text-sm text-copy-muted">
-                    驗證信、密碼重設等帳號安全信件不受此設定影響，一律會寄出。
+        <form onSubmit={save} className="mt-5 flex flex-col gap-5">
+            <FieldGroup label="通知管道" className={sectionClass}>
+                <p className="-mt-1 font-sans text-sm text-copy-muted">
+                    站內通知一律會顯示在下方；勾選後也會另外寄送。帳號安全信件（驗證、密碼重設）不受影響。
                 </p>
-            </fieldset>
-            <SaveBar
-                pending={pending !== null}
-                saved={saved}
-                error={error}
-                label="儲存設定"
-                savedText="已儲存通知偏好。"
-            />
+                <Checkbox
+                    label="Email（寄到你的聯絡信箱）"
+                    checked={preferences.channels.email}
+                    onCheckedChange={(checked) => setChannel("email", checked)}
+                />
+                <div className="flex flex-col gap-1">
+                    <Checkbox
+                        label="Discord（由特選群機器人私訊）"
+                        checked={discordLinked && preferences.channels.discord}
+                        disabled={!discordLinked}
+                        onCheckedChange={(checked) => setChannel("discord", checked)}
+                    />
+                    {!discordLinked && (
+                        <p className="pl-8 font-sans text-sm text-copy-muted">
+                            需先
+                            <Link
+                                href="/account/verification"
+                                className="mx-1 text-ink underline underline-offset-4"
+                            >
+                                綁定 Discord 帳號
+                            </Link>
+                            ，並加入特選群。
+                        </p>
+                    )}
+                </div>
+            </FieldGroup>
+            {kindGroups.map(({ group, title }) => (
+                <FieldGroup key={group} label={title} className={sectionClass}>
+                    {NOTIFICATION_KINDS.filter((item) => item.group === group).map(
+                        ({ kind, label }) => (
+                            <Checkbox
+                                key={kind}
+                                label={label}
+                                checked={preferences.kinds[kind] ?? false}
+                                onCheckedChange={(checked) =>
+                                    update((current) => ({
+                                        ...current,
+                                        kinds: { ...current.kinds, [kind]: checked }
+                                    }))
+                                }
+                            />
+                        )
+                    )}
+                </FieldGroup>
+            ))}
+            <div className="flex flex-col gap-3 border-t border-ink/10 pt-5 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex flex-col gap-1">
+                    <StatusText>{saved ? "已儲存通知偏好。" : null}</StatusText>
+                    <ErrorText>{error}</ErrorText>
+                </div>
+                <div className="flex flex-col-reverse gap-3 sm:flex-row">
+                    <Button
+                        type="button"
+                        variant="secondary"
+                        size="base"
+                        disabled={pending !== null}
+                        onClick={() => update(() => DEFAULT_NOTIFICATION_PREFERENCES)}
+                    >
+                        恢復預設值
+                    </Button>
+                    <Button type="submit" size="base" disabled={pending !== null}>
+                        {pending ? "儲存中…" : "儲存"}
+                    </Button>
+                </div>
+            </div>
         </form>
     );
 }
