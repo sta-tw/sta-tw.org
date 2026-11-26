@@ -1,22 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { ExternalLink, PenLine } from "lucide-react";
+import { useSearchParams } from "next/navigation";
+import { ExternalLink, Pencil, Plus } from "lucide-react";
 import { useState } from "react";
 import Button from "../../components/button";
-import { Card } from "../../components/card";
 import ConfirmDialog from "../../components/confirm-dialog";
-import HashtagBadge from "../../components/hashtag-badge";
-import {
-    listMyExperiences,
-    submitExperienceRevision,
-    unpublishExperience,
-    type Experience,
-    type ExperienceReviewStatus,
-    type MyExperience,
-    type TaggedExperience
-} from "../../lib/api/content";
-import AccountPage from "../account-page";
+import ExperienceCard from "../../components/experience-card";
 import {
     EmptyState,
     ErrorText,
@@ -25,18 +15,19 @@ import {
     StatusText,
     type BadgeTone
 } from "../../components/status";
+import {
+    listMyExperiences,
+    submitExperienceRevision,
+    unpublishExperience,
+    type ExperienceReviewStatus,
+    type MyExperience
+} from "../../lib/api/content";
+import { experienceEditorHref, experienceHref } from "../../lib/routes";
 import { useAction, useResource } from "../../lib/use-resource";
-import { formatDate } from "../../lib/format";
-import { experienceHref } from "../../lib/routes";
-import ExperienceEditor, { SUBMITTED_MESSAGE } from "./experience-editor";
+import AccountPage from "../account-page";
+import { articlesNoticeText } from "./articles-notice";
 
 const loadMine = (signal: AbortSignal) => listMyExperiences({ signal }).then(({ data }) => data);
-
-const visibilityBadge: Record<Experience["visibility"], { label: string; tone: BadgeTone }> = {
-    hidden: { label: "未公開", tone: "neutral" },
-    published: { label: "已發布", tone: "success" },
-    unpublished: { label: "已下架", tone: "neutral" }
-};
 
 const reviewBadge: Record<ExperienceReviewStatus, { label: string; tone: BadgeTone }> = {
     draft: { label: "草稿", tone: "neutral" },
@@ -45,107 +36,120 @@ const reviewBadge: Record<ExperienceReviewStatus, { label: string; tone: BadgeTo
     rejected: { label: "未通過審核", tone: "danger" }
 };
 
-type EditorState = { experience: TaggedExperience | null } | null;
+type SectionKey = "pending" | "drafts" | "published" | "unpublished";
+
+const sections: { key: SectionKey; title: string }[] = [
+    { key: "pending", title: "待審核的文章" },
+    { key: "drafts", title: "草稿" },
+    { key: "published", title: "已發布的文章" },
+    { key: "unpublished", title: "已下架的文章" }
+];
+
+/** The latest revision's review decides where an article is listed; once
+ * approved, its visibility does. */
+function sectionOf(experience: MyExperience): SectionKey {
+    if (experience.review_status === "pending_review") return "pending";
+    if (experience.review_status !== "approved") return "drafts";
+    return experience.visibility === "published" ? "published" : "unpublished";
+}
 
 export default function ArticlesView() {
+    const notice = articlesNoticeText(useSearchParams().get("notice"));
     const { state, reload, setData } = useResource(loadMine);
     const { pending, error, run } = useAction();
-    const [editor, setEditor] = useState<EditorState>(null);
-    const [notice, setNotice] = useState<string | null>(null);
+    const [actionNotice, setActionNotice] = useState<string | null>(null);
 
     const patch = (id: string, update: Partial<MyExperience>) =>
         setData((items) => items.map((item) => (item.id === id ? { ...item, ...update } : item)));
 
     async function act(id: string, action: () => Promise<void>, success: string) {
-        setNotice(null);
-        if (await run(id, action)) setNotice(success);
+        setActionNotice(null);
+        if (await run(id, action)) setActionNotice(success);
     }
 
-    const openEditor = (experience: TaggedExperience | null) => {
-        setNotice(null);
-        setEditor({ experience });
-    };
-
     return (
-        <AccountPage
-            title="文章發佈"
-            description="分享你的特選準備心得。文章經管理員審核通過後才會公開。"
-            actions={
-                !editor && (
-                    <Button size="base" className="gap-2" onClick={() => openEditor(null)}>
-                        <PenLine aria-hidden className="size-4" />
-                        撰寫新文章
-                    </Button>
-                )
-            }
-        >
-            {editor && (
-                <ExperienceEditor
-                    key={editor.experience?.current_revision_id ?? "new"}
-                    experience={editor.experience}
-                    onCancel={() => setEditor(null)}
-                    onDone={(saved, text) => {
-                        setEditor(null);
-                        setNotice(text);
-                        // Put the saved version first, like the server's
-                        // most-recently-changed order.
-                        setData((items) => [
-                            saved,
-                            ...items.filter((item) => item.id !== saved.id)
-                        ]);
-                    }}
-                />
-            )}
+        <AccountPage title="文章發佈" description="分享你的特選準備心得，審核通過後就會公開。">
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-[var(--radius-panel)] border border-ink/10 bg-surface p-4 sm:px-6">
+                <p className="font-sans text-base text-ink">新增一篇文章</p>
+                <Button asChild size="sm" className="gap-2">
+                    <Link href={experienceEditorHref()}>
+                        <Plus aria-hidden className="size-4" />
+                        新增文章
+                    </Link>
+                </Button>
+            </div>
+
             <ErrorText>{error}</ErrorText>
-            <StatusText>{notice}</StatusText>
+            <StatusText>{actionNotice ?? notice}</StatusText>
+
             <Resource state={state} reload={reload}>
                 {(experiences) =>
                     experiences.length === 0 ? (
-                        !editor && (
-                            <EmptyState
-                                title="還沒有發佈過文章"
-                                description="寫下你的申請經驗，幫助下一屆的特選生。"
-                            />
-                        )
+                        <EmptyState
+                            title="還沒有發佈過文章"
+                            description="寫下你的申請經驗，幫助下一屆的特選生。"
+                        />
                     ) : (
-                        <ul className="flex flex-col gap-4">
-                            {experiences.map((experience) => (
-                                <li key={experience.id}>
-                                    <ExperienceItem
-                                        experience={experience}
-                                        busy={pending === experience.id}
-                                        onEdit={() => openEditor(experience)}
-                                        onSubmit={() =>
-                                            act(
-                                                experience.id,
-                                                async () => {
-                                                    const { data } = await submitExperienceRevision(
-                                                        experience.current_revision_id
-                                                    );
-                                                    patch(experience.id, {
-                                                        ...data,
-                                                        review_status: "pending_review"
-                                                    });
-                                                },
-                                                SUBMITTED_MESSAGE
-                                            )
-                                        }
-                                        onUnpublish={() =>
-                                            act(
-                                                experience.id,
-                                                async () => {
-                                                    await unpublishExperience(experience.id);
-                                                    patch(experience.id, {
-                                                        visibility: "unpublished"
-                                                    });
-                                                },
-                                                "文章已下架。"
-                                            )
-                                        }
-                                    />
-                                </li>
-                            ))}
-                        </ul>
+                        sections.map((section) => {
+                            const items = experiences.filter(
+                                (item) => sectionOf(item) === section.key
+                            );
+                            if (items.length === 0) return null;
+                            return (
+                                <section
+                                    key={section.key}
+                                    aria-labelledby={`articles-${section.key}`}
+                                    className="flex flex-col gap-4 border-t border-ink/10 pt-6"
+                                >
+                                    <h2
+                                        id={`articles-${section.key}`}
+                                        className="font-sans text-2xl font-medium text-ink"
+                                    >
+                                        {section.title}
+                                    </h2>
+                                    <ul className="flex flex-col gap-5">
+                                        {items.map((experience) => (
+                                            <li key={experience.id}>
+                                                <ExperienceItem
+                                                    experience={experience}
+                                                    busy={pending === experience.id}
+                                                    onSubmit={() =>
+                                                        act(
+                                                            experience.id,
+                                                            async () => {
+                                                                const { data } =
+                                                                    await submitExperienceRevision(
+                                                                        experience.current_revision_id
+                                                                    );
+                                                                patch(experience.id, {
+                                                                    ...data,
+                                                                    review_status: "pending_review"
+                                                                });
+                                                            },
+                                                            "已送出審核，通過後會公開。"
+                                                        )
+                                                    }
+                                                    onUnpublish={() =>
+                                                        act(
+                                                            experience.id,
+                                                            async () => {
+                                                                await unpublishExperience(
+                                                                    experience.id
+                                                                );
+                                                                patch(experience.id, {
+                                                                    visibility: "unpublished"
+                                                                });
+                                                            },
+                                                            "文章已下架。"
+                                                        )
+                                                    }
+                                                />
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </section>
+                            );
+                        })
                     )
                 }
             </Resource>
@@ -156,55 +160,48 @@ export default function ArticlesView() {
 function ExperienceItem({
     experience,
     busy,
-    onEdit,
     onSubmit,
     onUnpublish
 }: {
     experience: MyExperience;
     busy: boolean;
-    onEdit: () => void;
     onSubmit: () => void;
     onUnpublish: () => void;
 }) {
-    const visibility = visibilityBadge[experience.visibility];
     const review = reviewBadge[experience.review_status];
+    const published = experience.visibility === "published";
     const canSubmit =
         experience.review_status === "draft" || experience.review_status === "rejected";
 
     return (
-        <Card className="flex flex-col gap-4 p-5 sm:p-6">
-            <div className="flex flex-wrap items-center gap-2">
-                <StatusBadge tone={visibility.tone}>{visibility.label}</StatusBadge>
-                <StatusBadge tone={review.tone}>
-                    第 {experience.revision_number} 版・{review.label}
-                </StatusBadge>
-                <time
-                    dateTime={experience.updated_at}
-                    className="font-sans text-sm text-copy-muted"
-                >
-                    更新於 {formatDate(experience.updated_at)}
-                </time>
-            </div>
-            <h2 className="font-sans text-xl leading-snug font-medium break-words text-ink sm:text-2xl">
-                {experience.title}
-            </h2>
-            {experience.tags.length > 0 && (
-                <div className="flex flex-wrap gap-2">
-                    {experience.tags.map((tag) => (
-                        <HashtagBadge key={tag} tag={tag} />
-                    ))}
-                </div>
-            )}
+        <article aria-label={experience.title} className="flex flex-col gap-3">
+            <ExperienceCard
+                experience={experience}
+                href={published ? experienceHref(experience.id) : null}
+                eyebrow={
+                    <span className="flex flex-wrap items-center gap-2">
+                        <StatusBadge tone={review.tone}>
+                            第 {experience.revision_number} 版・{review.label}
+                        </StatusBadge>
+                        {published && experience.review_status !== "approved" && (
+                            <StatusBadge tone="success">目前公開中</StatusBadge>
+                        )}
+                    </span>
+                }
+            />
             <div className="flex flex-wrap gap-2">
-                <Button variant="secondary" size="sm" disabled={busy} onClick={onEdit}>
-                    編輯
+                <Button asChild variant="secondary" size="sm" className="gap-2">
+                    <Link href={experienceEditorHref(experience.id)}>
+                        <Pencil aria-hidden className="size-4" />
+                        編輯
+                    </Link>
                 </Button>
                 {canSubmit && (
                     <Button size="sm" disabled={busy} onClick={onSubmit}>
                         送出審核
                     </Button>
                 )}
-                {experience.visibility === "published" && (
+                {published && (
                     <>
                         <Button asChild variant="secondary" size="sm" className="gap-2">
                             <Link href={experienceHref(experience.id)}>
@@ -226,6 +223,6 @@ function ExperienceItem({
                     </>
                 )}
             </div>
-        </Card>
+        </article>
     );
 }

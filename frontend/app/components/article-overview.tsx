@@ -6,8 +6,6 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { ChevronLeft, ChevronRight, Search, X } from "lucide-react";
 import { Suspense, useEffect, useMemo, useState, type FormEvent } from "react";
 import { twMerge } from "tailwind-merge";
-import { readingTimeOf } from "../article/article-format";
-import { formatNumericDate } from "../lib/format";
 import { listExperienceTags, listExperiences } from "../lib/api/content";
 import {
     articleOverviewFallbackPath,
@@ -15,12 +13,11 @@ import {
     getArticleOverviewImageUrl
 } from "../lib/api/site-assets";
 import { publicPath } from "../lib/public-path";
-import { articleOverviewHref, experienceHref } from "../lib/routes";
+import { articleOverviewHref } from "../lib/routes";
 import { normalizeSearchText } from "../lib/text-normalize";
 import { useResource } from "../lib/use-resource";
-import { ContentCard } from "./card";
+import ExperienceCard from "./experience-card";
 import FaqAccordion from "./faq-accordion";
-import HashtagBadge from "./hashtag-badge";
 import IconButton from "./icon-button";
 import { EmptyState, LoadingState, Resource } from "./status";
 
@@ -63,11 +60,6 @@ const loadArticles = (signal: AbortSignal) =>
     listExperiences({ limit: 100, signal }).then(({ data }) =>
         data.map((article) => ({ article, text: searchable(`${article.title}\n${article.body}`) }))
     );
-
-function excerptOf(body: string) {
-    const text = body.trim().replace(/\s+/g, " ");
-    return text.length > 200 ? `${text.slice(0, 200)}…` : text || "查看這篇特殊選才經驗分享。";
-}
 
 export default function ArticleOverview() {
     const [activeSlide, setActiveSlide] = useState(0);
@@ -310,24 +302,7 @@ function ArticleExplorer() {
                     {() =>
                         results.length ? (
                             results.map((article) => (
-                                <ContentCard
-                                    key={article.id}
-                                    href={experienceHref(article.id)}
-                                    title={article.title}
-                                    excerpt={excerptOf(article.body)}
-                                    thumbnailSeed={article.id}
-                                    meta={
-                                        <>
-                                            <time dateTime={article.updated_at}>
-                                                {formatNumericDate(article.updated_at)}
-                                            </time>
-                                            <span>閱讀時間: {readingTimeOf(article.body)}</span>
-                                            {article.tags.slice(0, 3).map((item) => (
-                                                <HashtagBadge key={item} tag={item} />
-                                            ))}
-                                        </>
-                                    }
-                                />
+                                <ExperienceCard key={article.id} experience={article} />
                             ))
                         ) : (
                             <EmptyState

@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
+import { LoadingState } from "../../components/status";
 import ArticlesView from "./articles-view";
 
 export const metadata: Metadata = {
@@ -6,5 +8,10 @@ export const metadata: Metadata = {
 };
 
 export default function Page() {
-    return <ArticlesView />;
+    return (
+        // ArticlesView reads the editor's ?notice= from useSearchParams.
+        <Suspense fallback={<LoadingState />}>
+            <ArticlesView />
+        </Suspense>
+    );
 }
