@@ -26,3 +26,17 @@ export function articleOverviewHref({ tag, q }: { tag?: string; q?: string } = {
     const query = params.toString();
     return query ? `/articlemain/?${query}` : "/articlemain/";
 }
+
+/** The article editor; without an id it starts a new article. */
+export function experienceEditorHref(id?: string) {
+    return id
+        ? `/account/articles/editor/?id=${encodeURIComponent(id)}`
+        : "/account/articles/editor/";
+}
+
+/** The portfolio editor; without an id it starts a new portfolio. */
+export function portfolioEditorHref(id?: string) {
+    return id
+        ? `/account/portfolio/editor/?id=${encodeURIComponent(id)}`
+        : "/account/portfolio/editor/";
+}
