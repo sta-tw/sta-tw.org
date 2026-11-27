@@ -20,7 +20,7 @@ export default function ResultsView() {
     return (
         <AccountPage
             title="交叉查榜登記"
-            description="登記你報考的校系與准考證號碼，放榜後就能交叉比對名次、填寫報到意願。"
+            description="登記報考校系並提交准考證號碼。放榜後可查看後端提供的個人結果與遞補參考資料。"
             actions={
                 <Button asChild variant="secondary" size="base" className="gap-2">
                     <Link href="/account/results/lookup/">
@@ -54,10 +54,10 @@ export default function ResultsView() {
                                     id="applications-title"
                                     className="font-sans text-2xl font-medium text-ink"
                                 >
-                                    報考校系清單及志願序
+                                    報考校系清單
                                 </h2>
                                 <p className="mt-1 font-sans text-base text-copy-muted">
-                                    填寫准考證號碼後才能參與交叉查榜，並排列你的志願序。
+                                    志願序與准考證號碼狀態目前不會由後端回傳；這裡只顯示已登記校系並提供號碼提交。
                                 </p>
                             </div>
                             {applications.length === 0 ? (
@@ -66,10 +66,7 @@ export default function ResultsView() {
                                     description="用上方的搜尋加入你報考的校系。"
                                 />
                             ) : (
-                                <PreferenceList
-                                    applications={applications}
-                                    onChange={(next) => setData(() => next)}
-                                />
+                                <PreferenceList applications={applications} />
                             )}
                         </section>
                     </>

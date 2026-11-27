@@ -4,19 +4,15 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, Info } from "lucide-react";
 import { useCallback } from "react";
-import { twMerge } from "tailwind-merge";
 import Button from "../../../components/button";
 import Field from "../../../components/field";
 import Select from "../../../components/select";
 import { EmptyState, Resource, StatusBadge, type BadgeTone } from "../../../components/status";
 import {
     getApplicationResult,
-    getResultBoard,
     listApplications,
-    willingnessLabels,
     type Application,
     type ApplicationResult,
-    type ResultBoardRow,
     type ResultStatus
 } from "../../../lib/api/applications";
 import { ApiError } from "../../../lib/api/types";
@@ -27,11 +23,7 @@ import { isVerificationRequired, VerificationRequired } from "../../verification
 const REGISTER_HREF = "/account/results/";
 
 const loadApplications = (signal: AbortSignal) =>
-    listApplications({ signal }).then(({ data }) =>
-        data
-            .filter((item) => item.candidate_number_last4)
-            .sort((a, b) => (a.preference_rank ?? 0) - (b.preference_rank ?? 0))
-    );
+    listApplications({ signal }).then(({ data }) => data);
 
 const resultStatus: Record<ResultStatus, { label: string; tone: BadgeTone }> = {
     admitted: { label: "正取", tone: "success" },
@@ -49,7 +41,7 @@ export default function ResultsLookup() {
     return (
         <AccountPage
             title="交叉查榜查詢"
-            description="查看各校系的放榜名次、前方考生的報到意願與參考上岸機率。"
+            description="查看已公布的個人結果與後端提供的遞補參考資料。"
             actions={
                 <Button asChild variant="secondary" size="base" className="gap-2">
                     <Link href={REGISTER_HREF}>
@@ -71,8 +63,8 @@ export default function ResultsLookup() {
                 {(applications) =>
                     applications.length === 0 ? (
                         <EmptyState
-                            title="還沒有可以查詢的校系"
-                            description="先登記報考校系並填寫准考證號碼，放榜後就能在這裡查詢。"
+                            title="還沒有登記報考校系"
+                            description="先登記報考校系並提交准考證號碼；榜單公布並完成比對後，就能查看個人結果。"
                             action={
                                 <Button asChild size="base">
                                     <Link href={REGISTER_HREF}>前往查榜登記</Link>
@@ -101,7 +93,7 @@ function Lookup({ applications }: { applications: Application[] }) {
                     value={selected.id}
                     options={applications.map((item) => ({
                         value: item.id,
-                        label: `第 ${item.preference_rank} 志願・${nameOf(item)}`
+                        label: `${item.academic_year} 學年度・${nameOf(item)}`
                     }))}
                     onChange={(event) =>
                         router.replace(`${pathname}?id=${encodeURIComponent(event.target.value)}`, {
@@ -115,7 +107,7 @@ function Lookup({ applications }: { applications: Application[] }) {
     );
 }
 
-/** 404 means the list isn't out (or not matched to the candidate number). */
+/** A 404 means the backend has no result to return for this application yet. */
 const notFoundAs =
     <T,>(fallback: T) =>
     (cause: unknown): T => {
@@ -125,19 +117,11 @@ const notFoundAs =
 
 function ResultDetails({ application }: { application: Application }) {
     const load = useCallback(
-        async (signal: AbortSignal) => {
-            const [result, board] = await Promise.all([
-                getApplicationResult(application.id, { signal }).then(
-                    ({ data }) => data,
-                    notFoundAs<ApplicationResult | null>(null)
-                ),
-                getResultBoard(application.id, { signal }).then(
-                    ({ data }) => data,
-                    notFoundAs<ResultBoardRow[]>([])
-                )
-            ]);
-            return { result, board };
-        },
+        async (signal: AbortSignal) =>
+            getApplicationResult(application.id, { signal }).then(
+                ({ data }) => data,
+                notFoundAs<ApplicationResult | null>(null)
+            ),
         [application.id]
     );
     const { state, reload } = useResource(load);
@@ -148,17 +132,16 @@ function ResultDetails({ application }: { application: Application }) {
             className="flex flex-col gap-6 border-t border-ink/10 pt-6"
         >
             <Resource state={state} reload={reload} loadingLabel="載入查榜結果">
-                {({ result, board }) =>
+                {(result) =>
                     result ? (
                         <>
                             <ResultSummary result={result} />
-                            {board.length > 0 && <ResultBoard rows={board} />}
                             <Reminder />
                         </>
                     ) : (
                         <EmptyState
-                            title="榜單尚未公布"
-                            description="或還沒比對到你的准考證號碼。放榜後會自動比對，屆時再回來查看。"
+                            title="目前沒有可查詢的榜單結果"
+                            description="榜單可能尚未公布，或後端還沒有比對到這個校系的准考證號碼。"
                         />
                     )
                 }
@@ -229,59 +212,13 @@ function ResultSummary({ result }: { result: ApplicationResult }) {
     );
 }
 
-/** The anonymous official list: who registered here and their 報到意願. */
-function ResultBoard({ rows }: { rows: ResultBoardRow[] }) {
-    return (
-        <div className="overflow-x-auto rounded-[var(--radius-panel)] border border-ink/10">
-            <table className="w-full min-w-md border-collapse font-sans text-base">
-                <caption className="sr-only">榜單上各名次的交叉查榜狀態</caption>
-                <thead className="bg-ink/5 text-left text-sm text-copy-muted">
-                    <tr>
-                        <th scope="col" className="px-4 py-3 font-medium">
-                            名次
-                        </th>
-                        <th scope="col" className="px-4 py-3 font-medium">
-                            已完成交叉查榜
-                        </th>
-                        <th scope="col" className="px-4 py-3 font-medium">
-                            報到意願
-                        </th>
-                    </tr>
-                </thead>
-                <tbody className="divide-y divide-ink/10">
-                    {rows.map((row, index) => (
-                        <tr
-                            key={`${row.label}-${index}`}
-                            aria-current={row.is_me || undefined}
-                            className={twMerge(row.is_me && "bg-accent-yellow/50 font-medium")}
-                        >
-                            <th scope="row" className="px-4 py-3 text-left font-normal text-ink">
-                                {row.label}
-                                {row.is_me && <span className="ml-2 text-sm">（你）</span>}
-                            </th>
-                            <td className="px-4 py-3 text-ink">{row.registered ? "是" : "—"}</td>
-                            <td className="px-4 py-3 text-ink">
-                                {row.willingness === undefined
-                                    ? row.registered
-                                        ? "尚未填寫"
-                                        : "—"
-                                    : willingnessLabels[row.willingness]}
-                            </td>
-                        </tr>
-                    ))}
-                </tbody>
-            </table>
-        </div>
-    );
-}
-
 function Reminder() {
     return (
         <aside className="flex items-start gap-3 rounded-[var(--radius-panel)] bg-accent-green/60 px-4 py-3 font-sans text-sm leading-relaxed text-ink sm:text-base">
             <Info aria-hidden className="mt-0.5 size-5 shrink-0" />
             <p>
-                S.T.A 提醒你：結果僅供參考，上岸機率依歷屆遞補情形與應屆考生填寫的意願推算。
-                請勿私下詢問正取生是否願意放棄，一切以考生在系統填報的意願為準。
+                S.T.A
+                提醒你：結果與遞補參考資料僅供參考。請以招生學校公告為準，勿私下詢問其他考生是否願意放棄。
             </p>
         </aside>
     );

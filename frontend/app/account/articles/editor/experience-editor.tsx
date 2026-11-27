@@ -9,23 +9,18 @@ import ExperienceCard from "../../../components/experience-card";
 import Field, { FieldGroup } from "../../../components/field";
 import FileUpload from "../../../components/file-upload";
 import { Input, Textarea } from "../../../components/input";
-import RadioGroup from "../../../components/radio-group";
 import Select from "../../../components/select";
 import { ErrorText, Resource, StatusText } from "../../../components/status";
 import { ToggleChipGroup } from "../../../components/toggle-chip";
 import {
     createExperience,
     createExperienceRevision,
-    EXPERIENCE_SUMMARY_MAX_LENGTH,
     EXPERIENCE_TAG_LIMIT,
     EXPERIENCE_TITLE_MAX_LENGTH,
-    firstBodyImage,
     getMyExperience,
     listExperienceTags,
     normalizeTags,
     submitExperienceRevision,
-    uploadExperienceThumbnail,
-    type ExperienceThumbnail,
     type MyExperience
 } from "../../../lib/api/content";
 import {
@@ -40,7 +35,6 @@ import AccountPage from "../../account-page";
 import { articlesNoticeHref } from "../articles-notice";
 
 const SUGGESTION_COUNT = 12;
-const THUMBNAIL_MAX_BYTES = 5 * 1024 * 1024;
 
 /** The backend stores an empty field as "-". */
 const blank = (value?: string) => (value && value !== "-" ? value : "");
@@ -84,13 +78,9 @@ export default function ExperienceEditor() {
 function EditorForm({ experience }: { experience: MyExperience | null }) {
     const router = useRouter();
     const [title, setTitle] = useState(experience?.title ?? "");
-    const [summary, setSummary] = useState(experience?.summary ?? "");
     const [body, setBody] = useState(experience?.body ?? "");
     const [authorType, setAuthorType] = useState(blank(experience?.author_type));
     const [outcome, setOutcome] = useState(blank(experience?.admission_outcome));
-    const [thumbnail, setThumbnail] = useState<ExperienceThumbnail>(
-        experience?.thumbnail ?? { source: "body" }
-    );
     const [tags, setTags] = useState<string[]>(experience?.tags ?? []);
     const [showErrors, setShowErrors] = useState(false);
     const { pending, error, run } = useAction();
@@ -99,9 +89,7 @@ function EditorForm({ experience }: { experience: MyExperience | null }) {
     const errors = {
         title: title.trim() ? null : "請輸入標題。",
         body: body.trim() ? null : "請輸入內文，或從檔案匯入。",
-        tags: tags.length > 0 ? null : "請至少加入一個關鍵字。",
-        thumbnail:
-            thumbnail.source === "upload" && !thumbnail.url ? "請上傳縮圖，或改選其他選項。" : null
+        tags: tags.length > 0 ? null : "請至少加入一個關鍵字。"
     };
     const valid = Object.values(errors).every((message) => !message);
     const shown = (message: string | null) => (showErrors ? message : null);
@@ -114,8 +102,6 @@ function EditorForm({ experience }: { experience: MyExperience | null }) {
             body,
             author_type: authorType,
             admission_outcome: outcome,
-            summary,
-            thumbnail,
             tags
         };
         void run(async () => {
@@ -161,16 +147,6 @@ function EditorForm({ experience }: { experience: MyExperience | null }) {
                         onChange={(event) => setTitle(event.target.value)}
                     />
                 </Field>
-                <Field label="摘要" hint="顯示在文章卡片上；留空時使用內文開頭。">
-                    <Textarea
-                        value={summary}
-                        rows={3}
-                        maxLength={EXPERIENCE_SUMMARY_MAX_LENGTH}
-                        placeholder={`用幾句話介紹這篇文章，上限 ${EXPERIENCE_SUMMARY_MAX_LENGTH} 字`}
-                        onChange={(event) => setSummary(event.target.value)}
-                        className="min-h-24"
-                    />
-                </Field>
                 <Field
                     label="內文"
                     required
@@ -202,12 +178,6 @@ function EditorForm({ experience }: { experience: MyExperience | null }) {
                         />
                     </Field>
                 </div>
-                <ThumbnailField
-                    value={thumbnail}
-                    onChange={setThumbnail}
-                    bodyImage={firstBodyImage(body)}
-                    error={shown(errors.thumbnail)}
-                />
                 <TagsField tags={tags} onChange={setTags} error={shown(errors.tags)} />
             </div>
 
@@ -224,8 +194,8 @@ function EditorForm({ experience }: { experience: MyExperience | null }) {
                         id: experience?.id ?? "preview",
                         title: title.trim(),
                         body,
-                        summary,
-                        thumbnail,
+                        summary: "",
+                        thumbnail: { source: "body" },
                         tags,
                         updated_at: experience?.updated_at ?? new Date().toISOString()
                     }}
@@ -331,75 +301,6 @@ function ImportPanel({
             <StatusText tone="success">{pending ? "正在讀取檔案…" : status}</StatusText>
             <ErrorText>{error}</ErrorText>
         </section>
-    );
-}
-
-function ThumbnailField({
-    value,
-    onChange,
-    bodyImage,
-    error
-}: {
-    value: ExperienceThumbnail;
-    onChange: (value: ExperienceThumbnail) => void;
-    bodyImage?: string;
-    error: string | null;
-}) {
-    const { pending, error: uploadError, setError, run } = useAction();
-    const uploadedUrl = value.source === "upload" ? value.url : "";
-
-    function upload(file: File) {
-        if (!file.type.startsWith("image/")) return setError("請選擇圖片檔。");
-        if (file.size > THUMBNAIL_MAX_BYTES) {
-            return setError(`圖片超過 ${formatBytes(THUMBNAIL_MAX_BYTES)} 上限。`);
-        }
-        void run(async () => {
-            const { data } = await uploadExperienceThumbnail(file);
-            onChange({ source: "upload", url: data.url });
-        });
-    }
-
-    return (
-        <FieldGroup label="縮圖" error={error ?? uploadError}>
-            <RadioGroup
-                value={value.source}
-                onValueChange={(source) =>
-                    onChange(
-                        source === "upload"
-                            ? { source: "upload", url: uploadedUrl }
-                            : { source: source as "body" | "none" }
-                    )
-                }
-                options={[
-                    {
-                        value: "body",
-                        label: "使用文章內的第一張圖片",
-                        description: bodyImage ? undefined : "目前內文沒有圖片，會先顯示預設圖樣。"
-                    },
-                    { value: "upload", label: "自行上傳圖片" },
-                    { value: "none", label: "不使用縮圖", description: "以預設圖樣代替。" }
-                ]}
-            />
-            {value.source === "upload" && (
-                <div className="flex flex-col gap-3 pl-8">
-                    {value.url && (
-                        // A data/remote URL of unknown size; see ExperienceCard.
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                            src={value.url}
-                            alt="目前的縮圖"
-                            className="aspect-video w-full max-w-xs rounded-[var(--radius-control)] border border-ink/10 object-cover"
-                        />
-                    )}
-                    <FileUpload
-                        accept="image/png,image/jpeg,image/webp"
-                        label={pending ? "上傳中…" : value.url ? "更換圖片" : "上傳圖片"}
-                        disabled={pending !== null}
-                        onFileSelected={upload}
-                    />
-                </div>
-            )}
-        </FieldGroup>
     );
 }
 

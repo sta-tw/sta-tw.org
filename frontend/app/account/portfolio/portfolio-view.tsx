@@ -1,10 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { Pencil, Plus, Trash2 } from "lucide-react";
+import { Pencil, Plus } from "lucide-react";
 import { useState } from "react";
 import Button from "../../components/button";
-import ConfirmDialog from "../../components/confirm-dialog";
 import PortfolioCard from "../../components/portfolio-card";
 import {
     EmptyState,
@@ -15,10 +14,9 @@ import {
     type BadgeTone
 } from "../../components/status";
 import {
-    deletePortfolio,
     listMyPortfolios,
-    portfolioLabel,
     submitPortfolio,
+    unpublishPortfolioFile,
     type Portfolio,
     type PortfolioReviewStatus,
     type PortfolioVisibility
@@ -31,13 +29,16 @@ import SubmitReviewDialog from "./submit-review-dialog";
 const loadMine = (signal: AbortSignal) => listMyPortfolios({ signal }).then(({ data }) => data);
 
 const sections: { visibility: PortfolioVisibility; title: string; empty: string }[] = [
-    { visibility: "private", title: "私人備審", empty: "只有你看得到，適合整理草稿或備份。" },
     {
-        visibility: "exchange",
-        title: "交換備審",
-        empty: "與已驗證的特選生互相交換，分享後也能看到別人的交換備審。"
+        visibility: "private",
+        title: "尚未公開",
+        empty: "上傳的檔案會先保持未公開，送審通過後才會出現在個人頁面。"
     },
-    { visibility: "public", title: "公開備審", empty: "審核通過後，所有人都能瀏覽與下載。" }
+    {
+        visibility: "public",
+        title: "公開備審",
+        empty: "審核通過的檔案會顯示在你的公開個人頁面。"
+    }
 ];
 
 const reviewBadge: Record<PortfolioReviewStatus, { label: string; tone: BadgeTone }> = {
@@ -67,33 +68,33 @@ export default function PortfolioView() {
             "已送出審核，通過後就會分享出去。"
         );
 
-    const remove = (portfolio: Portfolio) =>
+    const unpublish = (portfolio: Portfolio) =>
         act(
             portfolio.id,
             async () => {
-                await deletePortfolio(portfolio.id);
-                setData((items) => items.filter((item) => item.id !== portfolio.id));
+                const published = portfolio.items.filter((item) => item.status === "published");
+                for (const item of published) await unpublishPortfolioFile(item.id);
+                await reload();
             },
-            "已刪除備審。"
+            "已將公開版本下架。"
         );
 
     return (
-        <AccountPage title="備審上傳" description="整理你的備審資料，也可以分享給學弟妹參考。">
+        <AccountPage title="備審上傳" description="管理已確認申請校系的備審檔案版本與送審狀態。">
             <div className="flex flex-col divide-y divide-ink/10 rounded-[var(--radius-panel)] border border-ink/10 bg-surface">
                 <div className="flex flex-wrap items-center justify-between gap-3 p-4 sm:px-6">
-                    <p className="font-sans text-base text-ink">新增一份備審</p>
+                    <p className="font-sans text-base text-ink">新增備審專案</p>
                     <Button asChild size="sm" className="gap-2">
                         <Link href={portfolioEditorHref()}>
                             <Plus aria-hidden className="size-4" />
-                            新增備審
+                            新增專案
                         </Link>
                     </Button>
                 </div>
                 <div className="flex flex-wrap items-center justify-between gap-3 p-4 sm:px-6">
-                    <p className="font-sans text-base text-ink">沒有想法？來看看別人分享的備審</p>
-                    <Button asChild variant="secondary" size="sm">
-                        <Link href="/portfolio">看看備審</Link>
-                    </Button>
+                    <p className="font-sans text-base text-ink">
+                        全站備審瀏覽功能尚未由正式後端提供。
+                    </p>
                 </div>
             </div>
 
@@ -104,8 +105,8 @@ export default function PortfolioView() {
                 {(portfolios) =>
                     portfolios.length === 0 ? (
                         <EmptyState
-                            title="還沒有上傳備審"
-                            description="一份備審對應一個申請校系，可以包含自傳、讀書計畫等多個 PDF。"
+                            title="還沒有備審專案"
+                            description="每筆正式申請可建立一個備審專案；上傳檔案會依序保存為版本。"
                         />
                     ) : (
                         sections.map((section) => {
@@ -136,7 +137,7 @@ export default function PortfolioView() {
                                                         portfolio={portfolio}
                                                         busy={pending === portfolio.id}
                                                         onSubmit={() => submit(portfolio)}
-                                                        onDelete={() => remove(portfolio)}
+                                                        onUnpublish={() => unpublish(portfolio)}
                                                     />
                                                 </li>
                                             ))}
@@ -156,17 +157,20 @@ function OwnPortfolio({
     portfolio,
     busy,
     onSubmit,
-    onDelete
+    onUnpublish
 }: {
     portfolio: Portfolio;
     busy: boolean;
     onSubmit: () => void;
-    onDelete: () => void;
+    onUnpublish: () => void;
 }) {
-    const shared = portfolio.visibility !== "private";
+    const shared = portfolio.visibility === "public";
     const review = reviewBadge[portfolio.review_status];
-    const canSubmit =
-        shared && (portfolio.review_status === "draft" || portfolio.review_status === "rejected");
+    const newest = portfolio.items[0];
+    const canSubmit = Boolean(
+        newest && ["hidden", "unpublished", "rejected"].includes(newest.status)
+    );
+    const canUnpublish = portfolio.items.some((item) => item.status === "published");
 
     return (
         <PortfolioCard
@@ -190,31 +194,24 @@ function OwnPortfolio({
                     <Button asChild variant="secondary" size="sm" className="gap-2">
                         <Link href={portfolioEditorHref(portfolio.id)}>
                             <Pencil aria-hidden className="size-4" />
-                            編輯
+                            上傳新版本
                         </Link>
                     </Button>
                     {canSubmit && (
                         <SubmitReviewDialog
                             trigger={
                                 <Button size="sm" disabled={busy}>
-                                    送出審核
+                                    送出最新版本審核
                                 </Button>
                             }
                             onConfirm={onSubmit}
                         />
                     )}
-                    <ConfirmDialog
-                        trigger={
-                            <Button variant="secondary" size="sm" className="gap-2" disabled={busy}>
-                                <Trash2 aria-hidden className="size-4" />
-                                刪除
-                            </Button>
-                        }
-                        title="刪除這份備審？"
-                        description={`${portfolioLabel(portfolio)} 的 ${portfolio.items.length} 個檔案都會一併刪除，無法復原。`}
-                        confirmLabel="刪除"
-                        onConfirm={onDelete}
-                    />
+                    {canUnpublish && (
+                        <Button variant="secondary" size="sm" disabled={busy} onClick={onUnpublish}>
+                            下架公開版本
+                        </Button>
+                    )}
                 </>
             }
         />

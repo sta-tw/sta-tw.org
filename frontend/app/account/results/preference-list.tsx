@@ -1,34 +1,13 @@
 "use client";
 
-import {
-    closestCenter,
-    DndContext,
-    KeyboardSensor,
-    PointerSensor,
-    useSensor,
-    useSensors,
-    type DragEndEvent
-} from "@dnd-kit/core";
-import {
-    arrayMove,
-    SortableContext,
-    sortableKeyboardCoordinates,
-    useSortable,
-    verticalListSortingStrategy
-} from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
-import { GripVertical, Pencil, X } from "lucide-react";
 import { useCallback, useState } from "react";
-import { twMerge } from "tailwind-merge";
 import Button from "../../components/button";
-import IconButton from "../../components/icon-button";
 import { Input } from "../../components/input";
 import Select from "../../components/select";
 import { ErrorText, StatusText } from "../../components/status";
 import {
     getApplicationResult,
     listApplicationInquiries,
-    setApplicationPreferences,
     setCandidateNumber,
     setWillingness,
     WILLINGNESS_VALUES,
@@ -45,272 +24,129 @@ const willingnessOptions = [...WILLINGNESS_VALUES].reverse().map((value) => ({
 }));
 
 const rowClass =
-    "flex items-stretch gap-3 rounded-[var(--radius-panel)] border border-ink/10 bg-surface p-3 sm:gap-4 sm:p-4";
-
-const badgeClass =
-    "flex w-12 shrink-0 items-center justify-center rounded-[var(--radius-control)] font-sans font-medium text-ink";
+    "flex flex-col gap-4 rounded-[var(--radius-panel)] border border-ink/10 bg-surface p-4 sm:p-5";
 
 const nameOf = (application: Application) =>
     `${application.school_name} ${application.program_name}`;
 
-/** 報考校系清單及志願序: applications with a candidate number are ranked
- * and can be dragged (or moved with the keyboard) into preference order;
- * the rest wait for their number. */
-export default function PreferenceList({
-    applications,
-    onChange
-}: {
-    applications: Application[];
-    onChange: (applications: Application[]) => void;
-}) {
-    const ranked = applications
-        .filter((item) => item.preference_rank !== undefined)
-        .sort((a, b) => a.preference_rank! - b.preference_rank!);
-    const unranked = applications.filter((item) => item.preference_rank === undefined);
-    const { error, run } = useAction();
-
-    const sensors = useSensors(
-        useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
-        useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
-    );
-
-    /** Applies a new order locally right away; reverts if saving fails. */
-    function reorder(next: Application[]) {
-        const previous = applications;
-        const ranks = new Map(next.map((item, index) => [item.id, index + 1]));
-        onChange(
-            applications.map((item) =>
-                ranks.has(item.id) ? { ...item, preference_rank: ranks.get(item.id) } : item
-            )
-        );
-        void run("order", async () => {
-            try {
-                await setApplicationPreferences(next.map((item) => item.id));
-            } catch (cause) {
-                onChange(previous);
-                throw cause;
-            }
-        });
-    }
-
-    function handleDragEnd({ active, over }: DragEndEvent) {
-        if (!over || active.id === over.id) return;
-        const from = ranked.findIndex((item) => item.id === active.id);
-        const to = ranked.findIndex((item) => item.id === over.id);
-        if (from !== -1 && to !== -1) reorder(arrayMove(ranked, from, to));
-    }
-
-    function numberSaved(application: Application, last4: string) {
-        const wasRanked = application.preference_rank !== undefined;
-        onChange(
-            applications.map((item) =>
-                item.id === application.id
-                    ? {
-                          ...item,
-                          candidate_number_last4: last4,
-                          preference_rank: wasRanked ? item.preference_rank : ranked.length + 1
-                      }
-                    : item
-            )
-        );
-        if (!wasRanked) {
-            // listApplications ranks unordered applications last anyway, so
-            // a failed save here loses nothing.
-            setApplicationPreferences([...ranked, application].map((item) => item.id)).catch(
-                () => undefined
-            );
-        }
-    }
-
+/** Application list and real backend inputs. Candidate numbers are write-only
+ * in the current API, so the UI never invents a last-four value or preference rank. */
+export default function PreferenceList({ applications }: { applications: Application[] }) {
     return (
-        <div className="flex flex-col gap-3">
-            {ranked.length > 1 && (
-                <p id="preference-drag-hint" className="font-sans text-sm text-copy-muted">
-                    拖曳左側把手調整志願序；使用鍵盤時，聚焦把手後按空白鍵拿起，再用方向鍵移動。
-                </p>
-            )}
-            <ErrorText>{error}</ErrorText>
-            <DndContext
-                sensors={sensors}
-                collisionDetection={closestCenter}
-                onDragEnd={handleDragEnd}
-            >
-                <SortableContext
-                    items={ranked.map((item) => item.id)}
-                    strategy={verticalListSortingStrategy}
-                >
-                    <ol aria-label="志願序" className="flex flex-col gap-3">
-                        {ranked.map((application, index) => (
-                            <RankedRow
-                                key={application.id}
-                                application={application}
-                                rank={index + 1}
-                                sortable={ranked.length > 1}
-                                onNumberSaved={(last4) => numberSaved(application, last4)}
-                            />
-                        ))}
-                    </ol>
-                </SortableContext>
-            </DndContext>
-            {unranked.length > 0 && (
-                <ul aria-label="尚未填寫准考證號碼" className="flex flex-col gap-3">
-                    {unranked.map((application) => (
-                        <li key={application.id} className={rowClass}>
-                            <span
-                                className={twMerge(
-                                    badgeClass,
-                                    "bg-accent-yellow text-sm leading-tight"
-                                )}
-                            >
-                                待填
-                            </span>
-                            <div className="flex min-w-0 flex-1 flex-col gap-3">
-                                <ProgramName application={application} />
-                                <CandidateNumberForm
-                                    application={application}
-                                    onSaved={(last4) => numberSaved(application, last4)}
-                                />
-                            </div>
-                        </li>
-                    ))}
-                </ul>
-            )}
-        </div>
-    );
-}
-
-function ProgramName({ application }: { application: Application }) {
-    return (
-        <div className="min-w-0">
-            <p className="font-sans text-sm text-copy-muted">{application.academic_year} 學年度</p>
-            <p className="font-sans text-lg leading-snug font-medium break-words text-ink">
-                {nameOf(application)}
-            </p>
-        </div>
-    );
-}
-
-function RankedRow({
-    application,
-    rank,
-    sortable,
-    onNumberSaved
-}: {
-    application: Application;
-    rank: number;
-    sortable: boolean;
-    onNumberSaved: (last4: string) => void;
-}) {
-    const {
-        attributes,
-        listeners,
-        setNodeRef,
-        setActivatorNodeRef,
-        transform,
-        transition,
-        isDragging
-    } = useSortable({ id: application.id, disabled: !sortable });
-    const [editing, setEditing] = useState(false);
-
-    return (
-        <li
-            ref={setNodeRef}
-            style={{ transform: CSS.Transform.toString(transform), transition }}
-            className={twMerge(rowClass, isDragging && "relative z-10 shadow-[var(--shadow-card)]")}
-        >
-            {sortable && (
-                <button
-                    ref={setActivatorNodeRef}
-                    type="button"
-                    {...attributes}
-                    {...listeners}
-                    aria-label={`調整「${nameOf(application)}」的志願序，目前第 ${rank} 志願`}
-                    aria-describedby="preference-drag-hint"
-                    className="-ml-1 flex w-6 shrink-0 cursor-grab touch-none items-center justify-center rounded-[var(--radius-small)] text-copy-muted focus-ring hover:text-ink active:cursor-grabbing"
-                >
-                    <GripVertical aria-hidden className="size-5" />
-                </button>
-            )}
-            <span
-                aria-label={`第 ${rank} 志願`}
-                className={twMerge(badgeClass, "bg-accent-green text-xl")}
-            >
-                {rank}
-            </span>
-            <div className="flex min-w-0 flex-1 flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                <div className="min-w-0">
-                    <ProgramName application={application} />
-                    <p className="mt-1 flex items-center gap-1 font-sans text-sm text-copy-muted">
-                        准考證號碼：末四碼 {application.candidate_number_last4}
-                        <IconButton
-                            label={editing ? "取消修改准考證號碼" : "修改准考證號碼"}
-                            icon={
-                                editing ? <X className="size-4" /> : <Pencil className="size-4" />
-                            }
-                            className="size-8 hover:bg-ink/5 hover:text-ink"
-                            onClick={() => setEditing((value) => !value)}
-                        />
-                    </p>
-                    {editing && (
-                        <div className="mt-2">
-                            <CandidateNumberForm
-                                application={application}
-                                onSaved={(last4) => {
-                                    setEditing(false);
-                                    onNumberSaved(last4);
-                                }}
-                            />
+        <ul aria-label="已登記報考校系" className="flex flex-col gap-3">
+            {applications.map((application) => (
+                <li key={application.id} className={rowClass}>
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                        <div className="min-w-0">
+                            <p className="font-sans text-sm text-copy-muted">
+                                {application.academic_year} 學年度
+                            </p>
+                            <p className="font-sans text-lg leading-snug font-medium break-words text-ink">
+                                {nameOf(application)}
+                            </p>
                         </div>
-                    )}
-                </div>
-                <WillingnessControl applicationID={application.id} />
-            </div>
-        </li>
+                        <WillingnessControl applicationID={application.id} />
+                    </div>
+                    <CandidateNumberForm application={application} />
+                </li>
+            ))}
+        </ul>
     );
 }
 
-function CandidateNumberForm({
-    application,
-    onSaved
-}: {
-    application: Application;
-    onSaved: (last4: string) => void;
-}) {
+function CandidateNumberForm({ application }: { application: Application }) {
     const [value, setValue] = useState("");
+    const [candidateName, setCandidateName] = useState("");
+    const [submitted, setSubmitted] = useState(false);
     const { pending, error, run } = useAction();
     const trimmed = value.trim();
+    const trimmedName = candidateName.trim();
 
     async function submit(event: React.FormEvent) {
         event.preventDefault();
-        if (await run(() => setCandidateNumber(application.id, trimmed))) {
+        setSubmitted(false);
+        if (await run(() => setCandidateNumber(application.id, trimmed, trimmedName))) {
             setValue("");
-            onSaved(trimmed.slice(-4));
+            setCandidateName("");
+            setSubmitted(true);
         }
     }
 
     return (
-        <form onSubmit={submit} className="flex flex-col gap-2">
-            <div className="flex gap-2">
-                <Input
-                    value={value}
-                    aria-label={`${nameOf(application)} 的准考證號碼`}
-                    placeholder="輸入准考證號碼"
-                    autoComplete="off"
-                    minLength={4}
-                    maxLength={64}
-                    pattern="[A-Za-z0-9_\-]{4,64}"
-                    onChange={(event) => setValue(event.target.value)}
-                />
+        <form onSubmit={submit} className="flex flex-col gap-2 border-t border-ink/10 pt-3">
+            <div className="grid gap-3 sm:grid-cols-2">
+                <div className="flex flex-col gap-1.5">
+                    <label
+                        className="font-sans text-sm font-medium text-ink"
+                        htmlFor={`candidate-${application.id}`}
+                    >
+                        准考證號碼
+                    </label>
+                    <Input
+                        id={`candidate-${application.id}`}
+                        aria-describedby={`candidate-hint-${application.id}`}
+                        value={value}
+                        placeholder="輸入准考證號碼"
+                        autoComplete="off"
+                        required
+                        minLength={4}
+                        maxLength={64}
+                        pattern="[A-Za-z0-9_\-]{4,64}"
+                        onChange={(event) => {
+                            setValue(event.target.value);
+                            setSubmitted(false);
+                        }}
+                    />
+                    <p
+                        id={`candidate-hint-${application.id}`}
+                        className="font-sans text-xs text-copy-muted"
+                    >
+                        請輸入 4–64 個英文字母、數字、連字號或底線。
+                    </p>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                    <label
+                        className="font-sans text-sm font-medium text-ink"
+                        htmlFor={`candidate-name-${application.id}`}
+                    >
+                        考生姓名
+                    </label>
+                    <Input
+                        id={`candidate-name-${application.id}`}
+                        value={candidateName}
+                        placeholder="輸入准考證上的姓名"
+                        autoComplete="name"
+                        required
+                        maxLength={100}
+                        onChange={(event) => {
+                            setCandidateName(event.target.value);
+                            setSubmitted(false);
+                        }}
+                    />
+                </div>
+            </div>
+            <div className="flex flex-col gap-2 sm:flex-row">
                 <Button
                     type="submit"
                     variant="secondary"
                     size="base"
                     className="shrink-0 px-5"
-                    disabled={pending !== null || trimmed.length < 4}
+                    disabled={
+                        pending !== null ||
+                        trimmed.length < 4 ||
+                        !trimmedName ||
+                        trimmedName.length > 100
+                    }
                 >
-                    {pending ? "儲存中…" : "儲存"}
+                    {pending ? "送出中…" : "送出資料"}
                 </Button>
             </div>
+            <p className="font-sans text-sm text-copy-muted">
+                准考證號碼與考生姓名會加密保存，供查榜核對；API 不會回傳這些資料。
+            </p>
+            <StatusText tone="success">
+                {submitted ? "准考證號碼與考生姓名已送出。" : null}
+            </StatusText>
             <ErrorText>{error}</ErrorText>
         </form>
     );
@@ -324,8 +160,7 @@ const notFoundAs =
         throw cause;
     };
 
-/** 報到意願 for one application; it can only be given once the official
- * list is out and the student is admitted or waitlisted. */
+/** The backend opens willingness after the official result is available. */
 function WillingnessControl({ applicationID }: { applicationID: string }) {
     const load = useCallback(
         async (signal: AbortSignal) => {
@@ -346,7 +181,6 @@ function WillingnessControl({ applicationID }: { applicationID: string }) {
     const { state, setData } = useResource(load);
     const { pending, error, run } = useAction();
     const [saved, setSaved] = useState(false);
-
     const ready = state.status === "ready" ? state.data : null;
     const canRespond =
         ready?.result?.result_status === "admitted" ||
@@ -386,9 +220,6 @@ function WillingnessControl({ applicationID }: { applicationID: string }) {
                 options={willingnessOptions}
                 disabled={!canRespond || pending !== null}
                 onChange={(event) => change(event.target.value)}
-                className={twMerge(
-                    canRespond && current === undefined && "border-accent-yellow-deep"
-                )}
             />
             {openInquiry?.response_deadline && (
                 <p className="font-sans text-xs text-copy-muted">

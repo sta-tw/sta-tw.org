@@ -8,6 +8,7 @@ import Checkbox from "../../components/checkbox";
 import Field from "../../components/field";
 import IconButton from "../../components/icon-button";
 import { Input, Textarea } from "../../components/input";
+import Select from "../../components/select";
 import {
     getMyProfileDetails,
     profileLimits,
@@ -22,7 +23,14 @@ import { useAccount } from "../account-context";
 import { ErrorText, Resource, SaveBar } from "../../components/status";
 import { useAction, useResource } from "../../lib/use-resource";
 import Markdown from "../../components/markdown";
-import SchoolPicker, { useSchoolDirectory } from "../../components/school-picker";
+import {
+    listAccountSchoolDirectory,
+    type AccountSchoolDirectoryEntry
+} from "../../lib/api/school-directory";
+
+const OTHER_SCHOOL_STATUS = "其他（自學／休學／非臺灣學生）";
+const loadSchoolDirectory = (signal: AbortSignal) =>
+    listAccountSchoolDirectory({ signal }).then(({ data }) => data);
 
 const SLUG_PATTERN = /^[a-z0-9_-]{3,30}$/;
 const PROFILE_URL_BASE = "https://sta-tw.org/user/";
@@ -66,7 +74,8 @@ function ProfileFields({
     initialDetails: ProfileDetails;
 }) {
     const { me, setProfile } = useAccount();
-    const schools = useSchoolDirectory();
+    const { state: schoolDirectoryState } = useResource(loadSchoolDirectory);
+    const schools = schoolDirectoryState.status === "ready" ? schoolDirectoryState.data : [];
 
     const [displayName, setDisplayName] = useState(profile.display_name ?? "");
     const [bio, setBio] = useState(profile.bio ?? "");
@@ -74,6 +83,44 @@ function ProfileFields({
     const [details, setDetails] = useState(initialDetails);
     const [lockedSlug, setLockedSlug] = useState(initialDetails.profile_slug);
     const [slugDraft, setSlugDraft] = useState("");
+
+    const selectedSchool =
+        details.school_selection_type === "directory"
+            ? (details.school_directory_id ?? "")
+            : details.school_selection_type === "other_status"
+              ? "other-status"
+              : details.school_selection_type === "unlisted"
+                ? "unlisted"
+                : "";
+
+    function selectSchool(value: string) {
+        if (value === "other-status") {
+            patchDetails({
+                school_name: OTHER_SCHOOL_STATUS,
+                school_selection_type: "other_status",
+                school_directory_id: null
+            });
+            return;
+        }
+        if (value === "unlisted") {
+            patchDetails({
+                school_name: "",
+                school_selection_type: "unlisted",
+                school_directory_id: null
+            });
+            return;
+        }
+        const school = schools.find((item) => item.id === value);
+        patchDetails(
+            school
+                ? {
+                      school_name: school.name,
+                      school_selection_type: "directory",
+                      school_directory_id: school.id
+                  }
+                : { school_name: "", school_selection_type: "none", school_directory_id: null }
+        );
+    }
 
     const [errors, setErrors] = useState<Errors>({});
     const { pending, error: saveError, run } = useAction();
@@ -164,13 +211,37 @@ function ProfileFields({
                 <div className="flex flex-col gap-3">
                     <Field
                         label="就讀學校"
-                        error={schools.error ? `學校清單載入失敗：${schools.error}` : undefined}
+                        hint={
+                            schoolDirectoryState.status === "error"
+                                ? "學校名錄載入失敗；你仍可選擇其他就學情況或填寫未收錄校名。"
+                                : schoolDirectoryState.status === "loading"
+                                  ? "正在載入學校名錄…"
+                                  : undefined
+                        }
                     >
-                        <SchoolPicker
-                            directory={schools}
-                            value={details.school_name}
-                            onChange={(school_name) => patchDetails({ school_name })}
+                        <Select
+                            value={selectedSchool}
+                            onChange={(event) => selectSchool(event.target.value)}
+                            placeholder="不填寫"
+                            options={[
+                                ...schools.map((school: AccountSchoolDirectoryEntry) => ({
+                                    value: school.id,
+                                    label: `${school.school_type === "university" ? "大專院校" : "高中職"}｜${school.name}`
+                                })),
+                                { value: "other-status", label: OTHER_SCHOOL_STATUS },
+                                { value: "unlisted", label: "未收錄學校" }
+                            ]}
                         />
+                        {details.school_selection_type === "unlisted" && (
+                            <Input
+                                value={details.school_name}
+                                onChange={(event) =>
+                                    patchDetails({ school_name: event.target.value })
+                                }
+                                placeholder="請填寫學校全名"
+                                maxLength={120}
+                            />
+                        )}
                     </Field>
                     <Checkbox
                         label="不要在個人檔案頁面顯示我的學校"

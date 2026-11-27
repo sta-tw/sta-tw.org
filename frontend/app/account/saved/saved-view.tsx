@@ -5,29 +5,16 @@ import { CalendarClock, Trash2 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import Button from "../../components/button";
 import ConfirmDialog from "../../components/confirm-dialog";
-import ExperienceCard from "../../components/experience-card";
 import IconButton from "../../components/icon-button";
-import PortfolioCard from "../../components/portfolio-card";
 import { EmptyState, ErrorText, Resource } from "../../components/status";
 import { nextTimelineMilestone } from "../../lib/admissions-brochures";
 import { getAdmissionProgram } from "../../lib/api/admissions";
-import { listSavedExperiences, unsaveExperience } from "../../lib/api/content";
-import { listSavedPortfolios } from "../../lib/api/portfolio";
 import { listSavedPrograms, unsaveProgram, type SavedProgram } from "../../lib/api/saved-programs";
 import { programHref } from "../../lib/routes";
 import { useAction, useResource } from "../../lib/use-resource";
 import AccountPage from "../account-page";
 
-const loadSaved = (signal: AbortSignal) =>
-    Promise.all([
-        listSavedPrograms({ signal }),
-        listSavedPortfolios({ signal }),
-        listSavedExperiences({ signal })
-    ]).then(([programs, portfolios, experiences]) => ({
-        programs: programs.data,
-        portfolios: portfolios.data,
-        experiences: experiences.data
-    }));
+const loadSaved = (signal: AbortSignal) => listSavedPrograms({ signal }).then(({ data }) => data);
 
 export default function SavedView() {
     const { state, reload, setData } = useResource(loadSaved);
@@ -36,32 +23,23 @@ export default function SavedView() {
     const removeProgram = (program: SavedProgram) =>
         run(program.program_identifier, async () => {
             await unsaveProgram(program.program_identifier);
-            setData((data) => ({
-                ...data,
-                programs: data.programs.filter(
-                    (item) => item.program_identifier !== program.program_identifier
-                )
-            }));
-        });
-
-    const removeExperience = (id: string) =>
-        run(id, async () => {
-            await unsaveExperience(id);
-            setData((data) => ({
-                ...data,
-                experiences: data.experiences.filter((item) => item.id !== id)
-            }));
+            setData((programs) =>
+                programs.filter((item) => item.program_identifier !== program.program_identifier)
+            );
         });
 
     return (
         <AccountPage title="已儲存的項目" description="你收藏的簡章、備審與文章。">
             <ErrorText>{error}</ErrorText>
+            <p className="font-sans text-sm text-copy-muted">
+                正式後端目前支援儲存校系；備審與文章收藏功能尚未開放。
+            </p>
             <Resource state={state} reload={reload}>
-                {({ programs, portfolios, experiences }) =>
-                    programs.length + portfolios.length + experiences.length === 0 ? (
+                {(programs) =>
+                    programs.length === 0 ? (
                         <EmptyState
-                            title="還沒有儲存任何項目"
-                            description="在簡章頁按下「我對此學系有興趣」，或在備審、文章旁按下儲存，就會出現在這裡。"
+                            title="還沒有儲存任何校系"
+                            description="在簡章頁按下「我對此學系有興趣」，就會出現在這裡。"
                             action={
                                 <Button asChild size="base">
                                     <Link href="/bochures">瀏覽簡章</Link>
@@ -88,61 +66,6 @@ export default function SavedView() {
                                             program={program}
                                             busy={pending === program.program_identifier}
                                             onRemove={() => removeProgram(program)}
-                                        />
-                                    </li>
-                                ))}
-                            </SavedSection>
-                            <SavedSection
-                                id="portfolios"
-                                title="交換／公開備審"
-                                empty={
-                                    <>
-                                        按下備審旁的書籤即可收藏。
-                                        <Link href="/portfolio" className={inlineLinkClass}>
-                                            看看備審
-                                        </Link>
-                                    </>
-                                }
-                            >
-                                {portfolios.map((portfolio) => (
-                                    <li key={portfolio.id}>
-                                        <PortfolioCard
-                                            portfolio={portfolio}
-                                            onSavedChange={(saved) => {
-                                                if (!saved) {
-                                                    setData((data) => ({
-                                                        ...data,
-                                                        portfolios: data.portfolios.filter(
-                                                            (item) => item.id !== portfolio.id
-                                                        )
-                                                    }));
-                                                }
-                                            }}
-                                        />
-                                    </li>
-                                ))}
-                            </SavedSection>
-                            <SavedSection
-                                id="experiences"
-                                title="文章"
-                                empty={
-                                    <>
-                                        在文章頁按下「儲存文章」即可收藏。
-                                        <Link href="/articlemain" className={inlineLinkClass}>
-                                            逛逛文章
-                                        </Link>
-                                    </>
-                                }
-                            >
-                                {experiences.map((experience) => (
-                                    <li key={experience.id} className="relative">
-                                        <ExperienceCard experience={experience} />
-                                        <IconButton
-                                            label={`取消儲存「${experience.title}」`}
-                                            icon={<Trash2 className="size-5" />}
-                                            disabled={pending === experience.id}
-                                            onClick={() => removeExperience(experience.id)}
-                                            className="absolute top-3 right-3 size-10 border border-ink/15 bg-surface text-ink hover:bg-ink/5"
                                         />
                                     </li>
                                 ))}

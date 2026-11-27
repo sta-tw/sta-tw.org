@@ -1,15 +1,12 @@
 "use client";
 
-import Link from "next/link";
 import { Bell, CheckCheck } from "lucide-react";
 import { useState } from "react";
 import { twMerge } from "tailwind-merge";
 import Button from "../../components/button";
 import { Card } from "../../components/card";
 import Checkbox from "../../components/checkbox";
-import { listLinkedIdentities } from "../../lib/api/identities";
 import {
-    DEFAULT_NOTIFICATION_PREFERENCES,
     getNotificationPreferences,
     listNotifications,
     markAllNotificationsRead,
@@ -18,8 +15,6 @@ import {
     notificationKindLabel,
     updateNotificationPreferences,
     type Notification,
-    type NotificationChannel,
-    type NotificationGroup,
     type NotificationPreferences
 } from "../../lib/api/notifications";
 import AccountPage from "../account-page";
@@ -39,19 +34,7 @@ const fetchPage = (cursor?: string, signal?: AbortSignal) =>
 const loadFirstPage = (signal: AbortSignal) => fetchPage(undefined, signal);
 
 const loadPreferences = (signal: AbortSignal) =>
-    Promise.all([
-        getNotificationPreferences({ signal }),
-        // Only decides whether the Discord channel can be turned on.
-        listLinkedIdentities({ signal }).then(
-            ({ data }) => data.some((identity) => identity.provider === "discord"),
-            () => false
-        )
-    ]).then(([{ data }, discordLinked]) => ({ preferences: data, discordLinked }));
-
-const kindGroups: { group: NotificationGroup; title: string }[] = [
-    { group: "personal", title: "通知項目 - 個人" },
-    { group: "interaction", title: "通知項目 - 互動" }
-];
+    getNotificationPreferences({ signal }).then(({ data }) => data);
 
 export default function NotificationsView() {
     return (
@@ -213,25 +196,13 @@ function PreferencesForm() {
     return (
         <Card title="通知偏好" className="flex flex-col gap-5">
             <Resource state={state} reload={reload}>
-                {({ preferences, discordLinked }) => (
-                    <PreferencesEditor initial={preferences} discordLinked={discordLinked} />
-                )}
+                {(preferences) => <PreferencesEditor initial={preferences} />}
             </Resource>
         </Card>
     );
 }
 
-// Each fieldset sits in a div that carries the divider: a border on the
-// fieldset itself would run through its legend.
-const sectionClass = "py-5 first:pt-0";
-
-function PreferencesEditor({
-    initial,
-    discordLinked
-}: {
-    initial: NotificationPreferences;
-    discordLinked: boolean;
-}) {
+function PreferencesEditor({ initial }: { initial: NotificationPreferences }) {
     const [preferences, setPreferences] = useState(initial);
     const { pending, error, run } = useAction();
     const [saved, setSaved] = useState(false);
@@ -240,11 +211,8 @@ function PreferencesEditor({
         setSaved(false);
         setPreferences(next);
     };
-    const setChannel = (channel: NotificationChannel, checked: boolean) =>
-        update((current) => ({
-            ...current,
-            channels: { ...current.channels, [channel]: checked }
-        }));
+    const setKind = (kind: string, checked: boolean) =>
+        update((current) => ({ ...current, kinds: { ...current.kinds, [kind]: checked } }));
 
     async function save(event: React.FormEvent) {
         event.preventDefault();
@@ -258,75 +226,37 @@ function PreferencesEditor({
     }
 
     return (
-        <form onSubmit={save} className="mt-5 flex flex-col divide-y divide-ink/10">
-            <div className={sectionClass}>
-                <FieldGroup label="通知管道">
-                    <p className="-mt-1 font-sans text-sm text-copy-muted">
-                        站內通知一律會顯示在下方；勾選後也會另外寄送。帳號安全信件（驗證、密碼重設）不受影響。
-                    </p>
-                    <Checkbox
-                        label="Email（寄到你的聯絡信箱）"
-                        checked={preferences.channels.email}
-                        onCheckedChange={(checked) => setChannel("email", checked)}
-                    />
-                    <div className="flex flex-col gap-1">
+        <form onSubmit={save} className="mt-5 flex flex-col gap-5">
+            <FieldGroup label="Email 通知">
+                <p className="-mt-1 font-sans text-sm text-copy-muted">
+                    站內通知仍會顯示在下方；關閉後只會停止一般通知信，帳號安全信件不受影響。
+                </p>
+                <Checkbox
+                    label="寄送一般通知至聯絡信箱"
+                    checked={preferences.email_enabled}
+                    onCheckedChange={(checked) =>
+                        update((current) => ({ ...current, email_enabled: checked }))
+                    }
+                />
+            </FieldGroup>
+            <FieldGroup label="通知項目">
+                {NOTIFICATION_KINDS.map(({ kind, label, description }) => (
+                    <div key={kind} className="flex flex-col gap-1">
                         <Checkbox
-                            label="Discord（由特選群機器人私訊）"
-                            checked={discordLinked && preferences.channels.discord}
-                            disabled={!discordLinked}
-                            onCheckedChange={(checked) => setChannel("discord", checked)}
+                            label={label}
+                            checked={preferences.kinds[kind] ?? true}
+                            onCheckedChange={(checked) => setKind(kind, checked)}
                         />
-                        {!discordLinked && (
-                            <p className="pl-8 font-sans text-sm text-copy-muted">
-                                需先
-                                <Link
-                                    href="/account/verification"
-                                    className="mx-1 text-ink underline underline-offset-4"
-                                >
-                                    綁定 Discord 帳號
-                                </Link>
-                                ，並加入特選群。
-                            </p>
-                        )}
+                        <p className="pl-8 font-sans text-sm text-copy-muted">{description}</p>
                     </div>
-                </FieldGroup>
-            </div>
-            {kindGroups.map(({ group, title }) => (
-                <div key={group} className={sectionClass}>
-                    <FieldGroup label={title}>
-                        {NOTIFICATION_KINDS.filter((item) => item.group === group).map(
-                            ({ kind, label }) => (
-                                <Checkbox
-                                    key={kind}
-                                    label={label}
-                                    checked={preferences.kinds[kind] ?? false}
-                                    onCheckedChange={(checked) =>
-                                        update((current) => ({
-                                            ...current,
-                                            kinds: { ...current.kinds, [kind]: checked }
-                                        }))
-                                    }
-                                />
-                            )
-                        )}
-                    </FieldGroup>
-                </div>
-            ))}
+                ))}
+            </FieldGroup>
             <div className="flex flex-col gap-3 pt-5 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex flex-col gap-1">
                     <StatusText>{saved ? "已儲存通知偏好。" : null}</StatusText>
                     <ErrorText>{error}</ErrorText>
                 </div>
                 <div className="flex flex-col-reverse gap-3 sm:flex-row">
-                    <Button
-                        type="button"
-                        variant="secondary"
-                        size="base"
-                        disabled={pending !== null}
-                        onClick={() => update(() => DEFAULT_NOTIFICATION_PREFERENCES)}
-                    >
-                        恢復預設值
-                    </Button>
                     <Button type="submit" size="base" disabled={pending !== null}>
                         {pending ? "儲存中…" : "儲存"}
                     </Button>
