@@ -1,5 +1,4 @@
 import { API_BASE_URL, apiFetch } from "./client";
-import { mockResponse, mockStore } from "./mock";
 
 export type OAuthProvider = "google" | "discord";
 
@@ -45,38 +44,16 @@ export function startOAuthBind(provider: OAuthProvider, returnTo: string) {
     );
 }
 
-// ---------------------------------------------------------------------------
-// Not backed yet — see lib/api/mock.ts.
-
-interface LinkedIdentity {
+export interface LinkedIdentity {
     provider: OAuthProvider;
     linked_at: string;
     /** Provider-side name to show, e.g. a Discord handle or Google email. */
     display?: string;
 }
 
-const IDENTITIES_KEY = "oauth-identities";
-
-/** Stands in for the backend recording a binding: if the current URL is
- * the return leg of a successful bind (`?oauth=success&provider=…`, see
- * startOAuthBind), store that provider. Read synchronously so it happens
- * before the page strips the query. */
-function recordReturnedBinding(current: LinkedIdentity[]) {
-    if (typeof window === "undefined") return current;
-    const params = new URLSearchParams(window.location.search);
-    const provider = params.get("provider");
-    if (params.get("oauth") !== "success" || !oauthProviderLabel(provider)) return current;
-    if (current.some((identity) => identity.provider === provider)) return current;
-    const next = [
-        ...current,
-        { provider: provider as OAuthProvider, linked_at: new Date().toISOString() }
-    ];
-    mockStore.write<LinkedIdentity[]>(IDENTITIES_KEY, next);
-    return next;
-}
-
-/** MOCK: GET /api/v1/auth/identities */
+/** GET /api/v1/auth/identities — exposes provider and link time only. */
 export function listLinkedIdentities(options?: { signal?: AbortSignal }) {
-    const data = recordReturnedBinding(mockStore.read<LinkedIdentity[]>(IDENTITIES_KEY, []));
-    return mockResponse(() => ({ data }), options?.signal);
+    return apiFetch<{ data: LinkedIdentity[] }>("/api/v1/auth/identities", {
+        signal: options?.signal
+    });
 }

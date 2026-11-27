@@ -9,6 +9,7 @@ import { describeError } from "../../lib/describe-error";
 import Button from "../../components/button";
 import ArticleHeader from "../article-header";
 import { readingTimeOf } from "../article-format";
+import SaveExperienceButton from "./save-experience-button";
 
 type ExperienceViewState = {
     id: string;
@@ -71,12 +72,15 @@ export default function ExperienceView() {
     return (
         <main className="article-dots flex-1 bg-surface">
             <article className="mx-auto w-full max-w-screen-lg px-5 pt-12 pb-16 sm:px-6 sm:pt-16 sm:pb-20 lg:px-16 lg:pt-20 lg:pb-24">
-                <Link
-                    href="/articlemain"
-                    className="font-sans text-sm text-copy-muted underline-offset-4 hover:text-ink hover:underline sm:text-base"
-                >
-                    ← 回到文章總覽
-                </Link>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                    <Link
+                        href="/articlemain"
+                        className="font-sans text-sm text-copy-muted underline-offset-4 hover:text-ink hover:underline sm:text-base"
+                    >
+                        ← 回到文章總覽
+                    </Link>
+                    <SaveExperienceButton experience={experience} />
+                </div>
 
                 <ArticleHeader
                     className="mt-6 sm:mt-8"

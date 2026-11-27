@@ -65,6 +65,8 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/experiences/{experienceID}/revisions", h.createRevision)
 	mux.HandleFunc("POST /api/v1/experience-revisions/{revisionID}/submit", h.submitRevision)
 	mux.HandleFunc("POST /api/v1/experiences/{experienceID}/unpublish", h.unpublishExperience)
+	mux.HandleFunc("GET /api/v1/admin/experience-revisions", h.adminListExperienceRevisions)
+	mux.HandleFunc("GET /api/v1/admin/experience-revisions/{revisionID}", h.adminGetExperienceRevision)
 	mux.HandleFunc("POST /api/v1/admin/experience-revisions/{revisionID}/review", h.reviewExperience)
 	mux.HandleFunc("PUT /api/v1/forum/posts/{postID}/reactions/{emoji}", h.addPostReaction)
 	mux.HandleFunc("DELETE /api/v1/forum/posts/{postID}/reactions/{emoji}", h.removePostReaction)
@@ -263,7 +265,7 @@ func (h *Handler) createExperience(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input CreateExperienceInput
-	if err := decodeContentJSON(r, &input); err != nil || ValidateText(input.Title, input.Body) != nil {
+	if err := decodeContentJSON(r, &input); err != nil || ValidateText(input.Title, input.Body) != nil || normalizeExperienceTags(&input.Tags) != nil {
 		writeContentError(w, http.StatusBadRequest, "invalid_experience", "experience data is invalid")
 		return
 	}
@@ -289,7 +291,7 @@ func (h *Handler) createRevision(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input CreateRevisionInput
-	if err := decodeContentJSON(r, &input); err != nil || ValidateText(input.Title, input.Body) != nil {
+	if err := decodeContentJSON(r, &input); err != nil || ValidateText(input.Title, input.Body) != nil || normalizeExperienceTags(&input.Tags) != nil {
 		writeContentError(w, http.StatusBadRequest, "invalid_revision", "revision data is invalid")
 		return
 	}
@@ -360,6 +362,46 @@ func (h *Handler) reviewExperience(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeContentJSON(w, http.StatusOK, map[string]any{"data": experience})
+}
+
+func (h *Handler) adminListExperienceRevisions(w http.ResponseWriter, r *http.Request) {
+	if _, ok := h.requireAdmin(w, r); !ok {
+		return
+	}
+	limit, cursor, ok := contentPageQuery(w, r)
+	if !ok {
+		return
+	}
+	status := r.URL.Query().Get("review_status")
+	switch status {
+	case "", "draft", "pending_review", "approved", "rejected":
+	default:
+		writeContentError(w, http.StatusBadRequest, "invalid_query", "review_status is invalid")
+		return
+	}
+	revisions, nextCursor, err := h.repository.AdminListExperienceRevisions(r.Context(), status, limit, cursor)
+	if err != nil {
+		writeContentError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	writeContentJSON(w, http.StatusOK, map[string]any{"data": revisions, "next_cursor": nextCursor})
+}
+
+func (h *Handler) adminGetExperienceRevision(w http.ResponseWriter, r *http.Request) {
+	if _, ok := h.requireAdmin(w, r); !ok {
+		return
+	}
+	revisionID, err := uuid.Parse(r.PathValue("revisionID"))
+	if err != nil {
+		writeContentError(w, http.StatusBadRequest, "invalid_revision_id", "revision id is invalid")
+		return
+	}
+	revision, err := h.repository.AdminGetExperienceRevision(r.Context(), revisionID)
+	if err != nil {
+		h.writeRepositoryError(w, err)
+		return
+	}
+	writeContentJSON(w, http.StatusOK, map[string]any{"data": revision})
 }
 
 func (h *Handler) adminListThreads(w http.ResponseWriter, r *http.Request) {

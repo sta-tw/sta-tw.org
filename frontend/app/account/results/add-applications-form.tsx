@@ -81,7 +81,7 @@ export default function AddApplicationsForm({
 
     return (
         <Card
-            title="新增申請校系"
+            title="新增你報考的校系"
             description={`搜尋並勾選你申請的校系，一次最多 ${APPLICATION_BATCH_LIMIT} 個。`}
             className="flex flex-col gap-5"
         >

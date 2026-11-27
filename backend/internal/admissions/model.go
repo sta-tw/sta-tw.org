@@ -95,6 +95,7 @@ type Program struct {
 	ProgramCode                   string          `json:"program_code"`
 	AdmissionProgramName          string          `json:"admission_program_name"`
 	AdmissionQuota                int             `json:"admission_quota"`
+	AdmissionQuotaDisplay         string          `json:"admission_quota_display"`
 	WillingnessValues             []int16         `json:"willingness_values"`
 	ExamItems                     []ExamItem      `json:"exam_items"`
 	TimelineEvents                []TimelineEvent `json:"timeline_events"`
@@ -142,6 +143,7 @@ type Program struct {
 	// specifically the admissions/simplified-talent-admission info page.
 	SchoolOfficialURL     string `json:"school_official_url"`
 	DepartmentOfficialURL string `json:"department_official_url"`
+	ColleGoURL            string `json:"collego_url"`
 }
 
 // ProgramInput is the manual admission-data form. The public identifiers are
@@ -156,6 +158,7 @@ type ProgramInput struct {
 	ProgramCode                   string          `json:"program_code"`
 	AdmissionProgramName          string          `json:"admission_program_name"`
 	AdmissionQuota                int             `json:"admission_quota"`
+	AdmissionQuotaDisplay         string          `json:"admission_quota_display"`
 	ExamItems                     []ExamItem      `json:"exam_items"`
 	TimelineEvents                []TimelineEvent `json:"timeline_events"`
 	BrochureIsTentative           bool            `json:"brochure_is_tentative"`
@@ -223,6 +226,7 @@ func (input ProgramInput) materialize(schoolName string) (Program, error) {
 		ProgramCode:                   input.ProgramCode,
 		AdmissionProgramName:          input.AdmissionProgramName,
 		AdmissionQuota:                input.AdmissionQuota,
+		AdmissionQuotaDisplay:         input.AdmissionQuotaDisplay,
 		WillingnessValues:             make([]int16, 0),
 		ExamItems:                     input.ExamItems,
 		TimelineEvents:                input.TimelineEvents,
@@ -294,6 +298,7 @@ func (input ProgramInput) Validate() error {
 		input.PortfolioRequired, input.RecommendationLetterType, input.MaxApplicablePrograms,
 		input.ApplicantCount, input.InterviewCount, input.AdmittedCount, input.WaitlistedCount, input.PromotedCount,
 		input.AdmissionRate, input.FirstStagePassRate, input.CompetitionRatio,
+		input.AdmissionQuotaDisplay,
 		input.SchoolOfficialURL, input.DepartmentOfficialURL,
 	} {
 		if len([]rune(value)) > 10000 {
@@ -512,6 +517,9 @@ func (p Program) Validate() error {
 			return ErrInvalidProgram
 		}
 	}
+	if len([]rune(p.AdmissionQuotaDisplay)) > 10000 {
+		return ErrInvalidProgram
+	}
 	for _, value := range []string{
 		p.RecommendationLetterDeadline, p.PortfolioDeadline,
 	} {
@@ -631,6 +639,7 @@ func normalizeProgramInput(input ProgramInput) ProgramInput {
 	input.SchoolCode = strings.TrimSpace(input.SchoolCode)
 	input.ProgramCode = strings.TrimSpace(input.ProgramCode)
 	input.AdmissionProgramName = strings.TrimSpace(input.AdmissionProgramName)
+	input.AdmissionQuotaDisplay = strings.TrimSpace(input.AdmissionQuotaDisplay)
 	input.ConsultationPhone = normalizeDash(input.ConsultationPhone)
 	input.ConsultationEmail = normalizeDash(input.ConsultationEmail)
 	input.ConsultationContact = normalizeDash(input.ConsultationContact)

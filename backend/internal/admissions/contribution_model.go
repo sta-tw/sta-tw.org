@@ -14,21 +14,26 @@ import (
 )
 
 const (
-	ContributionApplicants = "applicants"
-	ContributionSecond     = "second_stage"
-	ContributionWaitlist   = "waitlist"
-	ContributionBrochure   = "historical_brochure"
-	ContributionPending    = "pending"
-	ContributionAccepted   = "accepted"
-	ContributionRejected   = "rejected"
-	maxContributionRows    = 100
+	ContributionApplicants   = "applicants"
+	ContributionSecond       = "second_stage"
+	ContributionWaitlist     = "waitlist"
+	ContributionBrochure     = "historical_brochure"
+	ContributionPending      = "pending"
+	ContributionAccepted     = "accepted"
+	ContributionRejected     = "rejected"
+	ContributionFileData     = "data"
+	ContributionFileEvidence = "evidence"
+	ContributionFileBrochure = "brochure"
+	ContributionFileLegacy   = "legacy"
+	maxContributionRows      = 100
 )
 
 var (
-	ErrInvalidContribution       = errors.New("admissions contribution is invalid")
-	ErrContributionNotFound      = errors.New("admissions contribution was not found")
-	ErrContributionInvalidStatus = errors.New("admissions contribution is no longer pending")
-	ErrContributionReplyInvalid  = errors.New("admissions contribution reply is invalid")
+	ErrInvalidContribution          = errors.New("admissions contribution is invalid")
+	ErrContributionNotFound         = errors.New("admissions contribution was not found")
+	ErrContributionInvalidStatus    = errors.New("admissions contribution is no longer pending")
+	ErrContributionReplyInvalid     = errors.New("admissions contribution reply is invalid")
+	ErrContributionEvidenceRequired = errors.New("admissions contribution evidence is required")
 )
 
 // ContributionInput contains the public form values. Email is encrypted before
@@ -52,6 +57,7 @@ type ContributionProgramRow struct {
 }
 
 type ContributionFile struct {
+	Purpose    string
 	StorageKey string
 	Filename   string
 	MIMEType   string
@@ -61,6 +67,7 @@ type ContributionFile struct {
 
 type ContributionAttachment struct {
 	ID         uuid.UUID `json:"id"`
+	Purpose    string    `json:"purpose"`
 	Filename   string    `json:"file_name"`
 	MIMEType   string    `json:"mime_type"`
 	SizeBytes  int64     `json:"size_bytes"`
@@ -109,7 +116,7 @@ type PublicContributor struct {
 	ReviewedAt time.Time `json:"reviewed_at"`
 }
 
-func (input *ContributionInput) NormalizeAndValidate(hasAttachment bool) error {
+func (input *ContributionInput) NormalizeAndValidate() error {
 	input.Email = auth.NormalizeEmail(input.Email)
 	input.SchoolName = strings.TrimSpace(input.SchoolName)
 	input.DataText = strings.TrimSpace(input.DataText)
@@ -135,10 +142,24 @@ func (input *ContributionInput) NormalizeAndValidate(hasAttachment bool) error {
 
 	switch input.Category {
 	case ContributionApplicants, ContributionSecond, ContributionWaitlist:
-		if input.SchoolName == "" || (hasAttachment && (len(input.ProgramRows) > 0 || input.DataText != "")) || (!hasAttachment && len(input.ProgramRows) == 0) {
+		hasDataFile, hasEvidence := false, false
+		for _, file := range input.Files {
+			switch file.Purpose {
+			case ContributionFileData:
+				hasDataFile = true
+			case ContributionFileEvidence:
+				hasEvidence = true
+			default:
+				return ErrInvalidContribution
+			}
+		}
+		if !hasEvidence {
+			return ErrContributionEvidenceRequired
+		}
+		if input.SchoolName == "" || (hasDataFile && (len(input.ProgramRows) > 0 || input.DataText != "")) || (!hasDataFile && len(input.ProgramRows) == 0) {
 			return ErrInvalidContribution
 		}
-		if hasAttachment {
+		if hasDataFile {
 			input.DataText = ""
 			break
 		}
@@ -148,7 +169,7 @@ func (input *ContributionInput) NormalizeAndValidate(hasAttachment bool) error {
 		}
 		input.DataText = dataText
 	case ContributionBrochure:
-		if (!hasAttachment && input.ReferenceURL == "") || len(input.ProgramRows) > 0 || input.DataText != "" || len(input.Files) > 1 || (len(input.Files) == 1 && input.Files[0].MIMEType != "application/pdf") {
+		if (len(input.Files) == 0 && input.ReferenceURL == "") || len(input.ProgramRows) > 0 || input.DataText != "" || len(input.Files) > 1 || (len(input.Files) == 1 && (input.Files[0].Purpose != ContributionFileBrochure || (input.Files[0].MIMEType != "" && input.Files[0].MIMEType != "application/pdf"))) {
 			return ErrInvalidContribution
 		}
 	default:

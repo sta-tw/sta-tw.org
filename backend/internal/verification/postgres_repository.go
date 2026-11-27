@@ -3,6 +3,7 @@ package verification
 import (
 	"context"
 	"crypto/subtle"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -44,22 +45,33 @@ func (r *PostgresRepository) CreateDocumentRequest(ctx context.Context, accountI
 }
 
 func (r *PostgresRepository) createRequest(ctx context.Context, accountID uuid.UUID, input CreateRequestInput, method Method, emailCiphertext, emailLookupHash []byte) (Request, error) {
+	schoolCode := nullableCode(input.SchoolCode)
 	programCode := nullableCode(input.ProgramCode)
+	schoolDirectoryID := nullableCode(input.SchoolDirectoryID)
+	academicFields, err := json.Marshal(input.AcademicFields)
+	if err != nil {
+		return Request{}, err
+	}
 	var item Request
 	var idText string
-	err := r.pool.QueryRow(ctx, `
+	var fieldsJSON []byte
+	err = r.pool.QueryRow(ctx, `
 		INSERT INTO verification_requests
-			(account_id, academic_year, school_code, program_code, method, school_email_ciphertext, school_email_lookup_hash)
-		SELECT $1::uuid, $2::smallint, $3::varchar, $4::varchar, $5::varchar, $6::bytea, $7::bytea
+			(account_id, academic_year, school_code, program_code, method, school_email_ciphertext, school_email_lookup_hash, identity_type, document_type, academic_fields, school_directory_id)
+		SELECT $1::uuid, $2::smallint, $3::varchar, $4::varchar, $5::varchar, $6::bytea, $7::bytea, $8::varchar, $9::varchar, $10::jsonb, $11::uuid
 		WHERE ($4::varchar IS NULL OR EXISTS (
 			SELECT 1 FROM academic_programs p
 			WHERE p.academic_year = $2::smallint AND p.school_code = $3::varchar AND p.program_code = $4::varchar
 		))
-		RETURNING id::text, academic_year, school_code, COALESCE(program_code, ''), method, status,
-		          0, created_at, reviewed_at
-	`, accountID, input.AcademicYear, input.SchoolCode, programCode, method, emailCiphertext, emailLookupHash).Scan(
-		&idText, &item.AcademicYear, &item.SchoolCode, &item.ProgramCode, &item.Method, &item.Status,
-		&item.DocumentCount, &item.CreatedAt, &item.ReviewedAt,
+		  AND ($11::uuid IS NULL OR EXISTS (
+			SELECT 1 FROM account_school_directory d
+			WHERE d.id = $11::uuid AND d.school_type = 'senior_high' AND d.is_active
+		))
+		RETURNING id::text, academic_year, COALESCE(school_code, ''), COALESCE(school_directory_id::text, ''), COALESCE(program_code, ''), method, status,
+		          identity_type, document_type, academic_fields, 0, created_at, reviewed_at
+	`, accountID, input.AcademicYear, schoolCode, programCode, method, emailCiphertext, emailLookupHash, input.IdentityType, input.DocumentType, string(academicFields), schoolDirectoryID).Scan(
+		&idText, &item.AcademicYear, &item.SchoolCode, &item.SchoolDirectoryID, &item.ProgramCode, &item.Method, &item.Status,
+		&item.IdentityType, &item.DocumentType, &fieldsJSON, &item.DocumentCount, &item.CreatedAt, &item.ReviewedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Request{}, ErrForbidden
@@ -70,6 +82,12 @@ func (r *PostgresRepository) createRequest(ctx context.Context, accountID uuid.U
 	item.ID, err = uuid.Parse(idText)
 	if err != nil {
 		return Request{}, err
+	}
+	if err := json.Unmarshal(fieldsJSON, &item.AcademicFields); err != nil {
+		return Request{}, err
+	}
+	if item.AcademicFields == nil {
+		item.AcademicFields = []string{}
 	}
 	return item, nil
 }
@@ -154,8 +172,14 @@ func (r *PostgresRepository) ConsumeEmailCode(ctx context.Context, accountID, re
 	if err != nil {
 		return Verification{}, err
 	}
-	if _, err := tx.Exec(ctx, `UPDATE accounts SET identity_status = 'student', updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND account_status = 'active'`, accountID); err != nil {
+	accountUpdate, err := tx.Exec(ctx, `UPDATE accounts
+		SET identity_status = 'student', school_identity_verified = true, identity_type = 'student', updated_at = CURRENT_TIMESTAMP
+		WHERE id = $1 AND account_status = 'active'`, accountID)
+	if err != nil {
 		return Verification{}, err
+	}
+	if accountUpdate.RowsAffected() != 1 {
+		return Verification{}, ErrInvalidStatus
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO verification_events (request_id, verification_id, actor_account_id, action, from_status, to_status) VALUES ($1, $2, $3, 'approved_by_school_email', 'pending', 'approved')`, request.ID, item.ID, accountID); err != nil {
 		return Verification{}, err
@@ -174,17 +198,27 @@ func (r *PostgresRepository) CreateDocument(ctx context.Context, accountID, requ
 	defer tx.Rollback(ctx)
 	var item Request
 	var idText string
+	var fieldsJSON []byte
 	err = tx.QueryRow(ctx, `
-		SELECT r.id::text, r.academic_year, r.school_code, COALESCE(r.program_code, ''), r.method, r.status, r.created_at, r.reviewed_at
+		SELECT r.id::text, r.academic_year, COALESCE(r.school_code, ''), COALESCE(r.school_directory_id::text, ''), COALESCE(r.program_code, ''), r.method, r.status,
+		       r.identity_type, r.document_type, r.academic_fields,
+		       r.created_at, r.reviewed_at
 		FROM verification_requests r
 		WHERE r.id = $1 AND r.account_id = $2
 		FOR UPDATE
-	`, requestID, accountID).Scan(&idText, &item.AcademicYear, &item.SchoolCode, &item.ProgramCode, &item.Method, &item.Status, &item.CreatedAt, &item.ReviewedAt)
+	`, requestID, accountID).Scan(&idText, &item.AcademicYear, &item.SchoolCode, &item.SchoolDirectoryID, &item.ProgramCode, &item.Method, &item.Status,
+		&item.IdentityType, &item.DocumentType, &fieldsJSON, &item.CreatedAt, &item.ReviewedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Request{}, ErrNotFound
 	}
 	if err != nil {
 		return Request{}, err
+	}
+	if err := json.Unmarshal(fieldsJSON, &item.AcademicFields); err != nil {
+		return Request{}, err
+	}
+	if item.AcademicFields == nil {
+		item.AcademicFields = []string{}
 	}
 	if item.Method != MethodDocument || item.Status != "pending" {
 		return Request{}, ErrInvalidStatus
@@ -304,14 +338,36 @@ func (r *PostgresRepository) ListPendingRequests(ctx context.Context, adminID uu
 	if !isAdmin {
 		return nil, ErrAdminRequired
 	}
-	return r.listRequests(ctx, `WHERE r.status = 'pending'`, nil)
+	return r.listRequests(ctx, `WHERE r.status = 'pending' AND r.method = 'document'`, nil)
 }
 
 func (r *PostgresRepository) listRequests(ctx context.Context, condition string, argument any) ([]Request, error) {
 	query := `
-		SELECT r.id::text, r.academic_year, r.school_code, COALESCE(r.program_code, ''), r.method, r.status,
+		SELECT r.id::text, COALESCE(a.username, ''), r.academic_year, COALESCE(r.school_code, ''),
+		       COALESCE(d.school_name, s.school_name, ''), COALESCE(r.school_directory_id::text, ''),
+		       COALESCE(r.program_code, ''), COALESCE(p.admission_program_name, ''), r.method,
+		       CASE
+		         WHEN r.status <> 'approved' OR r.identity_type NOT IN ('student', 'senior') THEN r.status
+		         WHEN EXISTS (
+		           SELECT 1 FROM student_verifications v
+		           WHERE v.source_request_id=r.id AND v.status='active' AND v.expires_at > CURRENT_TIMESTAMP
+		         ) THEN r.status
+		         WHEN EXISTS (
+		           SELECT 1 FROM student_verifications v
+		           WHERE v.source_request_id=r.id
+		             AND (v.status='expired' OR (v.status='active' AND v.expires_at <= CURRENT_TIMESTAMP))
+		         ) THEN 'expired'
+		         ELSE 'revoked'
+		       END,
+		       r.identity_type, r.document_type, r.academic_fields,
 		       (SELECT COUNT(*)::int FROM verification_documents d WHERE d.request_id = r.id), r.created_at, r.reviewed_at
-		FROM verification_requests r ` + condition + ` ORDER BY r.created_at DESC`
+		FROM verification_requests r
+		LEFT JOIN accounts a ON a.id = r.account_id
+		LEFT JOIN account_school_directory d ON d.id = r.school_directory_id
+		LEFT JOIN schools s ON s.school_code = r.school_code
+		LEFT JOIN academic_programs p ON p.academic_year = r.academic_year AND p.school_code = r.school_code
+		  AND p.program_code = NULLIF(r.program_code, '')
+		` + condition + ` ORDER BY r.created_at DESC`
 	var rows pgx.Rows
 	var err error
 	if argument == nil {
@@ -327,8 +383,17 @@ func (r *PostgresRepository) listRequests(ctx context.Context, condition string,
 	for rows.Next() {
 		var item Request
 		var idText string
-		if err := rows.Scan(&idText, &item.AcademicYear, &item.SchoolCode, &item.ProgramCode, &item.Method, &item.Status, &item.DocumentCount, &item.CreatedAt, &item.ReviewedAt); err != nil {
+		var fieldsJSON []byte
+		if err := rows.Scan(&idText, &item.ApplicantUsername, &item.AcademicYear, &item.SchoolCode, &item.SchoolName, &item.SchoolDirectoryID,
+			&item.ProgramCode, &item.ProgramName, &item.Method, &item.Status,
+			&item.IdentityType, &item.DocumentType, &fieldsJSON, &item.DocumentCount, &item.CreatedAt, &item.ReviewedAt); err != nil {
 			return nil, err
+		}
+		if err := json.Unmarshal(fieldsJSON, &item.AcademicFields); err != nil {
+			return nil, err
+		}
+		if item.AcademicFields == nil {
+			item.AcademicFields = []string{}
 		}
 		item.ID, err = uuid.Parse(idText)
 		if err != nil {
@@ -353,17 +418,36 @@ func (r *PostgresRepository) ReviewDocumentRequest(ctx context.Context, adminID,
 	}
 	defer tx.Rollback(ctx)
 	var request Request
+	var accountID uuid.UUID
 	var requestIDText string
+	var fieldsJSON []byte
 	err = tx.QueryRow(ctx, `
-		SELECT r.id::text, r.account_id, r.academic_year, r.school_code, COALESCE(r.program_code, ''), r.method, r.status,
+		SELECT r.id::text, r.account_id, COALESCE(a.username, ''), r.academic_year, COALESCE(r.school_code, ''),
+		       COALESCE(d.school_name, s.school_name, ''), COALESCE(r.school_directory_id::text, ''),
+		       COALESCE(r.program_code, ''), COALESCE(p.admission_program_name, ''), r.method, r.status,
+		       r.identity_type, r.document_type, r.academic_fields,
 		       (SELECT COUNT(*)::int FROM verification_documents d WHERE d.request_id = r.id), r.created_at, r.reviewed_at
-		FROM verification_requests r WHERE r.id = $1 FOR UPDATE
-	`, requestID).Scan(&requestIDText, new(uuid.UUID), &request.AcademicYear, &request.SchoolCode, &request.ProgramCode, &request.Method, &request.Status, &request.DocumentCount, &request.CreatedAt, &request.ReviewedAt)
+		FROM verification_requests r
+		JOIN accounts a ON a.id = r.account_id
+		LEFT JOIN account_school_directory d ON d.id = r.school_directory_id
+		LEFT JOIN schools s ON s.school_code = r.school_code
+		LEFT JOIN academic_programs p ON p.academic_year = r.academic_year AND p.school_code = r.school_code
+		  AND p.program_code = NULLIF(r.program_code, '')
+		WHERE r.id = $1 FOR UPDATE OF r
+	`, requestID).Scan(&requestIDText, &accountID, &request.ApplicantUsername, &request.AcademicYear, &request.SchoolCode, &request.SchoolName, &request.SchoolDirectoryID,
+		&request.ProgramCode, &request.ProgramName, &request.Method, &request.Status,
+		&request.IdentityType, &request.DocumentType, &fieldsJSON, &request.DocumentCount, &request.CreatedAt, &request.ReviewedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ReviewResult{}, ErrNotFound
 	}
 	if err != nil {
 		return ReviewResult{}, err
+	}
+	if err := json.Unmarshal(fieldsJSON, &request.AcademicFields); err != nil {
+		return ReviewResult{}, err
+	}
+	if request.AcademicFields == nil {
+		request.AcademicFields = []string{}
 	}
 	request.ID, err = uuid.Parse(requestIDText)
 	if err != nil {
@@ -388,13 +472,21 @@ func (r *PostgresRepository) ReviewDocumentRequest(ctx context.Context, adminID,
 	}
 	result := ReviewResult{}
 	if input.Approved {
-		item, err := upsertVerification(ctx, tx, request, MethodDocument, verifiedAt, expiresAt, &adminID)
+		if request.IdentityType == "student" || request.IdentityType == "senior" {
+			item, err := upsertVerification(ctx, tx, request, MethodDocument, verifiedAt, expiresAt, &adminID)
+			if err != nil {
+				return ReviewResult{}, err
+			}
+			result.Verification = &item
+		}
+		accountUpdate, err := tx.Exec(ctx, `UPDATE accounts
+			SET identity_status = $2, school_identity_verified = true, identity_type = $2, updated_at = CURRENT_TIMESTAMP
+			WHERE id = $1 AND account_status = 'active'`, accountID, request.IdentityType)
 		if err != nil {
 			return ReviewResult{}, err
 		}
-		result.Verification = &item
-		if _, err := tx.Exec(ctx, `UPDATE accounts SET identity_status = 'student', updated_at = CURRENT_TIMESTAMP WHERE id = (SELECT account_id FROM verification_requests WHERE id = $1) AND account_status = 'active'`, request.ID); err != nil {
-			return ReviewResult{}, err
+		if accountUpdate.RowsAffected() != 1 {
+			return ReviewResult{}, ErrInvalidStatus
 		}
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO verification_events (request_id, actor_account_id, action, from_status, to_status, reason) VALUES ($1, $2, $3, 'pending', $4, $5)`, request.ID, adminID, action, newStatus, input.Reason); err != nil {
@@ -415,13 +507,16 @@ func upsertVerification(ctx context.Context, tx pgx.Tx, request Request, method 
 	err := tx.QueryRow(ctx, `
 		SELECT id FROM student_verifications
 		WHERE account_id = (SELECT account_id FROM verification_requests WHERE id = $1)
-		  AND academic_year = $2 AND school_code = $3 AND program_code IS NOT DISTINCT FROM NULLIF($4, '')
+		  AND academic_year = $2
+		  AND school_code IS NOT DISTINCT FROM NULLIF($3::varchar, '')
+		  AND program_code IS NOT DISTINCT FROM NULLIF($4::varchar, '')
+		  AND school_directory_id IS NOT DISTINCT FROM NULLIF($5::text, '')::uuid
 		FOR UPDATE
-	`, request.ID, request.AcademicYear, request.SchoolCode, request.ProgramCode).Scan(&id)
+	`, request.ID, request.AcademicYear, request.SchoolCode, request.ProgramCode, request.SchoolDirectoryID).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		err = tx.QueryRow(ctx, `
-			INSERT INTO student_verifications (account_id, source_request_id, academic_year, school_code, program_code, method, status, verified_at, expires_at, verified_by)
-			SELECT account_id, $1, academic_year, school_code, NULLIF(program_code, ''), $2, 'active', $3, $4, $5
+			INSERT INTO student_verifications (account_id, source_request_id, academic_year, school_code, program_code, school_directory_id, method, status, verified_at, expires_at, verified_by)
+			SELECT account_id, $1, academic_year, school_code, NULLIF(program_code, ''), school_directory_id, $2, 'active', $3, $4, $5
 			FROM verification_requests WHERE id = $1
 			RETURNING id
 		`, request.ID, method, verifiedAt, expiresAt, verifiedBy).Scan(&id)
@@ -435,8 +530,8 @@ func upsertVerification(ctx context.Context, tx pgx.Tx, request Request, method 
 	if err != nil {
 		return Verification{}, mapVerificationError(err)
 	}
-	err = tx.QueryRow(ctx, `SELECT id, academic_year, school_code, COALESCE(program_code, ''), method, status, verified_at, expires_at FROM student_verifications WHERE id = $1`, id).Scan(
-		&item.ID, &item.AcademicYear, &item.SchoolCode, &item.ProgramCode, &item.Method, &item.Status, &item.VerifiedAt, &item.ExpiresAt,
+	err = tx.QueryRow(ctx, `SELECT id, academic_year, COALESCE(school_code, ''), COALESCE(school_directory_id::text, ''), COALESCE(program_code, ''), method, status, verified_at, expires_at FROM student_verifications WHERE id = $1`, id).Scan(
+		&item.ID, &item.AcademicYear, &item.SchoolCode, &item.SchoolDirectoryID, &item.ProgramCode, &item.Method, &item.Status, &item.VerifiedAt, &item.ExpiresAt,
 	)
 	return item, err
 }
@@ -581,7 +676,9 @@ func (r *PostgresRepository) PurgeAnnualData(ctx context.Context, academicYear i
 		return CleanupReport{}, err
 	}
 	if command, err := tx.Exec(ctx, `
-		UPDATE accounts a SET identity_status = 'senior', updated_at = CURRENT_TIMESTAMP
+		UPDATE accounts a SET identity_status = 'senior',
+			identity_type = CASE WHEN a.school_identity_verified THEN 'senior' ELSE NULL END,
+			updated_at = CURRENT_TIMESTAMP
 		WHERE a.identity_status = 'student'
 		  AND NOT EXISTS (SELECT 1 FROM student_verifications v WHERE v.account_id = a.id AND v.status = 'active' AND v.expires_at > $1)
 	`, now); err != nil {

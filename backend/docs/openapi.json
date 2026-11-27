@@ -694,13 +694,26 @@
             "type": "string",
             "format": "uuid"
           },
+          "applicant_username": {
+            "type": "string"
+          },
           "academic_year": {
             "type": "integer"
           },
           "school_code": {
             "type": "string"
           },
+          "school_name": {
+            "type": "string"
+          },
+          "school_directory_id": {
+            "type": "string",
+            "format": "uuid"
+          },
           "program_code": {
+            "type": "string"
+          },
+          "program_name": {
             "type": "string"
           },
           "method": {
@@ -708,6 +721,18 @@
           },
           "status": {
             "type": "string"
+          },
+          "identity_type": {
+            "type": "string"
+          },
+          "document_type": {
+            "type": "string"
+          },
+          "academic_fields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           },
           "document_count": {
             "type": "integer"
@@ -796,6 +821,10 @@
           },
           "school_code": {
             "type": "string"
+          },
+          "school_directory_id": {
+            "type": "string",
+            "format": "uuid"
           },
           "program_code": {
             "type": "string"
@@ -1054,6 +1083,9 @@
           "admission_quota": {
             "type": "integer"
           },
+          "admission_quota_display": {
+            "type": "string"
+          },
           "willingness_values": {
             "type": "array",
             "items": {
@@ -1075,6 +1107,15 @@
           "brochure_url": {
             "type": "string"
           },
+          "school_official_url": {
+            "type": "string"
+          },
+          "department_official_url": {
+            "type": "string"
+          },
+          "collego_url": {
+            "type": "string"
+          },
           "special_talent_target": {
             "type": "string"
           },
@@ -1094,6 +1135,104 @@
           "updated_at": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "AdminProgramLinkReview": {
+        "type": "object",
+        "properties": {
+          "academic_year": {
+            "type": "integer"
+          },
+          "program_identifier": {
+            "type": "string"
+          },
+          "school_code": {
+            "type": "string"
+          },
+          "school_name": {
+            "type": "string"
+          },
+          "program_code": {
+            "type": "string"
+          },
+          "program_name": {
+            "type": "string"
+          },
+          "current_school_url": {
+            "type": "string"
+          },
+          "current_department_url": {
+            "type": "string"
+          },
+          "current_collego_url": {
+            "type": "string"
+          },
+          "candidate_school_url": {
+            "type": "string"
+          },
+          "candidate_school_source_url": {
+            "type": "string"
+          },
+          "candidate_department_url": {
+            "type": "string"
+          },
+          "candidate_department_source_url": {
+            "type": "string"
+          },
+          "candidate_collego_url": {
+            "type": "string"
+          },
+          "candidate_collego_source_url": {
+            "type": "string"
+          },
+          "collego_match_status": {
+            "type": "string",
+            "enum": [
+              "",
+              "exact_normalized_name",
+              "needs_manual_review",
+              "ambiguous_candidates",
+              "unmatched"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "",
+              "draft",
+              "published",
+              "rejected"
+            ]
+          },
+          "unpublished": {
+            "type": "boolean"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        }
+      },
+      "AdminProgramLinkCandidateInput": {
+        "type": "object",
+        "properties": {
+          "school_url": {
+            "type": "string"
+          },
+          "school_source_url": {
+            "type": "string"
+          },
+          "department_url": {
+            "type": "string"
+          },
+          "department_source_url": {
+            "type": "string"
+          },
+          "collego_url": {
+            "type": "string"
+          },
+          "collego_source_url": {
+            "type": "string"
           }
         }
       },
@@ -1630,6 +1769,61 @@
           }
         }
       },
+      "AdminExperienceRevision": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "experience_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "account_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "author_username": {
+            "type": "string"
+          },
+          "visibility": {
+            "type": "string"
+          },
+          "review_status": {
+            "type": "string"
+          },
+          "rejection_reason": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "body_preview": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "author_type": {
+            "type": "string"
+          },
+          "admission_outcome": {
+            "type": "string"
+          },
+          "revision_number": {
+            "type": "integer"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "DiscoveryCycle": {
         "type": "object",
         "properties": {
@@ -2083,6 +2277,196 @@
           },
           {
             "bearer": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/account-schools": {
+      "get": {
+        "operationId": "get_api_v1_account_schools",
+        "summary": "Get account schools",
+        "tags": [
+          "account-schools"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/account-schools": {
+      "get": {
+        "operationId": "get_api_v1_admin_account_schools",
+        "summary": "Get admin account schools",
+        "tags": [
+          "admin-account-schools"
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "adminMFA": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "post_api_v1_admin_account_schools",
+        "summary": "Create admin account schools",
+        "tags": [
+          "admin-account-schools"
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "adminMFA": [],
+            "csrf": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/account-schools/{entryID}": {
+      "put": {
+        "operationId": "put_api_v1_admin_account_schools_entryID",
+        "summary": "Replace admin account schools entryID",
+        "tags": [
+          "admin-account-schools"
+        ],
+        "parameters": [
+          {
+            "name": "entryID",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "adminMFA": [],
+            "csrf": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
           }
         ],
         "requestBody": {
@@ -3287,6 +3671,108 @@
         }
       }
     },
+    "/api/v1/admin/admissions/brochure-prompts": {
+      "get": {
+        "operationId": "get_api_v1_admin_admissions_brochure_prompts",
+        "summary": "Get admin admissions brochure prompts",
+        "tags": [
+          "admin-admissions"
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "adminMFA": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/admissions/brochure-prompts/{schoolCode}": {
+      "put": {
+        "operationId": "put_api_v1_admin_admissions_brochure_prompts_schoolCode",
+        "summary": "Replace admin admissions brochure prompts schoolCode",
+        "tags": [
+          "admin-admissions"
+        ],
+        "parameters": [
+          {
+            "name": "schoolCode",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "adminMFA": [],
+            "csrf": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/admin/admissions/brochure-uploads": {
       "get": {
         "operationId": "get_api_v1_admin_admissions_brochure_uploads",
@@ -4159,6 +4645,218 @@
         }
       }
     },
+    "/api/v1/admin/admissions/contributions": {
+      "get": {
+        "operationId": "get_api_v1_admin_admissions_contributions",
+        "summary": "Get admin admissions contributions",
+        "tags": [
+          "admin-admissions"
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "adminMFA": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/admissions/contributions/{id}/attachments/{attachmentID}/content": {
+      "get": {
+        "operationId": "get_api_v1_admin_admissions_contributions_id_attachments_attachmentID_content",
+        "summary": "Get admin admissions contributions id attachments attachmentID content",
+        "tags": [
+          "admin-admissions"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "attachmentID",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "adminMFA": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/admissions/contributions/{id}/content": {
+      "get": {
+        "operationId": "get_api_v1_admin_admissions_contributions_id_content",
+        "summary": "Get admin admissions contributions id content",
+        "tags": [
+          "admin-admissions"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "adminMFA": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/admissions/contributions/{id}/review": {
+      "post": {
+        "operationId": "post_api_v1_admin_admissions_contributions_id_review",
+        "summary": "Create admin admissions contributions id review",
+        "tags": [
+          "admin-admissions"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "adminMFA": [],
+            "csrf": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/admin/admissions/display-latest-year": {
       "get": {
         "operationId": "get_api_v1_admin_admissions_display_latest_year",
@@ -4232,6 +4930,436 @@
               "application/json": {
                 "schema": {
                   "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/admissions/program-links": {
+      "get": {
+        "operationId": "get_api_v1_admin_admissions_program_links",
+        "summary": "List school, department, and ColleGo! link candidates for review",
+        "tags": [
+          "admin-admissions"
+        ],
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "all|draft|published|unpublished|rejected"
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 10000
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "adminMFA": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/AdminProgramLinkReview"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/admissions/program-links/{schoolCode}/{programCode}": {
+      "put": {
+        "operationId": "put_api_v1_admin_admissions_program_links_schoolCode_programCode",
+        "summary": "Save unpublished school and program link candidates",
+        "tags": [
+          "admin-admissions"
+        ],
+        "parameters": [
+          {
+            "name": "schoolCode",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "programCode",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "adminMFA": [],
+            "csrf": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminProgramLinkCandidateInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/AdminProgramLinkReview"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/admissions/program-links/{schoolCode}/{programCode}/publish": {
+      "post": {
+        "operationId": "post_api_v1_admin_admissions_program_links_schoolCode_programCode_publish",
+        "summary": "Publish reviewed school and program links",
+        "tags": [
+          "admin-admissions"
+        ],
+        "parameters": [
+          {
+            "name": "schoolCode",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "programCode",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "adminMFA": [],
+            "csrf": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "published"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/admissions/program-links/{schoolCode}/{programCode}/reject": {
+      "post": {
+        "operationId": "post_api_v1_admin_admissions_program_links_schoolCode_programCode_reject",
+        "summary": "Reject school and program link candidates",
+        "tags": [
+          "admin-admissions"
+        ],
+        "parameters": [
+          {
+            "name": "schoolCode",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "programCode",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "adminMFA": [],
+            "csrf": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "rejected"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/admissions/program-links/{schoolCode}/{programCode}/unpublish": {
+      "post": {
+        "operationId": "post_api_v1_admin_admissions_program_links_schoolCode_programCode_unpublish",
+        "summary": "Unpublish school and program links",
+        "tags": [
+          "admin-admissions"
+        ],
+        "parameters": [
+          {
+            "name": "schoolCode",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "programCode",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "adminMFA": [],
+            "csrf": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "unpublished"
+                          ]
+                        }
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -4662,6 +5790,56 @@
       }
     },
     "/api/v1/admin/admissions/programs/{identifier}/history": {
+      "delete": {
+        "operationId": "delete_api_v1_admin_admissions_programs_identifier_history",
+        "summary": "Delete admin admissions programs identifier history",
+        "tags": [
+          "admin-admissions"
+        ],
+        "parameters": [
+          {
+            "name": "identifier",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "adminMFA": [],
+            "csrf": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
       "get": {
         "operationId": "get_api_v1_admin_admissions_programs_identifier_history",
         "summary": "Get admin admissions programs identifier history",
@@ -5032,6 +6210,150 @@
                     "next_cursor": {
                       "type": "string",
                       "description": "\"\" = no more rows"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/experience-revisions": {
+      "get": {
+        "operationId": "get_api_v1_admin_experience_revisions",
+        "summary": "Get admin experience revisions",
+        "tags": [
+          "admin-experience-revisions"
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "opaque; from a prior next_cursor"
+          },
+          {
+            "name": "review_status",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "draft|pending_review|approved|rejected"
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "adminMFA": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data",
+                    "next_cursor"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/AdminExperienceRevision"
+                      }
+                    },
+                    "next_cursor": {
+                      "type": "string",
+                      "description": "\"\" = no more rows"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/experience-revisions/{revisionID}": {
+      "get": {
+        "operationId": "get_api_v1_admin_experience_revisions_revisionID",
+        "summary": "Get admin experience revisions revisionID",
+        "tags": [
+          "admin-experience-revisions"
+        ],
+        "parameters": [
+          {
+            "name": "revisionID",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "adminMFA": []
+          },
+          {
+            "bearer": [],
+            "adminMFA": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/AdminExperienceRevision"
                     }
                   }
                 }
@@ -9875,6 +11197,138 @@
         }
       }
     },
+    "/api/v1/admissions/contributions": {
+      "post": {
+        "operationId": "post_api_v1_admissions_contributions",
+        "summary": "Create admissions contributions",
+        "tags": [
+          "admissions"
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "csrf": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admissions/contributors": {
+      "get": {
+        "operationId": "get_api_v1_admissions_contributors",
+        "summary": "Get admissions contributors",
+        "tags": [
+          "admissions"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admissions/display-latest-year": {
+      "get": {
+        "operationId": "get_api_v1_admissions_display_latest_year",
+        "summary": "Get the current public admissions display year",
+        "tags": [
+          "admissions"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "academic_year": {
+                          "type": "integer"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/admissions/programs": {
       "get": {
         "operationId": "get_api_v1_admissions_programs",
@@ -9898,11 +11352,45 @@
             }
           },
           {
+            "name": "program_code",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "q",
             "in": "query",
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "all_years",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            },
+            "description": "true returns every published year from 104 through the display year; cannot be combined with academic_year or program_code"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "minimum": 1,
+            "maximum": 500,
+            "default": 50
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "minimum": 0,
+            "maximum": 10000
           }
         ],
         "security": [
@@ -10930,6 +12418,45 @@
         }
       }
     },
+    "/api/v1/auth/identities": {
+      "get": {
+        "operationId": "get_api_v1_auth_identities",
+        "summary": "Get auth identities",
+        "tags": [
+          "auth"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/auth/login": {
       "post": {
         "operationId": "post_api_v1_auth_login",
@@ -11056,6 +12583,92 @@
                       "$ref": "#/components/schemas/Account"
                     }
                   }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/oauth/registration": {
+      "get": {
+        "operationId": "get_api_v1_auth_oauth_registration",
+        "summary": "Get auth oauth registration",
+        "tags": [
+          "auth"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "post_api_v1_auth_oauth_registration",
+        "summary": "Create auth oauth registration",
+        "tags": [
+          "auth"
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "csrf": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
                 }
               }
             }
@@ -12999,6 +14612,45 @@
         }
       }
     },
+    "/api/v1/experiences/tags": {
+      "get": {
+        "operationId": "get_api_v1_experiences_tags",
+        "summary": "Get experiences tags",
+        "tags": [
+          "experiences"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/experiences/{experienceID}": {
       "get": {
         "operationId": "get_api_v1_experiences_experienceID",
@@ -14317,6 +15969,52 @@
         }
       }
     },
+    "/api/v1/internal/extraction/brochure-prompts/{schoolCode}": {
+      "get": {
+        "operationId": "get_api_v1_internal_extraction_brochure_prompts_schoolCode",
+        "summary": "Get internal extraction brochure prompts schoolCode",
+        "tags": [
+          "internal-extraction"
+        ],
+        "parameters": [
+          {
+            "name": "schoolCode",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "serviceToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/internal/extraction/brochures": {
       "post": {
         "operationId": "post_api_v1_internal_extraction_brochures",
@@ -15161,6 +16859,45 @@
         }
       }
     },
+    "/api/v1/me/experiences": {
+      "get": {
+        "operationId": "get_api_v1_me_experiences",
+        "summary": "Get me experiences",
+        "tags": [
+          "me"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/meta": {
       "get": {
         "operationId": "get_api_v1_meta",
@@ -15258,6 +16995,92 @@
                       "description": "\"\" = no more rows"
                     }
                   }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/notifications/preferences": {
+      "get": {
+        "operationId": "get_api_v1_notifications_preferences",
+        "summary": "Get notifications preferences",
+        "tags": [
+          "notifications"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "put_api_v1_notifications_preferences",
+        "summary": "Replace notifications preferences",
+        "tags": [
+          "notifications"
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "csrf": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
                 }
               }
             }
@@ -16256,6 +18079,371 @@
         }
       }
     },
+    "/api/v1/profile/details": {
+      "get": {
+        "operationId": "get_api_v1_profile_details",
+        "summary": "Get profile details",
+        "tags": [
+          "profile"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "put_api_v1_profile_details",
+        "summary": "Replace profile details",
+        "tags": [
+          "profile"
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "csrf": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/profile/privacy": {
+      "get": {
+        "operationId": "get_api_v1_profile_privacy",
+        "summary": "Get profile privacy",
+        "tags": [
+          "profile"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "put_api_v1_profile_privacy",
+        "summary": "Replace profile privacy",
+        "tags": [
+          "profile"
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "csrf": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/saved-programs": {
+      "get": {
+        "operationId": "get_api_v1_saved_programs",
+        "summary": "Get saved programs",
+        "tags": [
+          "saved-programs"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/saved-programs/{identifier}": {
+      "delete": {
+        "operationId": "delete_api_v1_saved_programs_identifier",
+        "summary": "Delete saved programs identifier",
+        "tags": [
+          "saved-programs"
+        ],
+        "parameters": [
+          {
+            "name": "identifier",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "csrf": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "operationId": "get_api_v1_saved_programs_identifier",
+        "summary": "Get saved programs identifier",
+        "tags": [
+          "saved-programs"
+        ],
+        "parameters": [
+          {
+            "name": "identifier",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "put_api_v1_saved_programs_identifier",
+        "summary": "Replace saved programs identifier",
+        "tags": [
+          "saved-programs"
+        ],
+        "parameters": [
+          {
+            "name": "identifier",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "csrf": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/schools": {
       "get": {
         "operationId": "get_api_v1_schools",
@@ -17086,6 +19274,45 @@
         }
       }
     },
+    "/api/v1/users/resolve": {
+      "get": {
+        "operationId": "get_api_v1_users_resolve",
+        "summary": "Get users resolve",
+        "tags": [
+          "users"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/users/{username}": {
       "get": {
         "operationId": "get_api_v1_users_username",
@@ -17185,6 +19412,153 @@
         }
       }
     },
+    "/api/v1/users/{username}/details": {
+      "get": {
+        "operationId": "get_api_v1_users_username_details",
+        "summary": "Get users username details",
+        "tags": [
+          "users"
+        ],
+        "parameters": [
+          {
+            "name": "username",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/users/{username}/experiences": {
+      "get": {
+        "operationId": "get_api_v1_users_username_experiences",
+        "summary": "Get users username experiences",
+        "tags": [
+          "users"
+        ],
+        "parameters": [
+          {
+            "name": "username",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/users/{username}/portfolio": {
+      "get": {
+        "operationId": "get_api_v1_users_username_portfolio",
+        "summary": "Get users username portfolio",
+        "tags": [
+          "users"
+        ],
+        "parameters": [
+          {
+            "name": "username",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/verification/requests": {
       "get": {
         "operationId": "get_api_v1_verification_requests",
@@ -17261,10 +19635,43 @@
                     "type": "integer"
                   },
                   "school_code": {
-                    "type": "string"
+                    "type": "string",
+                    "description": "Three-digit university code for non-current-student requests."
+                  },
+                  "school_directory_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "description": "Selected senior-high-school directory ID for current-student requests."
                   },
                   "program_code": {
-                    "type": "string"
+                    "type": "string",
+                    "description": "Optional three-digit program code for university-based requests."
+                  },
+                  "identity_type": {
+                    "type": "string",
+                    "enum": [
+                      "student",
+                      "senior",
+                      "parent",
+                      "educator"
+                    ]
+                  },
+                  "document_type": {
+                    "type": "string",
+                    "enum": [
+                      "student_id",
+                      "admission_letter",
+                      "alumni_proof",
+                      "parent_relationship",
+                      "educator_credential",
+                      "other"
+                    ]
+                  },
+                  "academic_fields": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
                   }
                 }
               }
@@ -17376,6 +19783,49 @@
         }
       }
     },
+    "/api/v1/verification/requests/{requestID}": {
+      "delete": {
+        "operationId": "delete_api_v1_verification_requests_requestID",
+        "summary": "Withdraw your own pending verification request",
+        "tags": [
+          "verification"
+        ],
+        "parameters": [
+          {
+            "name": "requestID",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "csrf": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/verification/requests/{requestID}/documents": {
       "post": {
         "operationId": "post_api_v1_verification_requests_requestID_documents",
@@ -17436,6 +19886,49 @@
                 }
               }
             }
+          },
+          "4XX": {
+            "description": "Client error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/verification/requests/{requestID}/revoke": {
+      "post": {
+        "operationId": "post_api_v1_verification_requests_requestID_revoke",
+        "summary": "Revoke your own approved verification",
+        "tags": [
+          "verification"
+        ],
+        "parameters": [
+          {
+            "name": "requestID",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": [],
+            "csrf": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
           },
           "4XX": {
             "description": "Client error",

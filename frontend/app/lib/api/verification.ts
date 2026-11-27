@@ -1,16 +1,28 @@
 import { apiFetch, apiUpload } from "./client";
-import { mockResponse, mockStore } from "./mock";
 
-export type VerificationStatus = "pending" | "approved" | "rejected" | "cancelled" | "expired";
+export type VerificationStatus =
+    | "pending"
+    | "approved"
+    | "rejected"
+    | "cancelled"
+    | "expired"
+    | "revoked";
 
 /** verification.Request from GET /api/v1/verification/requests. */
 export interface VerificationRequest {
     id: string;
+    applicant_username?: string;
     academic_year: number;
-    school_code: string;
+    school_code?: string;
+    school_name?: string;
+    school_directory_id?: string;
     program_code?: string;
+    program_name?: string;
     method: "school_email" | "document";
     status: VerificationStatus;
+    identity_type: VerificationIdentityType;
+    document_type: VerificationDocumentType;
+    academic_fields: string[];
     document_count: number;
     created_at: string;
     reviewed_at?: string;
@@ -32,8 +44,10 @@ export interface VerificationDocument {
 
 interface DocumentRequestInput {
     academic_year: number;
-    /** Three-digit school code. */
-    school_code: string;
+    /** Three-digit university code for non-current-student requests. */
+    school_code?: string;
+    /** Account-school directory ID for a current student's high school. */
+    school_directory_id?: string;
     /** Optional three-digit program code; must exist for that year/school. */
     program_code?: string;
 }
@@ -42,14 +56,6 @@ interface DocumentRequestInput {
 function realGetVerificationRequests(options?: { signal?: AbortSignal }) {
     return apiFetch<{ data: VerificationRequest[] }>("/api/v1/verification/requests", {
         signal: options?.signal
-    });
-}
-
-/** POST /api/v1/verification/requests/document. Wrapped below. */
-function realCreateDocumentRequest(input: DocumentRequestInput) {
-    return apiFetch<{ data: VerificationRequest }>("/api/v1/verification/requests/document", {
-        method: "POST",
-        body: input
     });
 }
 
@@ -66,11 +72,14 @@ function uploadVerificationDocument(requestId: string, file: File) {
 export const VERIFICATION_DOCUMENT_ACCEPT = ".pdf,.png,.jpg,.jpeg";
 export const VERIFICATION_DOCUMENT_MAX_BYTES = 50 * 1024 * 1024;
 
-// ---------------------------------------------------------------------------
-// Not backed yet — see lib/api/mock.ts.
-
-export type VerificationIdentityType = "student" | "senior";
-export type VerificationDocumentType = "student_id" | "admission_letter" | "other";
+export type VerificationIdentityType = "student" | "senior" | "parent" | "educator";
+export type VerificationDocumentType =
+    | "student_id"
+    | "admission_letter"
+    | "alumni_proof"
+    | "parent_relationship"
+    | "educator_credential"
+    | "other";
 
 /** Fields the document request will carry once the backend stores them. */
 export interface VerificationRequestDetails {
@@ -79,70 +88,94 @@ export interface VerificationRequestDetails {
     academic_fields: string[];
 }
 
-/** A request as the mocked GET will return it: the real row plus the extra
- * fields, and "revoked" for an approved identity the user removed. */
-export type VerificationRequestWithDetails = Omit<VerificationRequest, "status"> &
-    Partial<VerificationRequestDetails> & { status: VerificationStatus | "revoked" };
+/** A request whose approved verification has been revoked by its owner. */
+export type VerificationRequestWithDetails = VerificationRequest;
 
-type StoredExtras = Partial<VerificationRequestDetails> & { status?: "cancelled" | "revoked" };
-const EXTRAS_KEY = "verification-extras";
-
-function readExtras() {
-    return mockStore.read<Record<string, StoredExtras>>(EXTRAS_KEY, {});
+/** GET /api/v1/verification/requests — newest first. */
+export function getVerificationRequests(options?: { signal?: AbortSignal }) {
+    return realGetVerificationRequests(options) as Promise<{
+        data: VerificationRequestWithDetails[];
+    }>;
 }
 
-function patchExtras(id: string, patch: StoredExtras) {
-    const all = readExtras();
-    mockStore.write(EXTRAS_KEY, { ...all, [id]: { ...all[id], ...patch } });
+/** POST /api/v1/verification/requests/document. */
+export function createDocumentRequest(input: DocumentRequestInput & VerificationRequestDetails) {
+    return apiFetch<{ data: VerificationRequestWithDetails }>(
+        "/api/v1/verification/requests/document",
+        {
+            method: "POST",
+            body: input
+        }
+    );
 }
 
-/** GET /api/v1/verification/requests, MOCK: merged with the locally
- * stored identity/document/academic-field values and status overrides,
- * newest first. */
-export async function getVerificationRequests(options?: { signal?: AbortSignal }) {
-    const { data } = await realGetVerificationRequests(options);
-    const extras = readExtras();
-    const merged: VerificationRequestWithDetails[] = data
-        .map((request) => ({ ...request, ...extras[request.id] }))
-        .sort((a, b) => b.created_at.localeCompare(a.created_at));
-    return { data: merged };
-}
-
-/** POST /api/v1/verification/requests/document with MOCK: identity_type,
- * document_type and academic_fields in the body — the real request is
- * created and the extra fields are recorded locally. */
-export async function createDocumentRequest(
-    input: DocumentRequestInput & VerificationRequestDetails
-) {
-    const { identity_type, document_type, academic_fields, ...real } = input;
-    const { data } = await realCreateDocumentRequest(real);
-    patchExtras(data.id, { identity_type, document_type, academic_fields });
-    const merged: VerificationRequestWithDetails = {
-        ...data,
-        identity_type,
-        document_type,
-        academic_fields
-    };
-    return { data: merged };
-}
-
-/** MOCK: DELETE /api/v1/verification/requests/{id} — withdraws a pending
- * request (204; the server will answer 409 for any other status). */
+/** DELETE /api/v1/verification/requests/{id} — withdraws a pending request. */
 export function withdrawVerificationRequest(id: string) {
-    return mockResponse((): void => patchExtras(id, { status: "cancelled" }));
+    return apiFetch<void>(`/api/v1/verification/requests/${encodeURIComponent(id)}`, {
+        method: "DELETE"
+    });
 }
 
-/** MOCK: POST /api/v1/verification/requests/{id}/revoke — removes an
- * approved identity (204; 409 for any other status). */
+/** POST /api/v1/verification/requests/{id}/revoke — removes an approved identity. */
 export function revokeVerification(id: string) {
-    return mockResponse((): void => patchExtras(id, { status: "revoked" }));
+    return apiFetch<void>(`/api/v1/verification/requests/${encodeURIComponent(id)}/revoke`, {
+        method: "POST"
+    });
+}
+
+function adminVerificationHeaders(code?: string): Record<string, string> | undefined {
+    return code ? { "X-MFA-Code": code } : undefined;
+}
+
+/** GET /api/v1/admin/verification/requests/pending — document requests only. */
+export function listPendingAdminVerificationRequests(mfaCode?: string) {
+    return apiFetch<{ data: VerificationRequest[] }>(
+        "/api/v1/admin/verification/requests/pending",
+        { headers: adminVerificationHeaders(mfaCode) }
+    );
+}
+
+/** GET /api/v1/admin/verification/requests/{id}/documents. */
+export function listAdminVerificationDocuments(requestId: string, mfaCode?: string) {
+    return apiFetch<{ data: VerificationDocument[] }>(
+        `/api/v1/admin/verification/requests/${encodeURIComponent(requestId)}/documents`,
+        { headers: adminVerificationHeaders(mfaCode) }
+    );
+}
+
+/** GET .../documents/{id}/download — returns a short lived private URL. */
+export function getAdminVerificationDocumentPreview(
+    requestId: string,
+    documentId: string,
+    mfaCode?: string
+) {
+    return apiFetch<{ data: VerificationDocument; url: string; expires_in: number }>(
+        `/api/v1/admin/verification/requests/${encodeURIComponent(requestId)}/documents/${encodeURIComponent(documentId)}/download`,
+        { headers: adminVerificationHeaders(mfaCode) }
+    );
+}
+
+/** POST /api/v1/admin/verification/requests/{id}/review. */
+export function reviewAdminVerificationRequest(
+    requestId: string,
+    input: { approved: boolean; reason: string },
+    mfaCode?: string
+) {
+    return apiFetch<{ data: { request: VerificationRequest } }>(
+        `/api/v1/admin/verification/requests/${encodeURIComponent(requestId)}/review`,
+        {
+            method: "POST",
+            body: input,
+            headers: adminVerificationHeaders(mfaCode)
+        }
+    );
 }
 
 /** Full document submission: withdraws the pending request it replaces (if
  * any), creates the request, then uploads the file. If the upload fails the
  * new, empty request is withdrawn so it doesn't sit in the review queue.
- * MOCK: both withdraw steps use the mocked DELETE above, so until
- * it is real a replaced or failed request stays pending on the server. */
+ * Both withdraw steps use the server DELETE endpoint, so replaced or failed
+ * submissions do not remain pending in the review queue. */
 export async function submitDocumentVerification(
     input: DocumentRequestInput & VerificationRequestDetails,
     file: File,

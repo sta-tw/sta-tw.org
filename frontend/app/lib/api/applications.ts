@@ -68,6 +68,16 @@ export interface ApplicationInquiry {
 /** results.validWillingness */
 export const WILLINGNESS_VALUES = [0, 20, 40, 60, 80, 100] as const;
 
+/** 顯示正式 API 支援的報到意願選項。 */
+export const willingnessLabels: Record<(typeof WILLINGNESS_VALUES)[number], string> = {
+    100: "必報到",
+    80: "很可能報到",
+    60: "傾向報到",
+    40: "觀望中",
+    20: "不太可能報到",
+    0: "確定放棄"
+};
+
 /** GET /api/v1/applications/{applicationID}/result */
 export function getApplicationResult(applicationID: string, options?: { signal?: AbortSignal }) {
     return apiFetch<{ data: ApplicationResult }>(
@@ -87,12 +97,19 @@ export function listApplicationInquiries(
     );
 }
 
-/** PUT /api/v1/applications/{applicationID}/candidate-number — 4–64 chars
- * of [A-Za-z0-9-_]; responds 204. */
-export function setCandidateNumber(applicationID: string, candidateNumber: string) {
+/** PUT /api/v1/applications/{applicationID}/candidate-number — stores the
+ * candidate number and name; responds 204 without returning either value. */
+export function setCandidateNumber(
+    applicationID: string,
+    candidateNumber: string,
+    candidateName: string
+) {
     return apiFetch<void>(
         `/api/v1/applications/${encodeURIComponent(applicationID)}/candidate-number`,
-        { method: "PUT", body: { candidate_number: candidateNumber } }
+        {
+            method: "PUT",
+            body: { candidate_number: candidateNumber, candidate_name: candidateName }
+        }
     );
 }
 

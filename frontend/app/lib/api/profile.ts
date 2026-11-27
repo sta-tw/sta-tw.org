@@ -1,7 +1,4 @@
-import { getCurrentAccount } from "./auth";
 import { API_BASE_URL, apiFetch, apiUpload } from "./client";
-import { mockResponse, mockStore } from "./mock";
-import { ApiError } from "./types";
 
 export interface ProfileLink {
     label: string;
@@ -12,7 +9,7 @@ export interface ProfileLink {
 export interface Profile {
     account_id: string;
     username: string;
-    identity_status: "temporary" | "student" | "senior";
+    identity_status: "temporary" | "student" | "senior" | "parent" | "educator";
     display_name?: string;
     bio?: string;
     links: ProfileLink[];
@@ -33,7 +30,9 @@ interface ProfileInput {
 export const identityStatusLabels: Record<Profile["identity_status"], string> = {
     temporary: "未驗證",
     student: "本年度特選錄取生",
-    senior: "往年特選錄取生（學長姐）"
+    senior: "往年特選錄取生（學長姐）",
+    parent: "特選生家長",
+    educator: "師長／輔導老師"
 };
 
 /** The name to show for a profile: display_name, else the username. */
@@ -88,11 +87,10 @@ export function getPublicProfile(username: string, options?: { signal?: AbortSig
     });
 }
 
-// ---------------------------------------------------------------------------
-// Not backed yet — see lib/api/mock.ts.
-
 export interface ProfileDetails {
     school_name: string;
+    school_selection_type: "none" | "directory" | "other_status" | "unlisted";
+    school_directory_id: string | null;
     department: string;
     hide_school: boolean;
     hide_department: boolean;
@@ -115,114 +113,48 @@ export interface PublicProfileDetails {
     show_portfolio: boolean;
 }
 
-const emptyDetails: ProfileDetails = {
-    school_name: "",
-    department: "",
-    hide_school: false,
-    hide_department: false,
-    profile_slug: null
-};
-
-const defaultPrivacy: PrivacySettings = {
-    profile_visibility: "public",
-    show_articles: true,
-    show_portfolio: true
-};
-
-// The mock only knows this browser's own account, stored with its username
-// so the public-profile lookup can tell "my profile" from anyone else's.
-type StoredDetails = ProfileDetails & { username?: string };
-const DETAILS_KEY = "profile-details";
-const PRIVACY_KEY = "profile-privacy";
-
-/** MOCK: GET /api/v1/profile/details */
+/** GET /api/v1/profile/details */
 export function getMyProfileDetails(options?: { signal?: AbortSignal }) {
-    return mockResponse(() => {
-        const stored = mockStore.read<StoredDetails>(DETAILS_KEY, emptyDetails);
-        const details: ProfileDetails = {
-            school_name: stored.school_name,
-            department: stored.department,
-            hide_school: stored.hide_school,
-            hide_department: stored.hide_department,
-            profile_slug: stored.profile_slug
-        };
-        return { data: details };
-    }, options?.signal);
+    return apiFetch<{ data: ProfileDetails }>("/api/v1/profile/details", {
+        signal: options?.signal
+    });
 }
 
-/** MOCK: PUT /api/v1/profile/details — 409 `slug_locked` if the slug changes
- * after it was set. */
+/** PUT /api/v1/profile/details — the slug is immutable once set. */
 export function updateMyProfileDetails(details: ProfileDetails) {
-    return mockResponse(async () => {
-        const current = mockStore.read<StoredDetails>(DETAILS_KEY, emptyDetails);
-        if (current.profile_slug && details.profile_slug !== current.profile_slug) {
-            throw new ApiError(409, "slug_locked", "自訂網址設定後就無法更改。");
-        }
-        const { account } = await getCurrentAccount();
-        mockStore.write<StoredDetails>(DETAILS_KEY, { ...details, username: account.username });
-        return { data: details };
+    return apiFetch<{ data: ProfileDetails }>("/api/v1/profile/details", {
+        method: "PUT",
+        body: details
     });
 }
 
-/** MOCK: GET /api/v1/profile/privacy */
+/** GET /api/v1/profile/privacy */
 export function getPrivacySettings(options?: { signal?: AbortSignal }) {
-    return mockResponse(
-        () => ({ data: mockStore.read(PRIVACY_KEY, defaultPrivacy) }),
-        options?.signal
-    );
-}
-
-/** MOCK: PUT /api/v1/profile/privacy */
-export function updatePrivacySettings(settings: PrivacySettings) {
-    return mockResponse(() => {
-        mockStore.write(PRIVACY_KEY, settings);
-        return { data: settings };
+    return apiFetch<{ data: PrivacySettings }>("/api/v1/profile/privacy", {
+        signal: options?.signal
     });
 }
 
-/** MOCK: GET /api/v1/users/resolve/{segment} — the username behind a
- * /user/{segment} URL, which may be a custom slug. The mock only knows this
- * browser's own slug; any other segment is taken as a username. */
+/** PUT /api/v1/profile/privacy */
+export function updatePrivacySettings(settings: PrivacySettings) {
+    return apiFetch<{ data: PrivacySettings }>("/api/v1/profile/privacy", {
+        method: "PUT",
+        body: settings
+    });
+}
+
+/** GET /api/v1/users/resolve?segment=... — resolves username or custom slug. */
 export function resolveUser(segment: string, options?: { signal?: AbortSignal }) {
-    return mockResponse(() => {
-        const details = mockStore.read<StoredDetails>(DETAILS_KEY, emptyDetails);
-        const isMySlug = details.profile_slug === segment && details.username;
-        return { data: { username: isMySlug ? details.username! : segment } };
-    }, options?.signal);
+    return apiFetch<{ data: { username: string } }>("/api/v1/users/resolve", {
+        query: { segment },
+        signal: options?.signal
+    });
 }
 
-/** MOCK: GET /api/v1/users/{username}/details — returns the stored details
- * only for this browser's own account, defaults for anyone else. */
+/** GET /api/v1/users/{username}/details — privacy-filtered profile details. */
 export function getPublicProfileDetails(username: string, options?: { signal?: AbortSignal }) {
-    return mockResponse((): { data: PublicProfileDetails } => {
-        const details = mockStore.read<StoredDetails>(DETAILS_KEY, emptyDetails);
-        const privacy = mockStore.read(PRIVACY_KEY, defaultPrivacy);
-        if (username !== details.username)
-            return { data: { show_articles: true, show_portfolio: true } };
-        return {
-            data: {
-                school_name: details.hide_school ? undefined : details.school_name || undefined,
-                department: details.hide_department ? undefined : details.department || undefined,
-                show_articles: privacy.show_articles,
-                show_portfolio: privacy.show_portfolio
-            }
-        };
-    }, options?.signal);
-}
-
-/** A published portfolio file as it will appear on someone's public profile. */
-export interface PublicPortfolioItem {
-    file_id: string;
-    project_title: string;
-    school_name: string;
-    program_name: string;
-    academic_year: number;
-    published_at: string;
-}
-
-/** MOCK: GET /api/v1/users/{username}/portfolio — published files only. There
- * is no public portfolio listing yet, so the mock is always empty. */
-export function listUserPortfolio(username: string, options?: { signal?: AbortSignal }) {
-    void username;
-    return mockResponse((): { data: PublicPortfolioItem[] } => ({ data: [] }), options?.signal);
+    return apiFetch<{ data: PublicProfileDetails }>(
+        `/api/v1/users/${encodeURIComponent(username)}/details`,
+        { signal: options?.signal }
+    );
 }

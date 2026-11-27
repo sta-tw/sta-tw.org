@@ -75,7 +75,8 @@ function CardThumbnail({ seed, className }: { seed: string; className?: string }
 }
 
 type ContentCardProps = {
-    href: string;
+    /** Omit for a static card (e.g. an editor preview). */
+    href?: string;
     title: ReactNode;
     excerpt?: ReactNode;
     /** Small line above the title, e.g. a site name or category. */
@@ -92,7 +93,8 @@ type ContentCardProps = {
 );
 
 /** Linked list card with a media column, used for articles, saved programs
- * and external links so they all share one hover/focus treatment. */
+ * and external links so they all share one hover/focus treatment. Without
+ * `href` it renders the same layout as a plain, non-interactive block. */
 export function ContentCard({
     href,
     title,
@@ -105,15 +107,14 @@ export function ContentCard({
     className
 }: ContentCardProps) {
     const linkProps = external ? { target: "_blank", rel: "noopener noreferrer" } : {};
-    return (
-        <Link
-            href={href}
-            {...linkProps}
-            className={twMerge(
-                "group grid overflow-hidden rounded-[var(--radius-panel)] border border-ink/10 bg-surface/80 focus-ring transition-[border-color,box-shadow,transform] hover:-translate-y-0.5 hover:border-ink/25 hover:shadow-[var(--shadow-card)] sm:grid-cols-[14rem_minmax(0,1fr)]",
-                className
-            )}
-        >
+    const cardClass = twMerge(
+        "grid overflow-hidden rounded-[var(--radius-panel)] border border-ink/10 bg-surface/80 sm:grid-cols-[14rem_minmax(0,1fr)]",
+        href &&
+            "group focus-ring transition-[border-color,box-shadow,transform] hover:-translate-y-0.5 hover:border-ink/25 hover:shadow-[var(--shadow-card)]",
+        className
+    );
+    const content = (
+        <>
             {media ?? <CardThumbnail seed={thumbnailSeed!} className="min-h-36 sm:min-h-full" />}
             <div className="flex min-w-0 flex-col p-5 sm:p-6">
                 {eyebrow && <p className="font-sans text-sm text-copy-muted">{eyebrow}</p>}
@@ -131,6 +132,13 @@ export function ContentCard({
                     </div>
                 )}
             </div>
+        </>
+    );
+    return href ? (
+        <Link href={href} {...linkProps} className={cardClass}>
+            {content}
         </Link>
+    ) : (
+        <div className={cardClass}>{content}</div>
     );
 }

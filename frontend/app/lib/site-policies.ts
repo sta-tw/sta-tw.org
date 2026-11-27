@@ -402,7 +402,12 @@ export const privacyPolicy: PolicyDocumentContent = {
                     type: "paragraph",
                     text: "STA 不會取得您的第三方服務密碼。"
                 },
-                { type: "subheading", text: "3. 學生及身分驗證資料" },
+                { type: "subheading", text: "3. 報考及查榜資料" },
+                {
+                    type: "paragraph",
+                    text: "使用報考資料管理或查榜功能時，我們可能蒐集您的報考學年度、學校與科系、准考證號碼及考生姓名，用於查榜核對。准考證號碼與考生姓名會以加密方式儲存，不會由查榜 API 回傳。"
+                },
+                { type: "subheading", text: "4. 學生及身分驗證資料" },
                 {
                     type: "paragraph",
                     text: "部分 STA 功能可能依使用者身分提供不同權限。當您提出學生或其他身分驗證時，我們可能蒐集："
@@ -424,7 +429,7 @@ export const privacyPolicy: PolicyDocumentContent = {
                     type: "paragraph",
                     text: "請勿提供驗證所不必要的資料；如文件含有不需要提供的敏感資訊，建議在不影響驗證的情況下先行遮蔽。"
                 },
-                { type: "subheading", text: "4. 您發布或上傳的內容" },
+                { type: "subheading", text: "5. 您發布或上傳的內容" },
                 {
                     type: "paragraph",
                     text: "使用 STA 的社群或內容功能時，我們可能儲存："
@@ -454,7 +459,7 @@ export const privacyPolicy: PolicyDocumentContent = {
                     type: "paragraph",
                     text: "若您上傳的內容包含其他人的個人資料，您應確認自己具有合法提供及使用該資料的權利。"
                 },
-                { type: "subheading", text: "5. 客服及聯絡資料" },
+                { type: "subheading", text: "6. 客服及聯絡資料" },
                 {
                     type: "paragraph",
                     text: "當您向 STA 提出客服、檢舉或其他聯絡要求時，我們可能蒐集："
@@ -470,7 +475,7 @@ export const privacyPolicy: PolicyDocumentContent = {
                         "處理狀態及必要的內部紀錄。"
                     ]
                 },
-                { type: "subheading", text: "6. 技術及安全資訊" },
+                { type: "subheading", text: "7. 技術及安全資訊" },
                 {
                     type: "paragraph",
                     text: "當您連線至 STA 時，系統可能自動處理："

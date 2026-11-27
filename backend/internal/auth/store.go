@@ -142,6 +142,7 @@ type AdminContactStore interface {
 	GetAccountContact(ctx context.Context, accountID uuid.UUID) (emailCiphertext, schoolEmailCiphertext []byte, accountStatus string, err error)
 	UpdateAccountEmail(ctx context.Context, accountID uuid.UUID, emailCiphertext, emailLookupHash []byte) error
 	UpdateAccountSchoolEmail(ctx context.Context, accountID uuid.UUID, schoolEmailCiphertext, schoolEmailLookupHash []byte) error
+	ClearAccountSchoolEmail(ctx context.Context, accountID uuid.UUID) error
 }
 
 // oauthSubjectRehasher is the optional hook that lets the OAuth login path

@@ -1,6 +1,7 @@
 package profile
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -229,12 +230,12 @@ func (h *Handler) getSelfAvatar(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) getPublic(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.authed(w, r); !ok {
-		return
-	}
 	username := strings.TrimSpace(r.PathValue("username"))
 	if username == "" || len(username) > 64 {
 		writeError(w, http.StatusBadRequest, "invalid_username", "username is invalid")
+		return
+	}
+	if !h.allowPublic(w, r, username) {
 		return
 	}
 	p, err := h.repo.GetByUsername(r.Context(), username)
@@ -250,12 +251,48 @@ func (h *Handler) getPublic(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) getPublicAvatar(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.authed(w, r); !ok {
+	username := strings.TrimSpace(r.PathValue("username"))
+	if username == "" || len(username) > 64 {
+		writeError(w, http.StatusBadRequest, "invalid_username", "username is invalid")
 		return
 	}
-	username := strings.TrimSpace(r.PathValue("username"))
+	if !h.allowPublic(w, r, username) {
+		return
+	}
 	key, err := h.repo.AvatarByUsername(r.Context(), username)
 	h.redirectToAvatar(w, r, key, err)
+}
+
+func (h *Handler) allowPublic(w http.ResponseWriter, r *http.Request, username string) bool {
+	checker, ok := h.repo.(interface {
+		CanViewPublic(context.Context, string, *uuid.UUID) error
+	})
+	if !ok {
+		// Repositories without visibility support are kept private by default.
+		if _, authenticated := h.authed(w, r); !authenticated {
+			return false
+		}
+		return true
+	}
+	var viewer *uuid.UUID
+	if session, err := h.auth.Authenticate(r.Context(), r); err == nil {
+		id := session.Session.Account.ID
+		viewer = &id
+	}
+	err := checker.CanViewPublic(r.Context(), username, viewer)
+	if errors.Is(err, ErrNotFound) {
+		writeError(w, http.StatusNotFound, "not_found", "account not found")
+		return false
+	}
+	if errors.Is(err, ErrForbidden) {
+		writeError(w, http.StatusUnauthorized, "unauthorized", "sign in to view this profile")
+		return false
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return false
+	}
+	return true
 }
 
 func (h *Handler) redirectToAvatar(w http.ResponseWriter, r *http.Request, key string, lookupErr error) {

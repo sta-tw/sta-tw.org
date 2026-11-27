@@ -26,15 +26,22 @@ const (
 )
 
 type Request struct {
-	ID            uuid.UUID  `json:"id"`
-	AcademicYear  int        `json:"academic_year"`
-	SchoolCode    string     `json:"school_code"`
-	ProgramCode   string     `json:"program_code,omitempty"`
-	Method        Method     `json:"method"`
-	Status        string     `json:"status"`
-	DocumentCount int        `json:"document_count"`
-	CreatedAt     time.Time  `json:"created_at"`
-	ReviewedAt    *time.Time `json:"reviewed_at,omitempty"`
+	ID                uuid.UUID  `json:"id"`
+	ApplicantUsername string     `json:"applicant_username,omitempty"`
+	AcademicYear      int        `json:"academic_year"`
+	SchoolCode        string     `json:"school_code,omitempty"`
+	SchoolName        string     `json:"school_name,omitempty"`
+	SchoolDirectoryID string     `json:"school_directory_id,omitempty"`
+	ProgramCode       string     `json:"program_code,omitempty"`
+	ProgramName       string     `json:"program_name,omitempty"`
+	Method            Method     `json:"method"`
+	Status            string     `json:"status"`
+	IdentityType      string     `json:"identity_type"`
+	DocumentType      string     `json:"document_type"`
+	AcademicFields    []string   `json:"academic_fields"`
+	DocumentCount     int        `json:"document_count"`
+	CreatedAt         time.Time  `json:"created_at"`
+	ReviewedAt        *time.Time `json:"reviewed_at,omitempty"`
 }
 
 type Document struct {
@@ -60,21 +67,26 @@ type Domain struct {
 }
 
 type Verification struct {
-	ID           uuid.UUID `json:"id"`
-	AcademicYear int       `json:"academic_year"`
-	SchoolCode   string    `json:"school_code"`
-	ProgramCode  string    `json:"program_code,omitempty"`
-	Method       Method    `json:"method"`
-	Status       string    `json:"status"`
-	VerifiedAt   time.Time `json:"verified_at"`
-	ExpiresAt    time.Time `json:"expires_at"`
+	ID                uuid.UUID `json:"id"`
+	AcademicYear      int       `json:"academic_year"`
+	SchoolCode        string    `json:"school_code,omitempty"`
+	SchoolDirectoryID string    `json:"school_directory_id,omitempty"`
+	ProgramCode       string    `json:"program_code,omitempty"`
+	Method            Method    `json:"method"`
+	Status            string    `json:"status"`
+	VerifiedAt        time.Time `json:"verified_at"`
+	ExpiresAt         time.Time `json:"expires_at"`
 }
 
 type CreateRequestInput struct {
-	AcademicYear int    `json:"academic_year"`
-	SchoolCode   string `json:"school_code"`
-	ProgramCode  string `json:"program_code"`
-	SchoolEmail  string `json:"school_email"`
+	AcademicYear      int      `json:"academic_year"`
+	SchoolCode        string   `json:"school_code"`
+	SchoolDirectoryID string   `json:"school_directory_id"`
+	ProgramCode       string   `json:"program_code"`
+	SchoolEmail       string   `json:"school_email"`
+	IdentityType      string   `json:"identity_type"`
+	DocumentType      string   `json:"document_type"`
+	AcademicFields    []string `json:"academic_fields"`
 }
 
 type ReviewInput struct {

@@ -48,6 +48,7 @@ type Config struct {
 	DiscordChatWebhookSecret        string
 	TelegramChatWebhookSecret       string
 	DiscordChatBotToken             string
+	DiscordOAuthBotToken            string
 	DiscordChatChannelID            string
 	DiscordCommunityInviteCode      string
 	SupportEmail                    string
@@ -164,6 +165,7 @@ func Load() (Config, error) {
 		DiscordChatWebhookSecret:                strings.TrimSpace(os.Getenv("STA_DISCORD_CHAT_WEBHOOK_SECRET")),
 		TelegramChatWebhookSecret:               strings.TrimSpace(os.Getenv("STA_TELEGRAM_CHAT_WEBHOOK_SECRET")),
 		DiscordChatBotToken:                     strings.TrimSpace(os.Getenv("STA_DISCORD_CHAT_BOT_TOKEN")),
+		DiscordOAuthBotToken:                    strings.TrimSpace(os.Getenv("STA_DISCORD_OAUTH_BOT_TOKEN")),
 		DiscordChatChannelID:                    strings.TrimSpace(os.Getenv("STA_DISCORD_CHAT_CHANNEL_ID")),
 		DiscordCommunityInviteCode:              valueOrDefault("STA_DISCORD_COMMUNITY_INVITE_CODE", "3XAvXnG4rx"),
 		SupportEmail:                            strings.TrimSpace(os.Getenv("STA_SUPPORT_EMAIL")),

@@ -1,5 +1,4 @@
 import { apiFetch } from "./client";
-import { mockResponse, mockStore } from "./mock";
 
 export interface Notification {
     id: string;
@@ -50,8 +49,8 @@ export const NOTIFICATION_KINDS = [
     }
 ] as const;
 
-// ---------------------------------------------------------------------------
-// Not backed yet — see lib/api/mock.ts.
+export const notificationKindLabel = (kind: string) =>
+    NOTIFICATION_KINDS.find((item) => item.kind === kind)?.label ?? "系統通知";
 
 export interface NotificationPreferences {
     email_enabled: boolean;
@@ -59,25 +58,17 @@ export interface NotificationPreferences {
     kinds: Record<string, boolean>;
 }
 
-const PREFERENCES_KEY = "notification-preferences";
-
-/** MOCK: GET /api/v1/notifications/preferences */
+/** GET /api/v1/notifications/preferences */
 export function getNotificationPreferences(options?: { signal?: AbortSignal }) {
-    return mockResponse(
-        () => ({
-            data: mockStore.read<NotificationPreferences>(PREFERENCES_KEY, {
-                email_enabled: true,
-                kinds: {}
-            })
-        }),
-        options?.signal
-    );
+    return apiFetch<{ data: NotificationPreferences }>("/api/v1/notifications/preferences", {
+        signal: options?.signal
+    });
 }
 
-/** MOCK: PUT /api/v1/notifications/preferences */
+/** PUT /api/v1/notifications/preferences */
 export function updateNotificationPreferences(input: NotificationPreferences) {
-    return mockResponse(() => {
-        mockStore.write(PREFERENCES_KEY, input);
-        return { data: input };
+    return apiFetch<{ data: NotificationPreferences }>("/api/v1/notifications/preferences", {
+        method: "PUT",
+        body: input
     });
 }

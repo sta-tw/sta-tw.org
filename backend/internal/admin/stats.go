@@ -19,6 +19,8 @@ type StatsSnapshot struct {
 		Deleted   int64 `json:"deleted"`
 		Students  int64 `json:"students"`
 		Seniors   int64 `json:"seniors"`
+		Parents   int64 `json:"parents"`
+		Educators int64 `json:"educators"`
 		Verified  int64 `json:"verified"`
 	} `json:"accounts"`
 
@@ -94,12 +96,14 @@ func collectStats(ctx context.Context, pool *pgxpool.Pool) (*StatsSnapshot, erro
 		       count(*) FILTER (WHERE account_status = 'active'),
 		       count(*) FILTER (WHERE account_status = 'suspended'),
 		       count(*) FILTER (WHERE account_status = 'deleted'),
-		       count(*) FILTER (WHERE identity_status = 'student'),
-		       count(*) FILTER (WHERE identity_status = 'senior'),
+		       count(*) FILTER (WHERE identity_type = 'student'),
+		       count(*) FILTER (WHERE identity_type = 'senior'),
+		       count(*) FILTER (WHERE identity_type = 'parent'),
+		       count(*) FILTER (WHERE identity_type = 'educator'),
 		       count(*) FILTER (WHERE email_verified_at IS NOT NULL)
 		FROM accounts
 	`).Scan(&s.Accounts.Total, &s.Accounts.Active, &s.Accounts.Suspended, &s.Accounts.Deleted,
-		&s.Accounts.Students, &s.Accounts.Seniors, &s.Accounts.Verified); err != nil {
+		&s.Accounts.Students, &s.Accounts.Seniors, &s.Accounts.Parents, &s.Accounts.Educators, &s.Accounts.Verified); err != nil {
 		return nil, err
 	}
 

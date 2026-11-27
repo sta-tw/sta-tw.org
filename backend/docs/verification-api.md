@@ -6,13 +6,15 @@
 
 ```text
 GET  /api/v1/verification/requests
+DELETE /api/v1/verification/requests/{requestID}
+POST /api/v1/verification/requests/{requestID}/revoke
 POST /api/v1/verification/requests/school-email
 POST /api/v1/verification/requests/{requestID}/verify-email
 POST /api/v1/verification/requests/document
 POST /api/v1/verification/requests/{requestID}/documents
 ```
 
-所有端點都需要既有帳號 session；POST 使用 Cookie session 時需要 CSRF header。學校信箱只能使用管理員維護的學校／網域白名單。證明檔只會存入 private object storage，API 不回傳 storage key。
+所有端點都需要既有帳號 session；POST、DELETE 使用 Cookie session 時需要 CSRF header。使用者只能取消自己的待審申請，或撤銷自己的已通過身份。取消會將申請標記為 `cancelled`；撤銷會停用該申請對應的驗證資料，並依序回退到其他仍有效的已核准身份、僅有已到期學生驗證時的 `senior`，或沒有其他適用驗證時的 `temporary`。學校信箱只能使用管理員維護的學校／網域白名單。證明檔只會存入 private object storage，API 不回傳 storage key。
 
 ## 管理端
 

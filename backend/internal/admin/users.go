@@ -18,21 +18,24 @@ import (
 
 	"sta-backend/internal/auth"
 	"sta-backend/internal/pagination"
+	"sta-backend/internal/profile"
 )
 
 // userSummary is one row of the operator account list.
 type userSummary struct {
-	ID                    string     `json:"id"`
-	Username              string     `json:"username"`
-	IdentityStatus        string     `json:"identity_status"`
-	AccountStatus         string     `json:"account_status"`
-	EmailVerified         bool       `json:"email_verified"`
-	IsAdmin               bool       `json:"is_admin"`
-	IsAdmissionsModerator bool       `json:"is_admissions_moderator"`
-	LastLoginAt           *time.Time `json:"last_login_at"`
-	SuspendedAt           *time.Time `json:"suspended_at,omitempty"`
-	SuspensionReason      string     `json:"suspension_reason,omitempty"`
-	CreatedAt             time.Time  `json:"created_at"`
+	ID                     string     `json:"id"`
+	Username               string     `json:"username"`
+	IdentityStatus         string     `json:"identity_status"`
+	SchoolIdentityVerified bool       `json:"school_identity_verified"`
+	IdentityType           *string    `json:"identity_type"`
+	AccountStatus          string     `json:"account_status"`
+	EmailVerified          bool       `json:"email_verified"`
+	IsAdmin                bool       `json:"is_admin"`
+	IsAdmissionsModerator  bool       `json:"is_admissions_moderator"`
+	LastLoginAt            *time.Time `json:"last_login_at"`
+	SuspendedAt            *time.Time `json:"suspended_at,omitempty"`
+	SuspensionReason       string     `json:"suspension_reason,omitempty"`
+	CreatedAt              time.Time  `json:"created_at"`
 }
 
 type userDetail struct {
@@ -45,28 +48,36 @@ type userDetail struct {
 	// view, never for the list — see auth.Service.AdminAccountContact.
 	// SchoolEmail is "" when the account has none on file (see
 	// auth.AdminContactStore.GetAccountContact).
-	Email       string `json:"email"`
-	SchoolEmail string `json:"school_email"`
+	Email       string         `json:"email"`
+	SchoolEmail string         `json:"school_email"`
+	DisplayName string         `json:"display_name"`
+	Bio         string         `json:"bio"`
+	Links       []profile.Link `json:"links"`
 }
 
 func validAccountStatus(v string) bool {
 	switch v {
-	case "active", "suspended", "deleted":
+	case "active", "pending_verification", "suspended", "deleted":
 		return true
 	}
 	return false
 }
 
-func validIdentityStatus(v string) bool {
+func validIdentityType(v string) bool {
 	switch v {
-	case "temporary", "student", "senior":
+	case "student", "senior", "parent", "educator":
 		return true
 	}
 	return false
+}
+
+func validSchoolIdentityVerification(v string) bool {
+	return v == "unverified" || v == "verified"
 }
 
 // listUsers is a keyset page over accounts, newest first, with optional filters
-// on account_status, identity_status, the admin role and a username prefix.
+// on account_status, school identity verification, identity type, the admin
+// role and a username prefix.
 func (h *Handler) listUsers(w http.ResponseWriter, r *http.Request) {
 	if _, ok := h.requireAdmin(w, r); !ok {
 		return
@@ -111,11 +122,22 @@ func (h *Handler) listUsers(w http.ResponseWriter, r *http.Request) {
 		add("a.account_status = ?", v)
 	}
 	if v := strings.TrimSpace(q.Get("identity")); v != "" {
-		if !validIdentityStatus(v) {
+		if !validIdentityType(v) {
 			writeError(w, http.StatusBadRequest, "invalid_query", "identity is invalid")
 			return
 		}
-		add("a.identity_status = ?", v)
+		add("a.identity_type = ?", v)
+	}
+	if v := strings.TrimSpace(q.Get("verification")); v != "" {
+		if !validSchoolIdentityVerification(v) {
+			writeError(w, http.StatusBadRequest, "invalid_query", "verification is invalid")
+			return
+		}
+		if v == "unverified" {
+			add("a.school_identity_verified = ?", false)
+		} else {
+			where = append(where, "a.school_identity_verified = true")
+		}
 	}
 	if strings.EqualFold(strings.TrimSpace(q.Get("role")), "admin") {
 		where = append(where, "EXISTS (SELECT 1 FROM account_roles ar WHERE ar.account_id = a.id AND ar.role = 'admin')")
@@ -132,7 +154,7 @@ func (h *Handler) listUsers(w http.ResponseWriter, r *http.Request) {
 	if len(where) > 0 {
 		whereSQL = "WHERE " + strings.Join(where, " AND ")
 	}
-	sql := `SELECT a.id::text, a.username, a.identity_status, a.account_status,
+	sql := `SELECT a.id::text, a.username, a.identity_status, a.school_identity_verified, a.identity_type, a.account_status,
 	               a.email_verified_at IS NOT NULL,
 	               EXISTS (SELECT 1 FROM account_roles ar WHERE ar.account_id = a.id AND ar.role = 'admin'),
 	               EXISTS (SELECT 1 FROM account_roles ar WHERE ar.account_id = a.id AND ar.role = 'admissions_moderator'),
@@ -151,7 +173,7 @@ func (h *Handler) listUsers(w http.ResponseWriter, r *http.Request) {
 	items := make([]userSummary, 0, limit)
 	for rows.Next() {
 		var u userSummary
-		if err := rows.Scan(&u.ID, &u.Username, &u.IdentityStatus, &u.AccountStatus,
+		if err := rows.Scan(&u.ID, &u.Username, &u.IdentityStatus, &u.SchoolIdentityVerified, &u.IdentityType, &u.AccountStatus,
 			&u.EmailVerified, &u.IsAdmin, &u.IsAdmissionsModerator, &u.LastLoginAt, &u.SuspendedAt, &u.SuspensionReason, &u.CreatedAt); err != nil {
 			writeError(w, http.StatusInternalServerError, "internal_error", "internal server error")
 			return
@@ -181,8 +203,9 @@ func (h *Handler) getUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var d userDetail
+	var linksJSON []byte
 	err = h.pool.QueryRow(r.Context(), `
-		SELECT a.id::text, a.username, a.identity_status, a.account_status,
+		SELECT a.id::text, a.username, a.identity_status, a.school_identity_verified, a.identity_type, a.account_status,
 		       a.email_verified_at IS NOT NULL,
 		       EXISTS (SELECT 1 FROM account_roles ar WHERE ar.account_id = a.id AND ar.role = 'admin'),
 		       EXISTS (SELECT 1 FROM account_roles ar WHERE ar.account_id = a.id AND ar.role = 'admissions_moderator'),
@@ -190,13 +213,16 @@ func (h *Handler) getUser(w http.ResponseWriter, r *http.Request) {
 		       sb.username,
 		       (SELECT count(*) FROM account_sessions s WHERE s.account_id = a.id AND s.revoked_at IS NULL AND s.expires_at > CURRENT_TIMESTAMP),
 		       (SELECT count(*) FROM applications ap WHERE ap.account_id = a.id),
-		       (SELECT count(*) FROM experiences e WHERE e.author_account_id = a.id)
+		       (SELECT count(*) FROM experiences e WHERE e.author_account_id = a.id),
+		       COALESCE(p.display_name, ''), COALESCE(p.bio, ''), COALESCE(p.links, '[]'::jsonb)
 		FROM accounts a
 		LEFT JOIN accounts sb ON sb.id = a.suspended_by
+	LEFT JOIN account_profiles p ON p.account_id = a.id
 		WHERE a.id = $1`, accountID).Scan(
-		&d.ID, &d.Username, &d.IdentityStatus, &d.AccountStatus, &d.EmailVerified, &d.IsAdmin, &d.IsAdmissionsModerator,
+		&d.ID, &d.Username, &d.IdentityStatus, &d.SchoolIdentityVerified, &d.IdentityType, &d.AccountStatus, &d.EmailVerified, &d.IsAdmin, &d.IsAdmissionsModerator,
 		&d.LastLoginAt, &d.SuspendedAt, &d.SuspensionReason, &d.CreatedAt,
-		&d.SuspendedBy, &d.ActiveSessions, &d.Applications, &d.Experiences)
+		&d.SuspendedBy, &d.ActiveSessions, &d.Applications, &d.Experiences,
+		&d.DisplayName, &d.Bio, &linksJSON)
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeError(w, http.StatusNotFound, "not_found", "account not found")
 		return
@@ -204,6 +230,13 @@ func (h *Handler) getUser(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
+	}
+	d.Links = []profile.Link{}
+	if len(linksJSON) > 0 {
+		if err := json.Unmarshal(linksJSON, &d.Links); err != nil {
+			writeError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+			return
+		}
 	}
 	d.Email, d.SchoolEmail, err = h.auth.AdminAccountContact(r.Context(), accountID)
 	if err != nil && !errors.Is(err, auth.ErrNotConfigured) {
@@ -213,10 +246,9 @@ func (h *Handler) getUser(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, d)
 }
 
-// updateUser edits the fields the admin user-management UI exposes as
-// directly editable: username, identity_status, contact email and school
-// email. Password is deliberately never settable here — see resetPassword,
-// the only supported path to change one.
+// updateUser edits username and contact addresses. Identity status can only
+// change through a successful verification flow; password is deliberately
+// never settable here — see resetPassword, the only supported path to change one.
 func (h *Handler) updateUser(w http.ResponseWriter, r *http.Request) {
 	session, ok := h.requireAdminMutation(w, r)
 	if !ok {
@@ -228,24 +260,112 @@ func (h *Handler) updateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Username       *string `json:"username"`
-		IdentityStatus *string `json:"identity_status"`
-		Email          *string `json:"email"`
-		SchoolEmail    *string `json:"school_email"`
+		Username       *string         `json:"username"`
+		IdentityStatus *string         `json:"identity_status"`
+		Email          *string         `json:"email"`
+		SchoolEmail    *string         `json:"school_email"`
+		DisplayName    *string         `json:"display_name"`
+		Bio            *string         `json:"bio"`
+		Links          *[]profile.Link `json:"links"`
+		Reason         *string         `json:"reason"`
 	}
 	if err := decodeAdminJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_body", "request body is invalid")
 		return
 	}
 
+	if body.IdentityStatus != nil {
+		writeError(w, http.StatusUnprocessableEntity, "identity_verification_required", "identity status can only change after verification succeeds")
+		return
+	}
+	requested := body.Username != nil || body.Email != nil || body.SchoolEmail != nil ||
+		body.DisplayName != nil || body.Bio != nil || body.Links != nil
+	if !requested {
+		writeError(w, http.StatusBadRequest, "empty_update", "at least one account field is required")
+		return
+	}
+	reason := "legacy admin update (client omitted reason)"
+	if body.Reason != nil {
+		reason = strings.TrimSpace(*body.Reason)
+		if len([]rune(reason)) == 0 || len([]rune(reason)) > 500 {
+			writeError(w, http.StatusBadRequest, "invalid_reason", "reason must be 1-500 characters when provided")
+			return
+		}
+	}
+	username := ""
 	if body.Username != nil {
-		username := strings.TrimSpace(*body.Username)
-		if len(username) < 3 || len(username) > 64 {
+		username = strings.TrimSpace(*body.Username)
+		if len([]rune(username)) < 3 || len([]rune(username)) > 64 {
 			writeError(w, http.StatusBadRequest, "invalid_username", "username must be 3-64 characters")
 			return
 		}
-		tag, err := h.pool.Exec(r.Context(), `UPDATE accounts SET username = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $1`, accountID, username)
+	}
+	requestedProfile := body.DisplayName != nil || body.Bio != nil || body.Links != nil
+	if requestedProfile {
+		candidate := profile.Input{}
+		if body.DisplayName != nil {
+			candidate.DisplayName = *body.DisplayName
+		}
+		if body.Bio != nil {
+			candidate.Bio = *body.Bio
+		}
+		if body.Links != nil {
+			candidate.Links = *body.Links
+		}
+		if err := candidate.Normalize(); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_profile", "profile fields or links are invalid")
+			return
+		}
+	}
+
+	// Correct encrypted contact fields through the auth service so its
+	// normalization, hashing and uniqueness rules remain the single source of
+	// truth. Every successful contact change is audited before the next starts.
+	if body.Email != nil {
+		if err := h.auth.AdminUpdateAccountEmail(r.Context(), accountID, *body.Email); err != nil {
+			writeContactUpdateError(w, err)
+			return
+		}
+		if err := writeAccountUpdateAudit(r.Context(), h.pool, session.Session.Account.ID, accountID, reason, []string{"email"}); err != nil {
+			writeError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+			return
+		}
+	}
+	if body.SchoolEmail != nil {
+		var err error
+		if strings.TrimSpace(*body.SchoolEmail) == "" {
+			err = h.auth.AdminClearAccountSchoolEmail(r.Context(), accountID)
+		} else {
+			err = h.auth.AdminUpdateAccountSchoolEmail(r.Context(), accountID, *body.SchoolEmail)
+		}
 		if err != nil {
+			writeContactUpdateError(w, err)
+			return
+		}
+		if err := writeAccountUpdateAudit(r.Context(), h.pool, session.Session.Account.ID, accountID, reason, []string{"school_email"}); err != nil {
+			writeError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+			return
+		}
+	}
+
+	tx, err := h.pool.Begin(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	defer tx.Rollback(r.Context())
+	var currentUsername string
+	if err := tx.QueryRow(r.Context(), `SELECT username FROM accounts WHERE id = $1 FOR UPDATE`, accountID).
+		Scan(&currentUsername); errors.Is(err, pgx.ErrNoRows) {
+		writeError(w, http.StatusNotFound, "not_found", "account not found")
+		return
+	} else if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	changedFields := make([]string, 0, 5)
+	if body.Username != nil && username != currentUsername {
+		if _, err := tx.Exec(r.Context(), `UPDATE accounts SET username = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $1`, accountID, username); err != nil {
 			if isUniqueViolation(err) {
 				writeError(w, http.StatusConflict, "username_taken", "username is already in use")
 				return
@@ -253,41 +373,112 @@ func (h *Handler) updateUser(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "internal_error", "internal server error")
 			return
 		}
-		if tag.RowsAffected() == 0 {
-			writeError(w, http.StatusNotFound, "not_found", "account not found")
+		changedFields = append(changedFields, "username")
+	}
+	if requestedProfile {
+		var oldProfile profile.Input
+		var linksJSON []byte
+		err := tx.QueryRow(r.Context(), `
+			SELECT COALESCE(display_name, ''), COALESCE(bio, ''), COALESCE(links, '[]'::jsonb)
+			FROM account_profiles WHERE account_id = $1`, accountID).Scan(&oldProfile.DisplayName, &oldProfile.Bio, &linksJSON)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusInternalServerError, "internal_error", "internal server error")
 			return
+		}
+		oldProfile.Links = []profile.Link{}
+		if len(linksJSON) > 0 {
+			if err := json.Unmarshal(linksJSON, &oldProfile.Links); err != nil {
+				writeError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+				return
+			}
+		}
+		newProfile := oldProfile
+		if body.DisplayName != nil {
+			newProfile.DisplayName = *body.DisplayName
+		}
+		if body.Bio != nil {
+			newProfile.Bio = *body.Bio
+		}
+		if body.Links != nil {
+			newProfile.Links = *body.Links
+		}
+		if err := newProfile.Normalize(); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_profile", "profile fields or links are invalid")
+			return
+		}
+		profileChanged := false
+		if newProfile.DisplayName != oldProfile.DisplayName {
+			changedFields = append(changedFields, "display_name")
+			profileChanged = true
+		}
+		if newProfile.Bio != oldProfile.Bio {
+			changedFields = append(changedFields, "bio")
+			profileChanged = true
+		}
+		if !sameProfileLinks(newProfile.Links, oldProfile.Links) {
+			changedFields = append(changedFields, "links")
+			profileChanged = true
+		}
+		if profileChanged {
+			links, err := json.Marshal(newProfile.Links)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+				return
+			}
+			if _, err := tx.Exec(r.Context(), `
+				INSERT INTO account_profiles (account_id, display_name, bio, links)
+				VALUES ($1, NULLIF($2, ''), NULLIF($3, ''), $4::jsonb)
+				ON CONFLICT (account_id) DO UPDATE SET
+					display_name = NULLIF($2, ''), bio = NULLIF($3, ''), links = $4::jsonb`,
+				accountID, newProfile.DisplayName, newProfile.Bio, string(links)); err != nil {
+				writeError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+				return
+			}
 		}
 	}
-	if body.IdentityStatus != nil {
-		if !validIdentityStatus(*body.IdentityStatus) {
-			writeError(w, http.StatusBadRequest, "invalid_identity_status", "identity_status is invalid")
+	if len(changedFields) > 0 {
+		fieldsJSON, err := json.Marshal(map[string][]string{"changed_fields": changedFields})
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal_error", "internal server error")
 			return
 		}
-		if _, err := h.pool.Exec(r.Context(), `UPDATE accounts SET identity_status = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $1`, accountID, *body.IdentityStatus); err != nil {
+		if _, err := tx.Exec(r.Context(), `
+			INSERT INTO audit_log (actor_account_id, action, entity_type, entity_key, before_data, after_data, reason)
+			VALUES ($1, 'account.updated', 'account', $2, '{}'::jsonb, $3::jsonb, $4)`,
+			session.Session.Account.ID, accountID.String(), string(fieldsJSON), reason); err != nil {
 			writeError(w, http.StatusInternalServerError, "internal_error", "internal server error")
 			return
 		}
 	}
-	if body.Email != nil {
-		if err := h.auth.AdminUpdateAccountEmail(r.Context(), accountID, *body.Email); err != nil {
-			writeContactUpdateError(w, err)
-			return
-		}
-	}
-	if body.SchoolEmail != nil {
-		if err := h.auth.AdminUpdateAccountSchoolEmail(r.Context(), accountID, *body.SchoolEmail); err != nil {
-			writeContactUpdateError(w, err)
-			return
-		}
-	}
-
-	if _, err := h.pool.Exec(r.Context(), `
-		INSERT INTO audit_log (actor_account_id, action, entity_type, entity_key, reason)
-		VALUES ($1, 'account.updated', 'account', $2, '-')`, session.Session.Account.ID, accountID.String()); err != nil {
+	if err := tx.Commit(r.Context()); err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"status": "updated"})
+}
+
+func sameProfileLinks(a, b []profile.Link) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func writeAccountUpdateAudit(ctx context.Context, pool *pgxpool.Pool, actorID, accountID uuid.UUID, reason string, fields []string) error {
+	fieldsJSON, err := json.Marshal(map[string][]string{"changed_fields": fields})
+	if err != nil {
+		return err
+	}
+	_, err = pool.Exec(ctx, `
+		INSERT INTO audit_log (actor_account_id, action, entity_type, entity_key, before_data, after_data, reason)
+		VALUES ($1, 'account.updated', 'account', $2, '{}'::jsonb, $3::jsonb, $4)`,
+		actorID, accountID.String(), string(fieldsJSON), reason)
+	return err
 }
 
 func writeContactUpdateError(w http.ResponseWriter, err error) {

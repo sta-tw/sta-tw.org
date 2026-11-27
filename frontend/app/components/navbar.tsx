@@ -22,6 +22,7 @@ const logoIcon = publicPath("/logo.svg");
 const navLinks = [
     { label: "文章總覽", href: "/articlemain" },
     { label: "簡章搜尋", href: "/bochures" },
+    { label: "備審分享", href: "/portfolio" },
     { label: "討論區", href: "/forum" }
 ];
 

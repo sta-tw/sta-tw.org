@@ -99,6 +99,14 @@ export interface AdminUserDetail extends AdminUser {
      * auth.AdminContactStore.GetAccountContact) — pre-dates the column, or
      * never went through school-email registration. */
     school_email: string;
+    display_name: string;
+    bio: string;
+    links: AdminProfileLink[];
+}
+
+export interface AdminProfileLink {
+    label: string;
+    url: string;
 }
 
 export interface ListUsersFilter {
@@ -123,13 +131,17 @@ export function getUser(accountId: string, mfaCode?: string) {
 }
 
 export interface UpdateUserInput {
+    reason: string;
     username?: string;
-    identity_status?: IdentityStatus;
     email?: string;
     school_email?: string;
+    display_name?: string;
+    bio?: string;
+    links?: AdminProfileLink[];
 }
 
-/** Edits the fields the admin panel lets an operator change directly.
+/** Edits account contacts and the text fields of a user's profile. Passing
+ * an empty school_email clears the optional saved school email.
  * Password is deliberately never settable here — see resetUserPassword. */
 export function updateUser(accountId: string, input: UpdateUserInput, mfaCode?: string) {
     return apiFetch<{ status: string }>(`/api/v1/admin/users/${accountId}`, {

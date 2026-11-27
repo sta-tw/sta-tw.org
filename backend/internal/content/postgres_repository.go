@@ -476,6 +476,10 @@ func (r *PostgresRepository) CreateExperience(ctx context.Context, accountID uui
 	experience.RevisionNumber = 1
 	experience.Title, experience.Body = input.Title, input.Body
 	experience.AuthorType, experience.AdmissionOutcome = emptyDash(input.AuthorType), emptyDash(input.AdmissionOutcome)
+	experience.Tags = append([]string{}, input.Tags...)
+	if err := insertExperienceTags(ctx, tx, experience.CurrentRevisionID, input.Tags); err != nil {
+		return Experience{}, err
+	}
 	if _, err := tx.Exec(ctx, `INSERT INTO experience_revision_events (revision_id, actor_account_id, action, to_status) VALUES ($1, $2, 'created', 'draft')`, experience.CurrentRevisionID, accountID); err != nil {
 		return Experience{}, err
 	}
@@ -513,6 +517,9 @@ func (r *PostgresRepository) CreateRevision(ctx context.Context, accountID, expe
 		return Experience{}, err
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO experience_revision_events (revision_id, actor_account_id, action, to_status) VALUES ($1, $2, 'created', 'draft')`, revisionID, accountID); err != nil {
+		return Experience{}, err
+	}
+	if err := insertExperienceTags(ctx, tx, revisionID, input.Tags); err != nil {
 		return Experience{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -621,12 +628,107 @@ func (r *PostgresRepository) ListPublishedExperiences(ctx context.Context, limit
 	if err := r.attachExperienceReactions(ctx, items, nil); err != nil {
 		return nil, "", err
 	}
+	if err := r.attachExperienceTags(ctx, items); err != nil {
+		return nil, "", err
+	}
 	var next string
 	if n := len(items); n > 0 {
 		last := items[n-1]
 		next = pagination.Next(n, limit, last.UpdatedAt, last.ID)
 	}
 	return items, next, nil
+}
+
+// AdminListExperienceRevisions returns article revisions for moderation. A
+// status of "" includes every revision; otherwise the caller must pass one
+// of the database's review_status values.
+func (r *PostgresRepository) AdminListExperienceRevisions(ctx context.Context, status string, limit int, after pagination.Cursor) ([]AdminExperienceRevision, string, error) {
+	limit = pagination.ClampLimit(limit, 20, 20)
+	var afterTime *time.Time
+	var afterID *uuid.UUID
+	if !after.Zero() {
+		t := after.Time
+		id := after.UUID()
+		afterTime, afterID = &t, &id
+	}
+	rows, err := r.pool.Query(ctx, `
+		SELECT r.id::text, e.id::text, e.author_account_id, a.username, e.visibility,
+		       r.review_status, COALESCE(r.rejection_reason, ''), r.title, left(r.body, 600),
+		       r.author_type, r.admission_outcome, r.version_number, r.created_at, r.updated_at
+		FROM experience_revisions r
+		JOIN experiences e ON e.id = r.experience_id
+		JOIN accounts a ON a.id = e.author_account_id
+		WHERE ($1 = '' OR r.review_status = $1)
+		  AND ($2::timestamptz IS NULL OR (r.created_at, r.id) < ($2::timestamptz, $3::uuid))
+		ORDER BY r.created_at DESC, r.id DESC
+		LIMIT $4
+	`, status, afterTime, afterID, limit)
+	if err != nil {
+		return nil, "", fmt.Errorf("admin list experience revisions: %w", err)
+	}
+	defer rows.Close()
+
+	result := make([]AdminExperienceRevision, 0)
+	for rows.Next() {
+		var item AdminExperienceRevision
+		var revisionIDText, experienceIDText string
+		if err := rows.Scan(&revisionIDText, &experienceIDText, &item.AccountID, &item.AuthorUsername,
+			&item.Visibility, &item.ReviewStatus, &item.RejectionReason, &item.Title, &item.BodyPreview,
+			&item.AuthorType, &item.AdmissionOutcome, &item.RevisionNumber, &item.CreatedAt, &item.UpdatedAt); err != nil {
+			return nil, "", fmt.Errorf("scan admin experience revision: %w", err)
+		}
+		item.ID, err = uuid.Parse(revisionIDText)
+		if err != nil {
+			return nil, "", err
+		}
+		item.ExperienceID, err = uuid.Parse(experienceIDText)
+		if err != nil {
+			return nil, "", err
+		}
+		result = append(result, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", err
+	}
+	var next string
+	if n := len(result); n > 0 {
+		last := result[n-1]
+		next = pagination.Next(n, limit, last.CreatedAt, last.ID)
+	}
+	return result, next, nil
+}
+
+// AdminGetExperienceRevision returns the full body for the admin's deliberate
+// review step. The list endpoint only returns a short preview.
+func (r *PostgresRepository) AdminGetExperienceRevision(ctx context.Context, revisionID uuid.UUID) (AdminExperienceRevision, error) {
+	var item AdminExperienceRevision
+	var revisionIDText, experienceIDText string
+	err := r.pool.QueryRow(ctx, `
+		SELECT r.id::text, e.id::text, e.author_account_id, a.username, e.visibility,
+		       r.review_status, COALESCE(r.rejection_reason, ''), r.title, r.body,
+		       r.author_type, r.admission_outcome, r.version_number, r.created_at, r.updated_at
+		FROM experience_revisions r
+		JOIN experiences e ON e.id = r.experience_id
+		JOIN accounts a ON a.id = e.author_account_id
+		WHERE r.id = $1
+	`, revisionID).Scan(&revisionIDText, &experienceIDText, &item.AccountID, &item.AuthorUsername,
+		&item.Visibility, &item.ReviewStatus, &item.RejectionReason, &item.Title, &item.Body,
+		&item.AuthorType, &item.AdmissionOutcome, &item.RevisionNumber, &item.CreatedAt, &item.UpdatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return AdminExperienceRevision{}, ErrNotFound
+	}
+	if err != nil {
+		return AdminExperienceRevision{}, fmt.Errorf("admin get experience revision: %w", err)
+	}
+	item.ID, err = uuid.Parse(revisionIDText)
+	if err != nil {
+		return AdminExperienceRevision{}, err
+	}
+	item.ExperienceID, err = uuid.Parse(experienceIDText)
+	if err != nil {
+		return AdminExperienceRevision{}, err
+	}
+	return item, nil
 }
 
 func (r *PostgresRepository) GetExperience(ctx context.Context, accountID *uuid.UUID, experienceID uuid.UUID) (Experience, error) {
@@ -663,7 +765,53 @@ func (r *PostgresRepository) GetExperience(ctx context.Context, accountID *uuid.
 	if err := r.attachExperienceReactions(ctx, items, accountID); err != nil {
 		return Experience{}, err
 	}
+	if err := r.attachExperienceTags(ctx, items); err != nil {
+		return Experience{}, err
+	}
 	return items[0], nil
+}
+
+func insertExperienceTags(ctx context.Context, tx pgx.Tx, revisionID uuid.UUID, tags []string) error {
+	for _, tag := range tags {
+		if _, err := tx.Exec(ctx, `INSERT INTO experience_revision_tags (revision_id, tag) VALUES ($1, $2)`, revisionID, tag); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *PostgresRepository) attachExperienceTags(ctx context.Context, items []Experience) error {
+	if len(items) == 0 {
+		return nil
+	}
+	revisionIDs := make([]uuid.UUID, 0, len(items))
+	for i := range items {
+		revisionIDs = append(revisionIDs, items[i].CurrentRevisionID)
+		items[i].Tags = []string{}
+	}
+	rows, err := r.pool.Query(ctx, `SELECT revision_id, tag FROM experience_revision_tags WHERE revision_id = ANY($1::uuid[]) ORDER BY tag`, revisionIDs)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	byRevision := make(map[uuid.UUID][]string, len(items))
+	for rows.Next() {
+		var revisionID uuid.UUID
+		var tag string
+		if err := rows.Scan(&revisionID, &tag); err != nil {
+			return err
+		}
+		byRevision[revisionID] = append(byRevision[revisionID], tag)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for i := range items {
+		if tags := byRevision[items[i].CurrentRevisionID]; tags != nil {
+			items[i].Tags = tags
+		}
+	}
+	return nil
 }
 
 func (r *PostgresRepository) getLatestExperience(ctx context.Context, experienceID uuid.UUID) (Experience, error) {

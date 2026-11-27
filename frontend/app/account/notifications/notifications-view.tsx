@@ -12,13 +12,14 @@ import {
     markAllNotificationsRead,
     markNotificationRead,
     NOTIFICATION_KINDS,
+    notificationKindLabel,
     updateNotificationPreferences,
     type Notification,
     type NotificationPreferences
 } from "../../lib/api/notifications";
 import AccountPage from "../account-page";
 import { FieldGroup } from "../../components/field";
-import { EmptyState, ErrorText, Resource, SaveBar, StatusBadge } from "../../components/status";
+import { EmptyState, ErrorText, Resource, StatusBadge, StatusText } from "../../components/status";
 import { useAction, useResource } from "../../lib/use-resource";
 import { formatDateTime } from "../../lib/format";
 
@@ -35,14 +36,11 @@ const loadFirstPage = (signal: AbortSignal) => fetchPage(undefined, signal);
 const loadPreferences = (signal: AbortSignal) =>
     getNotificationPreferences({ signal }).then(({ data }) => data);
 
-const kindLabel = (kind: string) =>
-    NOTIFICATION_KINDS.find((item) => item.kind === kind)?.label ?? "系統通知";
-
 export default function NotificationsView() {
     return (
-        <AccountPage title="通知設定" description="查看站內通知，並選擇想收到哪些提醒。">
-            <NotificationList />
+        <AccountPage title="通知設定" description="選擇想收到哪些提醒，以及要寄到哪裡。">
             <PreferencesForm />
+            <NotificationList />
         </AccountPage>
     );
 }
@@ -71,7 +69,7 @@ function NotificationList() {
 
     return (
         <Card
-            title="站內通知"
+            title="最近的通知"
             className="flex flex-col gap-5"
             actions={
                 hasUnread && (
@@ -130,7 +128,7 @@ function NotificationList() {
                                                         </StatusBadge>
                                                     )}
                                                     <StatusBadge>
-                                                        {kindLabel(item.kind)}
+                                                        {notificationKindLabel(item.kind)}
                                                     </StatusBadge>
                                                     <time
                                                         dateTime={item.created_at}
@@ -198,7 +196,7 @@ function PreferencesForm() {
     return (
         <Card title="通知偏好" className="flex flex-col gap-5">
             <Resource state={state} reload={reload}>
-                {(initial) => <PreferencesEditor initial={initial} />}
+                {(preferences) => <PreferencesEditor initial={preferences} />}
             </Resource>
         </Card>
     );
@@ -209,7 +207,12 @@ function PreferencesEditor({ initial }: { initial: NotificationPreferences }) {
     const { pending, error, run } = useAction();
     const [saved, setSaved] = useState(false);
 
-    const kindEnabled = (kind: string) => preferences.kinds[kind] ?? true;
+    const update = (next: (current: NotificationPreferences) => NotificationPreferences) => {
+        setSaved(false);
+        setPreferences(next);
+    };
+    const setKind = (kind: string, checked: boolean) =>
+        update((current) => ({ ...current, kinds: { ...current.kinds, [kind]: checked } }));
 
     async function save(event: React.FormEvent) {
         event.preventDefault();
@@ -223,44 +226,42 @@ function PreferencesEditor({ initial }: { initial: NotificationPreferences }) {
     }
 
     return (
-        <form onSubmit={save} className="flex flex-col gap-6">
-            <FieldGroup label="通知類型" className="gap-4">
+        <form onSubmit={save} className="mt-5 flex flex-col gap-5">
+            <FieldGroup label="Email 通知">
+                <p className="-mt-1 font-sans text-sm text-copy-muted">
+                    站內通知仍會顯示在下方；關閉後只會停止一般通知信，帳號安全信件不受影響。
+                </p>
+                <Checkbox
+                    label="寄送一般通知至聯絡信箱"
+                    checked={preferences.email_enabled}
+                    onCheckedChange={(checked) =>
+                        update((current) => ({ ...current, email_enabled: checked }))
+                    }
+                />
+            </FieldGroup>
+            <FieldGroup label="通知項目">
                 {NOTIFICATION_KINDS.map(({ kind, label, description }) => (
                     <div key={kind} className="flex flex-col gap-1">
                         <Checkbox
                             label={label}
-                            checked={kindEnabled(kind)}
-                            onCheckedChange={(checked) =>
-                                setPreferences((current) => ({
-                                    ...current,
-                                    kinds: { ...current.kinds, [kind]: checked }
-                                }))
-                            }
+                            checked={preferences.kinds[kind] ?? true}
+                            onCheckedChange={(checked) => setKind(kind, checked)}
                         />
                         <p className="pl-8 font-sans text-sm text-copy-muted">{description}</p>
                     </div>
                 ))}
             </FieldGroup>
-            <fieldset className="flex flex-col gap-1 border-t border-ink/10 pt-5">
-                <legend className="sr-only">寄送方式</legend>
-                <Checkbox
-                    label="同時以 Email 寄送通知"
-                    checked={preferences.email_enabled}
-                    onCheckedChange={(checked) =>
-                        setPreferences((current) => ({ ...current, email_enabled: checked }))
-                    }
-                />
-                <p className="pl-8 font-sans text-sm text-copy-muted">
-                    驗證信、密碼重設等帳號安全信件不受此設定影響，一律會寄出。
-                </p>
-            </fieldset>
-            <SaveBar
-                pending={pending !== null}
-                saved={saved}
-                error={error}
-                label="儲存設定"
-                savedText="已儲存通知偏好。"
-            />
+            <div className="flex flex-col gap-3 pt-5 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex flex-col gap-1">
+                    <StatusText>{saved ? "已儲存通知偏好。" : null}</StatusText>
+                    <ErrorText>{error}</ErrorText>
+                </div>
+                <div className="flex flex-col-reverse gap-3 sm:flex-row">
+                    <Button type="submit" size="base" disabled={pending !== null}>
+                        {pending ? "儲存中…" : "儲存"}
+                    </Button>
+                </div>
+            </div>
         </form>
     );
 }

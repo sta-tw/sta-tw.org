@@ -109,6 +109,16 @@ function registrationTimeline(program: AdmissionProgram): BrochureTimelineItem[]
     ];
 }
 
+/** The first schedule milestone that hasn't ended yet (by Taiwan date), or
+ * null when every dated milestone is past or the schedule has no dates. */
+export function nextTimelineMilestone(program: AdmissionProgram, now = new Date()) {
+    const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Taipei" }).format(now);
+    const upcoming = registrationTimeline(program).find(
+        (item) => item.isoEnd !== undefined && item.isoEnd >= today
+    );
+    return upcoming ? { title: upcoming.title, date: upcoming.date } : null;
+}
+
 // school_code+program_code stays stable across yearly 大表 re-imports, so this is
 // every published academic_year row before the configured display year.
 export function programHistoryFromYears(years: AdmissionProgram[]): BrochureHistory[] {

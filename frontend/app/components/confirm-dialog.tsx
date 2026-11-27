@@ -10,6 +10,7 @@ interface ConfirmDialogProps {
     title: ReactNode;
     description: ReactNode;
     confirmLabel: string;
+    cancelLabel?: string;
     /** "danger" for destructive actions, "primary" for irreversible but
      * expected ones (e.g. submitting locked data). */
     tone?: "danger" | "primary";
@@ -23,6 +24,7 @@ export default function ConfirmDialog({
     title,
     description,
     confirmLabel,
+    cancelLabel = "取消",
     tone = "danger",
     onConfirm
 }: ConfirmDialogProps) {
@@ -35,13 +37,16 @@ export default function ConfirmDialog({
                     <AlertDialog.Title className="font-sans text-xl font-medium text-ink">
                         {title}
                     </AlertDialog.Title>
-                    <AlertDialog.Description className="font-sans text-base leading-relaxed text-copy-muted">
-                        {description}
+                    {/* A div so the description can hold lists, not just text. */}
+                    <AlertDialog.Description asChild>
+                        <div className="font-sans text-base leading-relaxed text-copy-muted">
+                            {description}
+                        </div>
                     </AlertDialog.Description>
                     <div className="mt-3 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
                         <AlertDialog.Cancel asChild>
                             <Button variant="secondary" size="base">
-                                取消
+                                {cancelLabel}
                             </Button>
                         </AlertDialog.Cancel>
                         <AlertDialog.Action asChild>

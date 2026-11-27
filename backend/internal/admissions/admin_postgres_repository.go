@@ -16,7 +16,7 @@ import (
 const adminProgramSelect = `
 	SELECT
 			p.academic_year, p.program_identifier, p.school_code, s.school_name,
-			p.program_code, p.admission_program_name, p.admission_quota,
+			p.program_code, p.admission_program_name, p.admission_quota, p.admission_quota_display,
 			p.willingness_values,
 			p.brochure_is_tentative,
 		p.consultation_phone, p.consultation_email, p.consultation_contact, p.brochure_url, p.special_talent_target,
@@ -216,6 +216,7 @@ func (r *PostgresRepository) upsertProgramsInTx(ctx context.Context, tx pgx.Tx, 
 			program.ApplicantCount, program.InterviewCount, program.AdmittedCount, program.WaitlistedCount, program.PromotedCount,
 			program.AdmissionRate, program.FirstStagePassRate, program.CompetitionRatio,
 			program.SchoolOfficialURL, program.DepartmentOfficialURL,
+			program.AdmissionQuotaDisplay,
 		); err != nil {
 			return nil, nil, mapAdmissionRepositoryError(err)
 		}
@@ -520,6 +521,7 @@ func scanAdminProgram(row interface{ Scan(...any) error }) (AdminProgram, error)
 	err := row.Scan(
 		&item.AcademicYear, &item.ProgramIdentifier, &item.SchoolCode, &item.SchoolName,
 		&item.ProgramCode, &item.AdmissionProgramName, &item.AdmissionQuota,
+		&item.AdmissionQuotaDisplay,
 		&item.WillingnessValues,
 		&item.BrochureIsTentative,
 		&item.ConsultationPhone, &item.ConsultationEmail, &item.ConsultationContact, &item.BrochureURL,
@@ -591,6 +593,7 @@ func adminProgramSnapshot(item AdminProgram) map[string]any {
 		"program_code":                    item.ProgramCode,
 		"admission_program_name":          item.AdmissionProgramName,
 		"admission_quota":                 item.AdmissionQuota,
+		"admission_quota_display":         item.AdmissionQuotaDisplay,
 		"exam_items":                      item.ExamItems,
 		"timeline_events":                 item.TimelineEvents,
 		"brochure_is_tentative":           item.BrochureIsTentative,
@@ -704,14 +707,14 @@ const upsertProgramSQL = `
 		portfolio_required, recommendation_letter_type, max_applicable_programs,
 		applicant_count, interview_count, admitted_count, waitlisted_count, promoted_count,
 		admission_rate, first_stage_pass_rate, competition_ratio,
-		school_official_url, department_official_url
+		school_official_url, department_official_url, admission_quota_display
 	)
 	VALUES (
 		$1, $2, $3, $4, $5, $6,
 		$7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
 		$17, $18, NULLIF($19, '-')::date, NULLIF($20, '-')::date, $21, $22,
 		$23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37,
-		$38, $39
+		$38, $39, $40
 	)
 	ON CONFLICT (academic_year, school_code, program_code) DO UPDATE SET
 		admission_program_name = EXCLUDED.admission_program_name,
@@ -750,4 +753,5 @@ const upsertProgramSQL = `
 		competition_ratio = EXCLUDED.competition_ratio,
 		school_official_url = EXCLUDED.school_official_url,
 		department_official_url = EXCLUDED.department_official_url,
+		admission_quota_display = EXCLUDED.admission_quota_display,
 		updated_at = CURRENT_TIMESTAMP`

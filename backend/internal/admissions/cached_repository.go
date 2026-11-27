@@ -131,3 +131,11 @@ func (c *CachedRepository) setCached(ctx context.Context, key string, value any)
 	}
 	_ = c.client.Set(ctx, key, raw, c.ttl).Err()
 }
+// GetDisplayLatestAcademicYear forwards the uncached catalogue-year setting.
+func (c *CachedRepository) GetDisplayLatestAcademicYear(ctx context.Context) (int, bool, error) {
+	repository, ok := c.inner.(displayLatestAcademicYearReader)
+	if !ok {
+		return 0, false, fmt.Errorf("display latest academic year is not supported by the admissions repository")
+	}
+	return repository.GetDisplayLatestAcademicYear(ctx)
+}

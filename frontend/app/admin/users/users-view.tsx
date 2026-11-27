@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { twMerge } from "tailwind-merge";
-import { BookOpen, Search, ShieldCheck } from "lucide-react";
+import { BookOpen, Plus, Search, ShieldCheck, Trash2 } from "lucide-react";
 import Button from "../../components/button";
 import {
     createUser,
@@ -17,6 +17,7 @@ import {
     updateUser,
     listUsers,
     type AccountStatus,
+    type AdminProfileLink,
     type AdminUser,
     type AdminUserDetail,
     type IdentityStatus
@@ -25,7 +26,6 @@ import { identityStatusLabels } from "../../lib/api/profile";
 import { useAdmin } from "../admin-context";
 import {
     AdminDialog,
-    AdminTable,
     Badge,
     describeError,
     EmptyState,
@@ -312,9 +312,12 @@ function UserActionDialog({
     const [detail, setDetail] = useState<AdminUserDetail | null>(null);
     const [detailError, setDetailError] = useState<string | null>(null);
     const [editUsername, setEditUsername] = useState("");
-    const [editIdentity, setEditIdentity] = useState<IdentityStatus>("temporary");
     const [editEmail, setEditEmail] = useState("");
     const [editSchoolEmail, setEditSchoolEmail] = useState("");
+    const [editDisplayName, setEditDisplayName] = useState("");
+    const [editBio, setEditBio] = useState("");
+    const [editLinks, setEditLinks] = useState<AdminProfileLink[]>([]);
+    const [editReason, setEditReason] = useState("");
     const [editSaving, setEditSaving] = useState(false);
     const [editError, setEditError] = useState<string | null>(null);
 
@@ -330,9 +333,11 @@ function UserActionDialog({
                 if (cancelled) return;
                 setDetail(full);
                 setEditUsername(full.username);
-                setEditIdentity(full.identity_status);
                 setEditEmail(full.email);
                 setEditSchoolEmail(full.school_email);
+                setEditDisplayName(full.display_name);
+                setEditBio(full.bio);
+                setEditLinks(full.links ?? []);
             } catch (cause) {
                 if (!cancelled) setDetailError(describeError(cause));
             }
@@ -345,24 +350,37 @@ function UserActionDialog({
 
     async function saveEdits() {
         if (!user) return;
-        setEditSaving(true);
         setEditError(null);
+        const input: Parameters<typeof updateUser>[1] = { reason: editReason.trim() };
+        if (detail && editUsername.trim() !== detail.username) input.username = editUsername.trim();
+        if (detail && editEmail.trim() !== detail.email) input.email = editEmail.trim();
+        if (detail && editSchoolEmail.trim() !== detail.school_email)
+            input.school_email = editSchoolEmail.trim();
+        if (detail && editDisplayName.trim() !== detail.display_name)
+            input.display_name = editDisplayName.trim();
+        if (detail && editBio.trim() !== detail.bio) input.bio = editBio.trim();
+        const cleanLinks = editLinks
+            .map((link) => ({ label: link.label.trim(), url: link.url.trim() }))
+            .filter((link) => link.url.length > 0);
+        if (detail && JSON.stringify(cleanLinks) !== JSON.stringify(detail.links ?? []))
+            input.links = cleanLinks;
+        if (Object.keys(input).every((key) => key === "reason")) return;
+        if (!input.reason) {
+            setEditError("修改個人資料前，請填寫支援原因。");
+            return;
+        }
+        setEditSaving(true);
         try {
-            const input: Parameters<typeof updateUser>[1] = {};
-            if (detail && editUsername.trim() !== detail.username)
-                input.username = editUsername.trim();
-            if (detail && editIdentity !== detail.identity_status)
-                input.identity_status = editIdentity;
-            if (detail && editEmail.trim() !== detail.email) input.email = editEmail.trim();
-            if (detail && editSchoolEmail.trim() !== detail.school_email)
-                input.school_email = editSchoolEmail.trim();
-            if (Object.keys(input).length === 0) {
-                setEditSaving(false);
-                return;
-            }
             await updateUser(user.id, input, mfaCode || undefined);
             const refreshed = await getUser(user.id, mfaCode || undefined);
             setDetail(refreshed);
+            setEditUsername(refreshed.username);
+            setEditEmail(refreshed.email);
+            setEditSchoolEmail(refreshed.school_email);
+            setEditDisplayName(refreshed.display_name);
+            setEditBio(refreshed.bio);
+            setEditLinks(refreshed.links ?? []);
+            setEditReason("");
             onChanged({
                 id: user.id,
                 username: refreshed.username,
@@ -370,6 +388,23 @@ function UserActionDialog({
             });
             setNotice("已儲存變更。");
         } catch (cause) {
+            try {
+                const refreshed = await getUser(user.id, mfaCode || undefined);
+                setDetail(refreshed);
+                setEditUsername(refreshed.username);
+                setEditEmail(refreshed.email);
+                setEditSchoolEmail(refreshed.school_email);
+                setEditDisplayName(refreshed.display_name);
+                setEditBio(refreshed.bio);
+                setEditLinks(refreshed.links ?? []);
+                onChanged({
+                    id: user.id,
+                    username: refreshed.username,
+                    identity_status: refreshed.identity_status
+                });
+            } catch {
+                // Keep the original save error visible if the detail refresh also fails.
+            }
             setEditError(describeError(cause));
         } finally {
             setEditSaving(false);
@@ -446,10 +481,11 @@ function UserActionDialog({
                     <>
                         目前狀態：{statusLabel[user.account_status]}・身份／角色：
                         {describeIdentity(user)}
+                        <span className="block">身分狀態由驗證流程更新。</span>
                     </>
                 ) : undefined
             }
-            maxWidth="max-w-md"
+            maxWidth="max-w-xl"
         >
             <div className="flex flex-col gap-3 border-b border-ink/10 pb-5">
                 <p className="font-sans text-xs font-bold text-copy-muted">帳號資料</p>
@@ -468,16 +504,6 @@ function UserActionDialog({
                             />
                         </label>
                         <label className="flex flex-col gap-1">
-                            <span className="font-sans text-xs text-copy-muted">身份狀態</span>
-                            <select
-                                className={inputClass}
-                                value={editIdentity}
-                                onChange={(e) => setEditIdentity(e.target.value as IdentityStatus)}
-                            >
-                                {identityOptions}
-                            </select>
-                        </label>
-                        <label className="flex flex-col gap-1">
                             <span className="font-sans text-xs text-copy-muted">
                                 常用 Email（登入通知 / 密碼重置信收件地址）
                             </span>
@@ -490,7 +516,7 @@ function UserActionDialog({
                         </label>
                         <label className="flex flex-col gap-1">
                             <span className="font-sans text-xs text-copy-muted">
-                                學校信箱（*.edu.tw，未啟用帳號的啟用信會寄到這裡）
+                                學校信箱（*.edu.tw，未啟用帳號的啟用信會寄到這裡；清空可移除）
                             </span>
                             <input
                                 type="email"
@@ -500,6 +526,117 @@ function UserActionDialog({
                                 }
                                 value={editSchoolEmail}
                                 onChange={(e) => setEditSchoolEmail(e.target.value)}
+                            />
+                        </label>
+                        <div className="flex flex-col gap-3 border-t border-ink/10 pt-4">
+                            <p className="font-sans text-xs font-bold text-copy-muted">個人檔案</p>
+                            <label className="flex flex-col gap-1">
+                                <span className="font-sans text-xs text-copy-muted">公開暱稱</span>
+                                <input
+                                    className={inputClass}
+                                    maxLength={80}
+                                    value={editDisplayName}
+                                    onChange={(e) => setEditDisplayName(e.target.value)}
+                                />
+                            </label>
+                            <label className="flex flex-col gap-1">
+                                <span className="font-sans text-xs text-copy-muted">自我介紹</span>
+                                <textarea
+                                    className={textareaClass}
+                                    maxLength={500}
+                                    rows={4}
+                                    value={editBio}
+                                    onChange={(e) => setEditBio(e.target.value)}
+                                />
+                            </label>
+                            <div className="flex flex-col gap-2">
+                                <span className="font-sans text-xs text-copy-muted">
+                                    個人連結（最多 10 筆）
+                                </span>
+                                {editLinks.map((link, index) => (
+                                    <div
+                                        className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)_auto]"
+                                        key={`profile-link-${index}`}
+                                    >
+                                        <input
+                                            className={inputClass}
+                                            aria-label={`第 ${index + 1} 個連結名稱`}
+                                            maxLength={40}
+                                            placeholder="名稱"
+                                            value={link.label}
+                                            onChange={(event) =>
+                                                setEditLinks((current) =>
+                                                    current.map((item, itemIndex) =>
+                                                        itemIndex === index
+                                                            ? { ...item, label: event.target.value }
+                                                            : item
+                                                    )
+                                                )
+                                            }
+                                        />
+                                        <input
+                                            className={inputClass}
+                                            aria-label={`第 ${index + 1} 個連結網址`}
+                                            maxLength={300}
+                                            placeholder="https://…"
+                                            type="url"
+                                            value={link.url}
+                                            onChange={(event) =>
+                                                setEditLinks((current) =>
+                                                    current.map((item, itemIndex) =>
+                                                        itemIndex === index
+                                                            ? { ...item, url: event.target.value }
+                                                            : item
+                                                    )
+                                                )
+                                            }
+                                        />
+                                        <Button
+                                            type="button"
+                                            variant="secondary"
+                                            aria-label={`移除第 ${index + 1} 個連結`}
+                                            onClick={() =>
+                                                setEditLinks((current) =>
+                                                    current.filter(
+                                                        (_, itemIndex) => itemIndex !== index
+                                                    )
+                                                )
+                                            }
+                                            className="h-10 px-3"
+                                        >
+                                            <Trash2 aria-hidden="true" className="size-4" />
+                                        </Button>
+                                    </div>
+                                ))}
+                                {editLinks.length < 10 ? (
+                                    <Button
+                                        type="button"
+                                        variant="secondary"
+                                        onClick={() =>
+                                            setEditLinks((current) => [
+                                                ...current,
+                                                { label: "", url: "" }
+                                            ])
+                                        }
+                                        className="h-10 w-fit gap-2 px-3 text-sm"
+                                    >
+                                        <Plus aria-hidden="true" className="size-4" />
+                                        新增連結
+                                    </Button>
+                                ) : null}
+                            </div>
+                        </div>
+                        <label className="flex flex-col gap-1">
+                            <span className="font-sans text-xs text-copy-muted">
+                                更正原因（修改資料必填）
+                            </span>
+                            <textarea
+                                className={textareaClass}
+                                maxLength={500}
+                                rows={2}
+                                value={editReason}
+                                onChange={(e) => setEditReason(e.target.value)}
+                                placeholder="簡述使用者提出的更正需求；請勿填入不必要的個人資訊。"
                             />
                         </label>
                         {editError ? <ErrorText>{editError}</ErrorText> : null}

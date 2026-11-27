@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 	"sta-backend/internal/accountapplications"
+	"sta-backend/internal/accountarea"
 	"sta-backend/internal/accountmail"
 	"sta-backend/internal/admin"
 	"sta-backend/internal/admissions"
@@ -186,8 +187,11 @@ func run(logger *slog.Logger) error {
 		if err != nil {
 			return err
 		}
-		defer databasePool.Close()
 		eventHub = events.NewHub(hubCtx, databasePool, logger)
+		defer func() {
+			hubCancel()
+			databasePool.Close()
+		}()
 		publicStatsHandler, err := publicstats.NewHandler(databasePool)
 		if err != nil {
 			return err
@@ -243,6 +247,11 @@ func run(logger *slog.Logger) error {
 			}
 		}
 		if providerConfigured(cfg.DiscordOAuth) {
+			botToken := cfg.DiscordOAuthBotToken
+			if botToken == "" && cfg.DiscordMailGuildID == "1349295394768556053" {
+				botToken = cfg.DiscordMailBotToken
+			}
+			authService.ConfigureDiscordOAuthBot(botToken)
 			if err := authService.ConfigureOAuth("discord", auth.OAuthProviderSettings{
 				ClientID:     cfg.DiscordOAuth.ClientID,
 				ClientSecret: cfg.DiscordOAuth.ClientSecret,
@@ -250,6 +259,7 @@ func run(logger *slog.Logger) error {
 				AuthURL:      "https://discord.com/oauth2/authorize",
 				TokenURL:     "https://discord.com/api/oauth2/token",
 				UserInfoURL:  "https://discord.com/api/users/@me",
+				Scopes:       []string{"identify", "email"},
 			}); err != nil {
 				return err
 			}
@@ -406,6 +416,11 @@ func run(logger *slog.Logger) error {
 			return err
 		}
 		registrars = append(registrars, admissionAdminHandler.RegisterRoutes)
+		programLinksHandler, err := admissions.NewProgramLinksHandler(authService, admissionRepository, admissionsInvalidators...)
+		if err != nil {
+			return err
+		}
+		registrars = append(registrars, programLinksHandler.RegisterRoutes)
 		discoveryRepository, err := brochurediscovery.NewPostgresRepository(databasePool)
 		if err != nil {
 			return err
@@ -531,6 +546,11 @@ func run(logger *slog.Logger) error {
 		}
 		verificationHandler.ConfigureDistributedLimiter(distributedLimiter)
 		registrars = append(registrars, verificationHandler.RegisterRoutes)
+		accountAreaHandler, err := accountarea.NewHandler(authService, databasePool)
+		if err != nil {
+			return err
+		}
+		registrars = append(registrars, accountAreaHandler.RegisterRoutes)
 		if authService != nil && blobStore != nil {
 			mailRoutesRepository, err := mailroutes.NewPostgresRepository(databasePool)
 			if err != nil {

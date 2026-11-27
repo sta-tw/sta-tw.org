@@ -100,9 +100,9 @@ func (r *PostgresRepository) CreateContribution(
 	for _, file := range files {
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO admissions_contribution_attachments (
-				contribution_id, storage_key, file_name, mime_type, size_bytes, sha256_hex
-			) VALUES ($1,$2,$3,$4,$5,$6)
-		`, receipt.ID, file.StorageKey, file.Filename, file.MIMEType, file.SizeBytes, file.SHA256); err != nil {
+				contribution_id, purpose, storage_key, file_name, mime_type, size_bytes, sha256_hex
+			) VALUES ($1,$2,$3,$4,$5,$6,$7)
+		`, receipt.ID, file.Purpose, file.StorageKey, file.Filename, file.MIMEType, file.SizeBytes, file.SHA256); err != nil {
 			return ContributionReceipt{}, fmt.Errorf("create admissions contribution attachment: %w", err)
 		}
 	}
@@ -163,7 +163,7 @@ func (r *PostgresRepository) loadContributionAttachments(ctx context.Context, it
 		indexes[items[index].ID] = index
 	}
 	rows, err := r.pool.Query(ctx, `
-		SELECT id, contribution_id, file_name, mime_type, size_bytes, storage_key
+		SELECT id, contribution_id, purpose, file_name, mime_type, size_bytes, storage_key
 		FROM admissions_contribution_attachments
 		WHERE contribution_id = ANY($1::uuid[])
 		ORDER BY created_at, id
@@ -175,7 +175,7 @@ func (r *PostgresRepository) loadContributionAttachments(ctx context.Context, it
 	for rows.Next() {
 		var contributionID uuid.UUID
 		var attachment ContributionAttachment
-		if err := rows.Scan(&attachment.ID, &contributionID, &attachment.Filename, &attachment.MIMEType, &attachment.SizeBytes, &attachment.StorageKey); err != nil {
+		if err := rows.Scan(&attachment.ID, &contributionID, &attachment.Purpose, &attachment.Filename, &attachment.MIMEType, &attachment.SizeBytes, &attachment.StorageKey); err != nil {
 			return fmt.Errorf("scan admissions contribution attachment: %w", err)
 		}
 		index, ok := indexes[contributionID]
@@ -250,11 +250,11 @@ func (r *PostgresRepository) ContributionStorageKey(ctx context.Context, contrib
 func (r *PostgresRepository) ContributionAttachment(ctx context.Context, contributionID, attachmentID uuid.UUID) (ContributionAttachment, error) {
 	var attachment ContributionAttachment
 	err := r.pool.QueryRow(ctx, `
-		SELECT id, file_name, mime_type, size_bytes, storage_key
+		SELECT id, purpose, file_name, mime_type, size_bytes, storage_key
 		FROM admissions_contribution_attachments
 		WHERE contribution_id = $1 AND id = $2
 	`, contributionID, attachmentID).Scan(
-		&attachment.ID, &attachment.Filename, &attachment.MIMEType, &attachment.SizeBytes, &attachment.StorageKey,
+		&attachment.ID, &attachment.Purpose, &attachment.Filename, &attachment.MIMEType, &attachment.SizeBytes, &attachment.StorageKey,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ContributionAttachment{}, ErrContributionNotFound

@@ -14,8 +14,9 @@ import (
 )
 
 var (
-	ErrNotFound = errors.New("profile not found")
-	ErrInvalid  = errors.New("profile is invalid")
+	ErrNotFound  = errors.New("profile not found")
+	ErrForbidden = errors.New("profile access forbidden")
+	ErrInvalid   = errors.New("profile is invalid")
 )
 
 const (
@@ -35,15 +36,17 @@ type Link struct {
 // Profile is the public view returned by GET /api/v1/users/{username} and the
 // self view from GET /api/v1/profile.
 type Profile struct {
-	AccountID       uuid.UUID  `json:"account_id"`
-	Username        string     `json:"username"`
-	IdentityStatus  string     `json:"identity_status"`
-	DisplayName     string     `json:"display_name,omitempty"`
-	Bio             string     `json:"bio,omitempty"`
-	Links           []Link     `json:"links"`
-	HasAvatar       bool       `json:"has_avatar"`
-	AvatarUpdatedAt *time.Time `json:"avatar_updated_at,omitempty"`
-	UpdatedAt       *time.Time `json:"updated_at,omitempty"`
+	AccountID              uuid.UUID  `json:"account_id"`
+	Username               string     `json:"username"`
+	IdentityStatus         string     `json:"identity_status"`
+	SchoolIdentityVerified bool       `json:"school_identity_verified"`
+	IdentityType           *string    `json:"identity_type"`
+	DisplayName            string     `json:"display_name,omitempty"`
+	Bio                    string     `json:"bio,omitempty"`
+	Links                  []Link     `json:"links"`
+	HasAvatar              bool       `json:"has_avatar"`
+	AvatarUpdatedAt        *time.Time `json:"avatar_updated_at,omitempty"`
+	UpdatedAt              *time.Time `json:"updated_at,omitempty"`
 }
 
 // Input is the editable part of a profile.
