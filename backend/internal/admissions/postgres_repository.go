@@ -262,7 +262,7 @@ func (r *PostgresRepository) ListPrograms(ctx context.Context, query ProgramQuer
 		WITH ranked AS (
 			SELECT
 				p.academic_year, p.program_identifier, p.school_code, s.school_name,
-				p.program_code, p.admission_program_name, p.admission_quota,
+				p.program_code, p.admission_program_name, p.admission_quota, p.admission_quota_display,
 				p.willingness_values,
 				p.brochure_is_tentative,
 				p.consultation_phone, p.brochure_url, p.special_talent_target,
@@ -276,17 +276,26 @@ func (r *PostgresRepository) ListPrograms(ctx context.Context, query ProgramQuer
 				p.portfolio_required, p.recommendation_letter_type, p.max_applicable_programs,
 				p.applicant_count, p.interview_count, p.admitted_count, p.waitlisted_count, p.promoted_count,
 				p.admission_rate, p.first_stage_pass_rate, p.competition_ratio,
-				p.school_official_url, p.department_official_url,
+				CASE WHEN COALESCE(link_state.unpublished, FALSE) THEN '' ELSE COALESCE(NULLIF(school_link.url, ''), NULLIF(p.school_official_url, '-'), '') END AS school_official_url,
+				CASE WHEN COALESCE(link_state.unpublished, FALSE) THEN '' ELSE COALESCE(NULLIF(department_link.url, ''), NULLIF(p.department_official_url, '-'), '') END AS department_official_url,
+				CASE WHEN COALESCE(link_state.unpublished, FALSE) THEN '' ELSE COALESCE(collego_link.url, '') END AS collego_url,
 				ROW_NUMBER() OVER (PARTITION BY p.school_code, p.program_code ORDER BY p.academic_year DESC) AS rn
 			FROM academic_programs p
 			JOIN schools s ON s.school_code = p.school_code
+			LEFT JOIN admissions_school_official_links school_link ON school_link.school_code = p.school_code
+			LEFT JOIN admissions_program_official_links department_link
+				ON department_link.school_code = p.school_code AND department_link.program_code = p.program_code AND department_link.link_type = 'department'
+			LEFT JOIN admissions_program_official_links collego_link
+				ON collego_link.school_code = p.school_code AND collego_link.program_code = p.program_code AND collego_link.link_type = 'collegego'
+			LEFT JOIN admissions_program_link_candidates link_state
+				ON link_state.school_code = p.school_code AND link_state.program_code = p.program_code
 			WHERE %s
 			  AND p.review_status = 'published'
 			  AND p.admission_quota > 0
 		)
 		SELECT
 			academic_year, program_identifier, school_code, school_name,
-			program_code, admission_program_name, admission_quota,
+			program_code, admission_program_name, admission_quota, admission_quota_display,
 			willingness_values,
 			brochure_is_tentative,
 			consultation_phone, brochure_url, special_talent_target,
@@ -300,7 +309,7 @@ func (r *PostgresRepository) ListPrograms(ctx context.Context, query ProgramQuer
 			portfolio_required, recommendation_letter_type, max_applicable_programs,
 			applicant_count, interview_count, admitted_count, waitlisted_count, promoted_count,
 			admission_rate, first_stage_pass_rate, competition_ratio,
-			school_official_url, department_official_url
+			school_official_url, department_official_url, collego_url
 		FROM ranked
 		WHERE rn = 1 OR NOT $%d
 		ORDER BY academic_year DESC, school_code, program_code
@@ -549,7 +558,7 @@ func (r *PostgresRepository) GetProgram(ctx context.Context, identifier ProgramI
 	row := r.pool.QueryRow(ctx, `
 		SELECT
 			p.academic_year, p.program_identifier, p.school_code, s.school_name,
-			p.program_code, p.admission_program_name, p.admission_quota,
+			p.program_code, p.admission_program_name, p.admission_quota, p.admission_quota_display,
 			p.willingness_values,
 			p.brochure_is_tentative,
 			p.consultation_phone, p.brochure_url, p.special_talent_target,
@@ -563,9 +572,18 @@ func (r *PostgresRepository) GetProgram(ctx context.Context, identifier ProgramI
 			p.portfolio_required, p.recommendation_letter_type, p.max_applicable_programs,
 			p.applicant_count, p.interview_count, p.admitted_count, p.waitlisted_count, p.promoted_count,
 			p.admission_rate, p.first_stage_pass_rate, p.competition_ratio,
-			p.school_official_url, p.department_official_url
+			CASE WHEN COALESCE(link_state.unpublished, FALSE) THEN '' ELSE COALESCE(NULLIF(school_link.url, ''), NULLIF(p.school_official_url, '-'), '') END,
+			CASE WHEN COALESCE(link_state.unpublished, FALSE) THEN '' ELSE COALESCE(NULLIF(department_link.url, ''), NULLIF(p.department_official_url, '-'), '') END,
+			CASE WHEN COALESCE(link_state.unpublished, FALSE) THEN '' ELSE COALESCE(collego_link.url, '') END
 		FROM academic_programs p
 		JOIN schools s ON s.school_code = p.school_code
+		LEFT JOIN admissions_school_official_links school_link ON school_link.school_code = p.school_code
+		LEFT JOIN admissions_program_official_links department_link
+			ON department_link.school_code = p.school_code AND department_link.program_code = p.program_code AND department_link.link_type = 'department'
+		LEFT JOIN admissions_program_official_links collego_link
+			ON collego_link.school_code = p.school_code AND collego_link.program_code = p.program_code AND collego_link.link_type = 'collegego'
+		LEFT JOIN admissions_program_link_candidates link_state
+			ON link_state.school_code = p.school_code AND link_state.program_code = p.program_code
 		WHERE p.academic_year = $1 AND p.school_code = $2 AND p.program_code = $3
 		  AND p.review_status = 'published'
 		  AND p.admission_quota > 0
@@ -993,7 +1011,7 @@ func scanProgram(row rowScanner) (Program, error) {
 	var program Program
 	err := row.Scan(
 		&program.AcademicYear, &program.ProgramIdentifier, &program.SchoolCode, &program.SchoolName,
-		&program.ProgramCode, &program.AdmissionProgramName, &program.AdmissionQuota,
+		&program.ProgramCode, &program.AdmissionProgramName, &program.AdmissionQuota, &program.AdmissionQuotaDisplay,
 		&program.WillingnessValues,
 		&program.BrochureIsTentative,
 		&program.ConsultationPhone, &program.BrochureURL,
@@ -1007,7 +1025,7 @@ func scanProgram(row rowScanner) (Program, error) {
 		&program.PortfolioRequired, &program.RecommendationLetterType, &program.MaxApplicablePrograms,
 		&program.ApplicantCount, &program.InterviewCount, &program.AdmittedCount, &program.WaitlistedCount, &program.PromotedCount,
 		&program.AdmissionRate, &program.FirstStagePassRate, &program.CompetitionRatio,
-		&program.SchoolOfficialURL, &program.DepartmentOfficialURL,
+		&program.SchoolOfficialURL, &program.DepartmentOfficialURL, &program.ColleGoURL,
 	)
 	return program, err
 }

@@ -42,7 +42,7 @@ func NewHandler(authService *auth.Service, pool *pgxpool.Pool) (*Handler, error)
 	return &Handler{
 		auth:               authService,
 		pool:               pool,
-		grafanaAuthLimiter: security.NewFixedWindowLimiter(60, time.Minute, 4096),
+		grafanaAuthLimiter: security.NewFixedWindowLimiter(600, time.Minute, 4096),
 	}, nil
 }
 

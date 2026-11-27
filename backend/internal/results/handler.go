@@ -270,12 +270,25 @@ func (h *Handler) setCandidateNumber(w http.ResponseWriter, r *http.Request) {
 		writeResultError(w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
 	}
+	var candidateNameCiphertext []byte
+	if input.CandidateName != nil {
+		candidateName, err := NormalizeCandidateName(*input.CandidateName)
+		if err != nil {
+			writeResultError(w, http.StatusBadRequest, "invalid_candidate_name", "candidate name is invalid")
+			return
+		}
+		candidateNameCiphertext, err = h.cipher.Seal(candidateName)
+		if err != nil {
+			writeResultError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+			return
+		}
+	}
 	lookupHash, err := auth.LookupHash(h.lookupKey, candidateNumber)
 	if err != nil {
 		writeResultError(w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
 	}
-	if err := h.repository.SetCandidateNumber(r.Context(), session.Session.Account.ID, applicationID, ciphertext, lookupHash, LastFour(candidateNumber)); err != nil {
+	if err := h.repository.SetCandidateNumber(r.Context(), session.Session.Account.ID, applicationID, ciphertext, candidateNameCiphertext, input.CandidateName != nil, lookupHash, LastFour(candidateNumber)); err != nil {
 		h.writeRepositoryError(w, err)
 		return
 	}

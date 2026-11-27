@@ -79,6 +79,21 @@ func (s *Service) AdminUpdateAccountSchoolEmail(ctx context.Context, accountID u
 	return store.UpdateAccountSchoolEmail(ctx, accountID, ciphertext, s.lookupHasher.Hash(normalized))
 }
 
+// AdminClearAccountSchoolEmail removes an optional school email. Pending
+// accounts must retain an address until they finish activation.
+func (s *Service) AdminClearAccountSchoolEmail(ctx context.Context, accountID uuid.UUID) error {
+	store, ok := s.store.(AdminContactStore)
+	if !ok {
+		return ErrNotConfigured
+	}
+	if _, _, accountStatus, err := store.GetAccountContact(ctx, accountID); err != nil {
+		return err
+	} else if accountStatus == "pending_verification" {
+		return ErrSchoolEmailRequired
+	}
+	return store.ClearAccountSchoolEmail(ctx, accountID)
+}
+
 // ErrNoSchoolEmailOnFile is returned by AdminResendActivation when the
 // account has no stored school email to resend to — either it predates the
 // school_email_ciphertext column, or it was never created through

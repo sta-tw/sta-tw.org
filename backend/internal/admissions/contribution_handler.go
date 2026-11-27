@@ -31,6 +31,11 @@ const (
 	maxContributionFormBytes       = maxContributionFileBytes*maxContributionFiles + (2 << 20)
 )
 
+type contributionUpload struct {
+	header  *multipart.FileHeader
+	purpose string
+}
+
 type ContributionHandler struct {
 	authService        *auth.Service
 	repository         *PostgresRepository
@@ -172,10 +177,22 @@ func (h *ContributionHandler) create(w http.ResponseWriter, r *http.Request) {
 		writeAdmissionError(w, http.StatusBadRequest, "invalid_contribution", "submission data is invalid")
 		return
 	}
-	files := submittedContributionFiles(r.MultipartForm.File["file"])
-	if len(files) > maxContributionFiles {
+	dataFiles := submittedContributionFiles(r.MultipartForm.File["file"])
+	evidenceFiles := submittedContributionFiles(r.MultipartForm.File["evidence_file"])
+	if len(dataFiles)+len(evidenceFiles) > maxContributionFiles {
 		writeAdmissionError(w, http.StatusBadRequest, "invalid_file", "at most five files can be submitted")
 		return
+	}
+	uploads := make([]contributionUpload, 0, len(dataFiles)+len(evidenceFiles))
+	for _, file := range dataFiles {
+		purpose := ContributionFileData
+		if strings.TrimSpace(r.FormValue("category")) == ContributionBrochure {
+			purpose = ContributionFileBrochure
+		}
+		uploads = append(uploads, contributionUpload{header: file, purpose: purpose})
+	}
+	for _, file := range evidenceFiles {
+		uploads = append(uploads, contributionUpload{header: file, purpose: ContributionFileEvidence})
 	}
 	input := ContributionInput{
 		Email:           r.FormValue("email"),
@@ -187,7 +204,7 @@ func (h *ContributionHandler) create(w http.ResponseWriter, r *http.Request) {
 		PublishNickname: r.FormValue("publish_nickname") == "true",
 	}
 	if input.Category == ContributionApplicants || input.Category == ContributionSecond || input.Category == ContributionWaitlist {
-		if len(files) > 0 {
+		if len(dataFiles) > 0 {
 			if len(r.MultipartForm.Value["program_name"]) > 0 || len(r.MultipartForm.Value["people_count"]) > 0 || strings.TrimSpace(r.FormValue("data_text")) != "" {
 				writeAdmissionError(w, http.StatusBadRequest, "invalid_contribution", "choose manual data entry or file upload")
 				return
@@ -196,27 +213,30 @@ func (h *ContributionHandler) create(w http.ResponseWriter, r *http.Request) {
 			writeAdmissionError(w, http.StatusBadRequest, "invalid_contribution", "submission data is invalid")
 			return
 		}
-	} else if input.Category == ContributionBrochure && (len(r.MultipartForm.Value["program_name"]) > 0 || len(r.MultipartForm.Value["people_count"]) > 0 || strings.TrimSpace(r.FormValue("data_text")) != "") {
+	} else if input.Category == ContributionBrochure && (len(evidenceFiles) > 0 || len(r.MultipartForm.Value["program_name"]) > 0 || len(r.MultipartForm.Value["people_count"]) > 0 || strings.TrimSpace(r.FormValue("data_text")) != "") {
 		writeAdmissionError(w, http.StatusBadRequest, "invalid_contribution", "submission data is invalid")
 		return
 	}
 	input.Email = auth.NormalizeEmail(input.Email)
-	if input.Category == ContributionBrochure && len(files) > 1 {
+	if input.Category == ContributionBrochure && len(dataFiles) > 1 {
 		writeAdmissionError(w, http.StatusBadRequest, "invalid_file", "a historical brochure submission can include one PDF")
 		return
 	}
-	if input.NormalizeAndValidate(len(files) > 0) != nil {
-		writeAdmissionError(w, http.StatusBadRequest, "invalid_contribution", "submission data is invalid")
+	for _, upload := range uploads {
+		input.Files = append(input.Files, ContributionFile{Purpose: upload.purpose})
+	}
+	if validationErr := input.NormalizeAndValidate(); validationErr != nil {
+		writeContributionInputError(w, validationErr)
 		return
 	}
 
-	stagedUploads := make([]storage.StagedUpload, 0, len(files))
+	stagedUploads := make([]storage.StagedUpload, 0, len(uploads))
 	defer func() {
 		for _, upload := range stagedUploads {
 			upload.Close()
 		}
 	}()
-	if len(files) > 0 {
+	if len(uploads) > 0 {
 		if h.blobStore == nil {
 			writeAdmissionError(w, http.StatusServiceUnavailable, "storage_unavailable", "file uploads are temporarily unavailable")
 			return
@@ -225,7 +245,8 @@ func (h *ContributionHandler) create(w http.ResponseWriter, r *http.Request) {
 			writeAdmissionError(w, http.StatusServiceUnavailable, "scan_unavailable", "file scanning is temporarily unavailable")
 			return
 		}
-		for _, header := range files {
+		for _, fileUpload := range uploads {
+			header := fileUpload.header
 			file, err := header.Open()
 			if err != nil {
 				writeAdmissionError(w, http.StatusBadRequest, "invalid_file", "an uploaded file could not be read")
@@ -261,7 +282,7 @@ func (h *ContributionHandler) create(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}()
-	for _, upload := range stagedUploads {
+	for index, upload := range stagedUploads {
 		fileID, err := uuid.NewRandom()
 		if err != nil {
 			writeAdmissionError(w, http.StatusInternalServerError, "internal_error", "internal server error")
@@ -270,6 +291,7 @@ func (h *ContributionHandler) create(w http.ResponseWriter, r *http.Request) {
 		extension := strings.ToLower(filepath.Ext(upload.OriginalName))
 		storageKey := "admissions/contributions/" + fileID.String() + extension
 		fileRecords = append(fileRecords, ContributionFile{
+			Purpose:    uploads[index].purpose,
 			StorageKey: storageKey,
 			Filename:   upload.OriginalName,
 			MIMEType:   upload.ContentType,
@@ -278,8 +300,8 @@ func (h *ContributionHandler) create(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	input.Files = fileRecords
-	if input.NormalizeAndValidate(len(files) > 0) != nil {
-		writeAdmissionError(w, http.StatusBadRequest, "invalid_contribution", "submission data is invalid")
+	if validationErr := input.NormalizeAndValidate(); validationErr != nil {
+		writeContributionInputError(w, validationErr)
 		return
 	}
 	for index, upload := range stagedUploads {
@@ -698,6 +720,14 @@ func submittedContributionFiles(files []*multipart.FileHeader) []*multipart.File
 		result = append(result, file)
 	}
 	return result
+}
+
+func writeContributionInputError(w http.ResponseWriter, err error) {
+	if errors.Is(err, ErrContributionEvidenceRequired) {
+		writeAdmissionError(w, http.StatusBadRequest, "evidence_required", "supporting evidence is required for admissions count data")
+		return
+	}
+	writeAdmissionError(w, http.StatusBadRequest, "invalid_contribution", "submission data is invalid")
 }
 
 func (h *ContributionHandler) requireAdmissionsAdmin(w http.ResponseWriter, r *http.Request, mutation bool) (auth.RequestSession, bool) {

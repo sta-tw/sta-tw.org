@@ -41,6 +41,20 @@
 - `000081_admissions_contributions.sql`：本站招生資料回報表單的收件、附件、暱稱公開同意與審核狀態。
 - `000082_admissions_contribution_attachments.sql`：支援多個經安全掃描的私有回報檔案，並保留既有附件資料。
 - `000083_admissions_contribution_discord_threads.sql`：保存資料回報對應的 Discord 討論串，讓管理員能用 `/re` 寄出後續信件。
+- `000084_admission_quota_display.sql`：保存歷年招生人數欄位的自由文字顯示值，保留既有數字欄位供系統查詢使用。
+- `000085_admissions_program_links.sql`：分開保存學校官網、系網與 ColleGo! 的候選資料及已上架資料。
+- `000086_admissions_program_links_collego_seed.sql`：匯入可唯一對應的 ColleGo! 網址作為管理候選，全部維持草稿。
+- `000087_admissions_program_links_unpublish.sql`：加入校系網站連結的下架狀態。
+- `000088_oauth_registration_verifications.sql`：保存 Discord OAuth 註冊資格及一次性註冊流程 nonce。
+- `000089_account_area.sql`：保存個人頁隱私與網址、收藏校系、通知偏好、驗證申請欄位及心得文章標籤。
+- `000090_account_school_directory.sql`：建立共用大專院校／高中職名錄，並整理既有個人檔案校名。
+- `000091_admissions_contribution_evidence.sql`：區分招生回報的資料檔、佐證資料、歷屆簡章與既有未分類附件。
+- `000092_account_identity_roles.sql`：擴充帳號與驗證申請身分，並保存已撤銷的驗證申請狀態。
+- `000093_account_identity_labels.sql`：將學校身份驗證狀態與身份類別分欄保存。
+- `000094_application_candidate_name.sql`：加密保存查榜交叉比對使用的考生姓名。
+- `000096_verification_current_student_high_school.sql`：讓應屆學生以高中職名錄提出文件驗證，不必先填錄取大學。
+
+正式資料庫目前已套用 000094，000095 尚未套用；本 PR 新增 000096。Migration runner 依版本排序處理，不要求版本連號。
 
 招生科系資料不另建管理專用表；管理端 API 直接以 transaction 維護 `academic_programs` 與 `program_exam_items`，並以 `review_status` 控制待審／公開狀態，異動寫入既有 append-only `audit_log`。
 

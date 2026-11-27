@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/google/uuid"
 	"sta-backend/internal/auth"
@@ -160,12 +161,80 @@ func (s *Service) PurgeAnnualData(ctx context.Context, academicYear int) (Cleanu
 
 func validateRequestInput(input CreateRequestInput, emailRequired bool) (CreateRequestInput, string, error) {
 	input.SchoolCode = strings.TrimSpace(input.SchoolCode)
+	input.SchoolDirectoryID = strings.TrimSpace(input.SchoolDirectoryID)
 	input.ProgramCode = strings.TrimSpace(input.ProgramCode)
 	input.SchoolEmail = auth.NormalizeEmail(input.SchoolEmail)
-	if input.AcademicYear < 100 || input.AcademicYear > 999 || !threeDigitCode.MatchString(input.SchoolCode) || (input.ProgramCode != "" && !threeDigitCode.MatchString(input.ProgramCode)) {
+	if input.AcademicYear < 100 || input.AcademicYear > 999 || (input.ProgramCode != "" && !threeDigitCode.MatchString(input.ProgramCode)) {
+		return CreateRequestInput{}, "", ErrInvalid
+	}
+	input.IdentityType = strings.TrimSpace(input.IdentityType)
+	if input.IdentityType == "" {
+		input.IdentityType = "student"
+	}
+	if input.IdentityType != "student" && input.IdentityType != "senior" && input.IdentityType != "parent" && input.IdentityType != "educator" {
+		return CreateRequestInput{}, "", ErrInvalid
+	}
+	input.DocumentType = strings.TrimSpace(input.DocumentType)
+	if input.DocumentType == "" {
+		input.DocumentType = "other"
+	}
+	validDocumentType := false
+	switch input.IdentityType {
+	case "student":
+		validDocumentType = input.DocumentType == "student_id" || input.DocumentType == "admission_letter" || input.DocumentType == "other"
+	case "senior":
+		validDocumentType = input.DocumentType == "alumni_proof" || input.DocumentType == "admission_letter" || input.DocumentType == "other"
+	case "parent":
+		validDocumentType = input.DocumentType == "parent_relationship" || input.DocumentType == "other"
+	case "educator":
+		validDocumentType = input.DocumentType == "educator_credential" || input.DocumentType == "other"
+	}
+	if !validDocumentType {
 		return CreateRequestInput{}, "", ErrInvalid
 	}
 	if emailRequired {
+		if input.SchoolDirectoryID != "" || !threeDigitCode.MatchString(input.SchoolCode) {
+			return CreateRequestInput{}, "", ErrInvalid
+		}
+	} else if input.IdentityType == "student" {
+		if input.SchoolDirectoryID == "" || input.SchoolCode != "" || input.ProgramCode != "" {
+			return CreateRequestInput{}, "", ErrInvalid
+		}
+		if _, err := uuid.Parse(input.SchoolDirectoryID); err != nil {
+			return CreateRequestInput{}, "", ErrInvalid
+		}
+	} else if input.SchoolDirectoryID != "" || !threeDigitCode.MatchString(input.SchoolCode) {
+		return CreateRequestInput{}, "", ErrInvalid
+	}
+	if len(input.AcademicFields) > 20 {
+		return CreateRequestInput{}, "", ErrInvalid
+	}
+	fields := make([]string, 0, len(input.AcademicFields))
+	seenFields := make(map[string]struct{}, len(input.AcademicFields))
+	for _, field := range input.AcademicFields {
+		field = strings.TrimSpace(field)
+		if field == "" {
+			continue
+		}
+		if len([]rune(field)) > 80 {
+			return CreateRequestInput{}, "", ErrInvalid
+		}
+		for _, r := range field {
+			if unicode.IsControl(r) {
+				return CreateRequestInput{}, "", ErrInvalid
+			}
+		}
+		if _, ok := seenFields[field]; ok {
+			continue
+		}
+		seenFields[field] = struct{}{}
+		fields = append(fields, field)
+	}
+	input.AcademicFields = fields
+	if emailRequired {
+		if input.IdentityType != "student" {
+			return CreateRequestInput{}, "", ErrInvalid
+		}
 		parsed, err := mail.ParseAddress(input.SchoolEmail)
 		if err != nil || parsed.Address != input.SchoolEmail || !strings.Contains(input.SchoolEmail, "@") {
 			return CreateRequestInput{}, "", ErrInvalid

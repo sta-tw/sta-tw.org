@@ -42,6 +42,13 @@ func (r *PostgresRepository) CreateInApp(ctx context.Context, accountID uuid.UUI
 	if strings.TrimSpace(kind) == "" || strings.TrimSpace(dedupKey) == "" || strings.TrimSpace(title) == "" || strings.TrimSpace(body) == "" {
 		return Notification{}, errors.New("notification data is invalid")
 	}
+	enabled, err := r.inAppKindEnabled(ctx, accountID, kind)
+	if err != nil {
+		return Notification{}, err
+	}
+	if !enabled {
+		return Notification{}, nil
+	}
 	titleCiphertext, err := r.cipher.Seal(title)
 	if err != nil {
 		return Notification{}, err
@@ -95,6 +102,13 @@ func (r *PostgresRepository) EnqueueEmailForAccountWithMaxAttempts(ctx context.C
 	if maxAttempts < 1 || maxAttempts > 100 {
 		return errors.New("email retry limit must be between 1 and 100")
 	}
+	enabled, err := r.notificationEmailEnabled(ctx, accountID, kind)
+	if err != nil {
+		return err
+	}
+	if !enabled {
+		return nil
+	}
 	var recipientCiphertext []byte
 	if err := r.pool.QueryRow(ctx, `SELECT email_ciphertext FROM accounts WHERE id = $1 AND account_status = 'active'`, accountID).Scan(&recipientCiphertext); errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
@@ -102,6 +116,35 @@ func (r *PostgresRepository) EnqueueEmailForAccountWithMaxAttempts(ctx context.C
 		return err
 	}
 	return r.enqueueEmail(ctx, &accountID, nil, recipientCiphertext, dedupKey, subject, text, html, kind, maxAttempts)
+}
+
+func (r *PostgresRepository) inAppKindEnabled(ctx context.Context, accountID uuid.UUID, kind string) (bool, error) {
+	var enabled bool
+	err := r.pool.QueryRow(ctx, `
+		SELECT COALESCE(kinds -> $2 <> 'false'::jsonb, TRUE)
+		FROM notification_preferences WHERE account_id = $1
+	`, accountID, kind).Scan(&enabled)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return true, nil
+	}
+	return enabled, err
+}
+
+func (r *PostgresRepository) notificationEmailEnabled(ctx context.Context, accountID uuid.UUID, kind string) (bool, error) {
+	// Only optional user-facing notification emails obey these settings. Account
+	// security and verification mail use separate kinds and remain deliverable.
+	if kind != "willingness" && kind != "support" {
+		return true, nil
+	}
+	var enabled bool
+	err := r.pool.QueryRow(ctx, `
+		SELECT email_enabled AND COALESCE(kinds -> $2 <> 'false'::jsonb, TRUE)
+		FROM notification_preferences WHERE account_id = $1
+	`, accountID, kind).Scan(&enabled)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return true, nil
+	}
+	return enabled, err
 }
 
 func (r *PostgresRepository) EnqueueEmailTo(ctx context.Context, accountID uuid.UUID, recipientCiphertext []byte, dedupKey, subject, text, html string) error {

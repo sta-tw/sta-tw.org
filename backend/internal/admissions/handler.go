@@ -1,6 +1,7 @@
 package admissions
 
 import (
+	"context"
 	"encoding/json"
 	"encoding/xml"
 	"errors"
@@ -14,6 +15,10 @@ import (
 type Handler struct {
 	repository    Repository
 	publicBaseURL string
+}
+
+type displayLatestAcademicYearReader interface {
+	GetDisplayLatestAcademicYear(context.Context) (int, bool, error)
 }
 
 func NewHandler(repository Repository, publicBaseURLs ...string) (*Handler, error) {
@@ -31,6 +36,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /sitemap.xml", h.sitemap)
 	mux.HandleFunc("GET /llms.txt", h.llms)
 	mux.HandleFunc("GET /api/v1/admissions/schools", h.listSchools)
+	mux.HandleFunc("GET /api/v1/admissions/display-latest-year", h.displayLatestAcademicYear)
 	mux.HandleFunc("GET /api/v1/admissions/programs/search", h.searchPrograms)
 	mux.HandleFunc("GET /api/v1/admissions/programs", h.listPrograms)
 	mux.HandleFunc("GET /api/v1/admissions/programs/{identifier}", h.getProgram)
@@ -179,6 +185,23 @@ func (h *Handler) listPrograms(w http.ResponseWriter, r *http.Request) {
 	writeAdmissionJSON(w, http.StatusOK, map[string]any{
 		"data": programs,
 		"meta": map[string]any{"limit": query.Limit, "offset": query.Offset},
+	})
+}
+
+func (h *Handler) displayLatestAcademicYear(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	repository, ok := h.repository.(displayLatestAcademicYearReader)
+	if !ok {
+		writeAdmissionError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	year, _, err := repository.GetDisplayLatestAcademicYear(r.Context())
+	if err != nil {
+		writeAdmissionError(w, http.StatusInternalServerError, "internal_error", "internal server error")
+		return
+	}
+	writeAdmissionJSON(w, http.StatusOK, map[string]any{
+		"data": map[string]int{"academic_year": year},
 	})
 }
 

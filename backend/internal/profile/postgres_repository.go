@@ -22,7 +22,7 @@ func NewPostgresRepository(pool *pgxpool.Pool) (*PostgresRepository, error) {
 }
 
 const profileSelect = `
-	a.id::text, a.username, a.identity_status,
+	a.id::text, a.username, a.identity_status, a.school_identity_verified, a.identity_type,
 	COALESCE(p.display_name, ''), COALESCE(p.bio, ''),
 	COALESCE(p.links, '[]'::jsonb),
 	p.avatar_storage_key IS NOT NULL, p.avatar_updated_at, p.updated_at`
@@ -33,7 +33,7 @@ func scanProfile(row pgx.Row) (Profile, error) {
 		idText    string
 		linksJSON []byte
 	)
-	if err := row.Scan(&idText, &p.Username, &p.IdentityStatus, &p.DisplayName, &p.Bio,
+	if err := row.Scan(&idText, &p.Username, &p.IdentityStatus, &p.SchoolIdentityVerified, &p.IdentityType, &p.DisplayName, &p.Bio,
 		&linksJSON, &p.HasAvatar, &p.AvatarUpdatedAt, &p.UpdatedAt); err != nil {
 		return Profile{}, err
 	}
@@ -75,6 +75,27 @@ func (r *PostgresRepository) GetByUsername(ctx context.Context, username string)
 		return Profile{}, ErrNotFound
 	}
 	return p, err
+}
+
+// CanViewPublic reports whether the visitor may access a profile or avatar.
+// A nil viewer is anonymous; members-only profiles are available only after
+// authentication, and hidden/missing accounts use the same not-found result.
+func (r *PostgresRepository) CanViewPublic(ctx context.Context, username string, viewer *uuid.UUID) error {
+	var accountID uuid.UUID
+	var visibility string
+	err := r.pool.QueryRow(ctx, `SELECT a.id, COALESCE(p.profile_visibility, 'public')
+		FROM accounts a LEFT JOIN account_profiles p ON p.account_id=a.id
+		WHERE lower(a.username)=lower($1) AND a.account_status='active'`, username).Scan(&accountID, &visibility)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if visibility == "members" && (viewer == nil || *viewer != accountID) {
+		return ErrForbidden
+	}
+	return nil
 }
 
 func (r *PostgresRepository) Upsert(ctx context.Context, accountID uuid.UUID, in Input) (Profile, error) {

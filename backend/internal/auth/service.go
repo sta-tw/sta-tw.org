@@ -40,6 +40,7 @@ var (
 	ErrOAuthNotBound        = errors.New("OAuth identity is not bound")
 	ErrOAuthSubject         = errors.New("invalid OAuth identity")
 	ErrInvalidToken         = errors.New("invalid or expired token")
+	ErrSchoolEmailRequired  = errors.New("pending account requires a school email")
 )
 
 const sessionCookieName = "sta_session"
@@ -63,6 +64,7 @@ type Service struct {
 	now                  func() time.Time
 	oauthProviders       map[string]oauthProvider
 	oauthHTTPClient      *http.Client
+	discordOAuthBotToken string
 	emailNotifier        EmailVerificationNotifier
 	publicBaseURL        string
 	requireAdminMFA      bool
@@ -116,10 +118,11 @@ type OAuthProviderSettings struct {
 const CalendarScope = "https://www.googleapis.com/auth/calendar.events"
 
 type OAuthResult struct {
-	Account  Account
-	Session  *SessionResult
-	Bound    bool
-	ReturnTo string
+	Account      Account
+	Session      *SessionResult
+	Bound        bool
+	ReturnTo     string
+	Registration string
 }
 
 type oauthProvider struct {
@@ -587,6 +590,10 @@ func isValidReturnTo(value string) bool {
 }
 
 func (s *Service) OAuthStart(ctx context.Context, provider string, accountID *uuid.UUID, returnTo string) (string, error) {
+	return s.oauthStart(ctx, provider, accountID, returnTo, false)
+}
+
+func (s *Service) oauthStart(ctx context.Context, provider string, accountID *uuid.UUID, returnTo string, identityOnly bool) (string, error) {
 	if !s.ready() {
 		return "", ErrNotConfigured
 	}
@@ -620,8 +627,12 @@ func (s *Service) OAuthStart(ctx context.Context, provider string, accountID *uu
 		oauth2.SetAuthURLParam("code_challenge", challenge),
 		oauth2.SetAuthURLParam("code_challenge_method", "S256"),
 	}
+	config := providerConfig.config
+	if provider == "google" && (accountID == nil || identityOnly) {
+		config.Scopes = []string{"openid", "email", "profile"}
+	}
 	requestsCalendar := false
-	for _, scope := range providerConfig.config.Scopes {
+	for _, scope := range config.Scopes {
 		if scope == CalendarScope {
 			requestsCalendar = true
 			break
@@ -641,7 +652,7 @@ func (s *Service) OAuthStart(ctx context.Context, provider string, accountID *uu
 	} else {
 		params = append(params, oauth2.SetAuthURLParam("access_type", "online"))
 	}
-	return providerConfig.config.AuthCodeURL(state, params...), nil
+	return config.AuthCodeURL(state, params...), nil
 }
 
 func (s *Service) OAuthCallback(ctx context.Context, provider, stateValue, code string, currentAccountID *uuid.UUID, request *http.Request) (OAuthResult, error) {
@@ -658,6 +669,10 @@ func (s *Service) OAuthCallback(ctx context.Context, provider, stateValue, code 
 		if currentAccountID == nil || *currentAccountID != *state.AccountID {
 			return OAuthResult{}, ErrInvalidSession
 		}
+		account, err := s.accountForSession(ctx, *state.AccountID)
+		if err != nil || account.AccountStatus != "active" {
+			return OAuthResult{}, ErrInvalidSession
+		}
 	}
 	verifier, err := s.emailCipher.Open(state.CodeVerifierCiphertext)
 	if err != nil {
@@ -667,7 +682,7 @@ func (s *Service) OAuthCallback(ctx context.Context, provider, stateValue, code 
 	if err != nil {
 		return OAuthResult{}, fmt.Errorf("exchange oauth code: %w: %w", err, ErrOAuthState)
 	}
-	subject, err := s.fetchOAuthSubject(ctx, provider, providerConfig.userInfoURL, token)
+	subject, emailAddress, err := s.fetchOAuthProfile(ctx, provider, providerConfig.userInfoURL, token)
 	if err != nil {
 		return OAuthResult{}, err
 	}
@@ -714,7 +729,17 @@ func (s *Service) OAuthCallback(ctx context.Context, provider, stateValue, code 
 	primaryHash := candidates[0]
 	account, matchedHash, err := s.store.FindAccountByOAuthSubjectHashes(ctx, provider, candidates)
 	if err != nil {
-		return OAuthResult{}, ErrOAuthNotBound
+		if !errors.Is(err, ErrNotFound) {
+			return OAuthResult{}, err
+		}
+		registration, err := s.newOAuthRegistration(provider, subject, emailAddress)
+		if err != nil {
+			return OAuthResult{}, err
+		}
+		return OAuthResult{Registration: registration}, nil
+	}
+	if account.AccountStatus != "active" {
+		return OAuthResult{}, ErrInvalidSession
 	}
 	// Lazily migrate an identity still hashed under a retired key.
 	if !bytes.Equal(matchedHash, primaryHash) {
@@ -788,36 +813,46 @@ func (s *Service) saveCalendarGrantIfPresent(ctx context.Context, accountID uuid
 }
 
 func (s *Service) fetchOAuthSubject(ctx context.Context, provider, userInfoURL string, token *oauth2.Token) (string, error) {
+	subject, _, err := s.fetchOAuthProfile(ctx, provider, userInfoURL, token)
+	return subject, err
+}
+
+func (s *Service) fetchOAuthProfile(ctx context.Context, provider, userInfoURL string, token *oauth2.Token) (string, string, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, userInfoURL, nil)
 	if err != nil {
-		return "", ErrOAuthSubject
+		return "", "", ErrOAuthSubject
 	}
 	request.Header.Set("Authorization", "Bearer "+token.AccessToken)
 	request.Header.Set("Accept", "application/json")
 	response, err := s.oauthHTTPClient.Do(request)
 	if err != nil {
-		return "", ErrOAuthSubject
+		return "", "", ErrOAuthSubject
 	}
 	defer response.Body.Close()
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		return "", ErrOAuthSubject
+		return "", "", ErrOAuthSubject
 	}
 	var payload struct {
 		Subject string `json:"sub"`
 		ID      string `json:"id"`
+		Email   string `json:"email"`
 	}
 	decoder := json.NewDecoder(io.LimitReader(response.Body, 64<<10))
 	if err := decoder.Decode(&payload); err != nil {
-		return "", ErrOAuthSubject
+		return "", "", ErrOAuthSubject
 	}
 	subject := strings.TrimSpace(payload.Subject)
 	if provider == "discord" {
 		subject = strings.TrimSpace(payload.ID)
 	}
 	if subject == "" || len(subject) > 512 {
-		return "", ErrOAuthSubject
+		return "", "", ErrOAuthSubject
 	}
-	return subject, nil
+	emailAddress := ""
+	if provider == "discord" && len(payload.Email) <= 320 {
+		emailAddress = payload.Email
+	}
+	return subject, emailAddress, nil
 }
 
 func (s *Service) accountForSession(ctx context.Context, accountID uuid.UUID) (Account, error) {

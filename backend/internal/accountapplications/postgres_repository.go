@@ -268,7 +268,8 @@ type DocumentKey struct {
 // had no usable school email to use that flow with.
 func (r *PostgresRepository) MarkAccountIdentityVerified(ctx context.Context, accountID uuid.UUID) error {
 	tag, err := r.pool.Exec(ctx, `
-		UPDATE accounts SET identity_status = 'student', updated_at = CURRENT_TIMESTAMP
+		UPDATE accounts SET identity_status = 'student', school_identity_verified = true,
+			identity_type = 'student', updated_at = CURRENT_TIMESTAMP
 		WHERE id = $1 AND account_status = 'active'
 	`, accountID)
 	if err != nil {

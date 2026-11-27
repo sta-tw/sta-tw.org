@@ -697,7 +697,7 @@ func emptyDash(value string) string {
 	return value
 }
 
-func (r *PostgresRepository) SetCandidateNumber(ctx context.Context, accountID, applicationID uuid.UUID, ciphertext, lookupHash []byte, lastFour string) error {
+func (r *PostgresRepository) SetCandidateNumber(ctx context.Context, accountID, applicationID uuid.UUID, ciphertext, candidateNameCiphertext []byte, updateCandidateName bool, lookupHash []byte, lastFour string) error {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin candidate number transaction: %w", err)
@@ -706,10 +706,11 @@ func (r *PostgresRepository) SetCandidateNumber(ctx context.Context, accountID, 
 	command, err := tx.Exec(ctx, `
 		UPDATE applications
 		SET candidate_number_ciphertext = $3,
-		    candidate_number_lookup_hash = $4,
-		    candidate_number_last4 = $5
+		    candidate_name_ciphertext = CASE WHEN $5 THEN $4 ELSE candidate_name_ciphertext END,
+		    candidate_number_lookup_hash = $6,
+		    candidate_number_last4 = $7
 		WHERE id = $1 AND account_id = $2 AND status = 'confirmed'
-	`, applicationID, accountID, ciphertext, lookupHash, lastFour)
+	`, applicationID, accountID, ciphertext, candidateNameCiphertext, updateCandidateName, lookupHash, lastFour)
 	if err != nil {
 		return mapResultError(err)
 	}

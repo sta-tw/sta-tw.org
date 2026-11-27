@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"sta-backend/internal/admissions"
@@ -58,7 +60,21 @@ type Report struct {
 }
 
 type CandidateNumberInput struct {
-	CandidateNumber string `json:"candidate_number"`
+	CandidateNumber string  `json:"candidate_number"`
+	CandidateName   *string `json:"candidate_name"`
+}
+
+func NormalizeCandidateName(value string) (string, error) {
+	name := strings.TrimSpace(value)
+	if name == "" || !utf8.ValidString(name) || utf8.RuneCountInString(name) > 100 {
+		return "", ErrInvalidInput
+	}
+	for _, r := range name {
+		if unicode.IsControl(r) {
+			return "", ErrInvalidInput
+		}
+	}
+	return name, nil
 }
 
 type WillingnessInput struct {
@@ -249,7 +265,7 @@ func validBatchStatus(status string) bool {
 }
 
 type Repository interface {
-	SetCandidateNumber(context.Context, uuid.UUID, uuid.UUID, []byte, []byte, string) error
+	SetCandidateNumber(context.Context, uuid.UUID, uuid.UUID, []byte, []byte, bool, []byte, string) error
 	GetReport(context.Context, uuid.UUID, uuid.UUID) (Report, error)
 	ListInquiries(context.Context, uuid.UUID, uuid.UUID) ([]Inquiry, error)
 	SetWillingness(context.Context, uuid.UUID, uuid.UUID, int16, *uuid.UUID) (WillingnessResponse, error)

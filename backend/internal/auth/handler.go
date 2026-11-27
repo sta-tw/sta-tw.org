@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"io"
@@ -53,6 +54,8 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/auth/oauth/{provider}/start", h.oauthLoginStart)
 	mux.HandleFunc("POST /api/v1/auth/oauth/{provider}/bind/start", h.oauthBindStart)
 	mux.HandleFunc("GET /api/v1/auth/oauth/{provider}/callback", h.oauthCallback)
+	mux.HandleFunc("GET /api/v1/auth/oauth/registration", h.oauthRegistration)
+	mux.HandleFunc("POST /api/v1/auth/oauth/registration", h.oauthRegistration)
 }
 
 func (h *Handler) register(w http.ResponseWriter, r *http.Request) {
@@ -432,7 +435,34 @@ func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) oauthLoginStart(w http.ResponseWriter, r *http.Request) {
-	writeAuthError(w, http.StatusServiceUnavailable, "oauth_unavailable", "social login is temporarily unavailable")
+	allowed, err := h.service.loginAllowed(r.Context(), r)
+	if err != nil {
+		h.writeServiceError(w, err)
+		return
+	}
+	if !allowed {
+		h.writeServiceError(w, ErrRateLimited)
+		return
+	}
+	target, err := h.service.OAuthStart(r.Context(), r.PathValue("provider"), nil, "")
+	if err != nil {
+		h.writeOAuthError(w, err)
+		return
+	}
+	if !h.setOAuthStateCookie(w, r, target) {
+		h.writeOAuthError(w, ErrOAuthState)
+		return
+	}
+	http.Redirect(w, r, target, http.StatusFound)
+}
+
+func (h *Handler) setOAuthStateCookie(w http.ResponseWriter, r *http.Request, target string) bool {
+	u, err := url.Parse(target)
+	if err != nil || u.Query().Get("state") == "" {
+		return false
+	}
+	http.SetCookie(w, &http.Cookie{Name: "sta_oauth_state_" + r.PathValue("provider"), Value: u.Query().Get("state"), Path: "/api/v1/auth/oauth/", HttpOnly: true, Secure: h.service.cookieSecure, SameSite: http.SameSiteLaxMode, MaxAge: 600})
+	return true
 }
 
 func (h *Handler) verifyTurnstile(w http.ResponseWriter, r *http.Request, token, action string) bool {
@@ -461,9 +491,13 @@ func (h *Handler) oauthBindStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	accountID := session.Session.Account.ID
-	url, err := h.service.OAuthStart(r.Context(), r.PathValue("provider"), &accountID, r.URL.Query().Get("return_to"))
+	url, err := h.service.oauthStart(r.Context(), r.PathValue("provider"), &accountID, r.URL.Query().Get("return_to"), r.URL.Query().Get("purpose") == "login")
 	if err != nil {
 		h.writeOAuthError(w, err)
+		return
+	}
+	if !h.setOAuthStateCookie(w, r, url) {
+		h.writeOAuthError(w, ErrOAuthState)
 		return
 	}
 	writeAuthJSON(w, http.StatusOK, map[string]string{"authorization_url": url})
@@ -476,6 +510,14 @@ func (h *Handler) oauthBindStart(w http.ResponseWriter, r *http.Request) {
 // JSON body. A `?oauth=` flag on that redirect lets the landing page tell
 // whether to retry whatever it was waiting on (e.g. a pending calendar add).
 func (h *Handler) oauthCallback(w http.ResponseWriter, r *http.Request) {
+	cookieName := "sta_oauth_state_" + r.PathValue("provider")
+	cookie, err := r.Cookie(cookieName)
+	state := r.URL.Query().Get("state")
+	http.SetCookie(w, &http.Cookie{Name: cookieName, Path: "/api/v1/auth/oauth/", HttpOnly: true, Secure: h.service.cookieSecure, SameSite: http.SameSiteLaxMode, MaxAge: -1})
+	if err != nil || state == "" || subtle.ConstantTimeCompare([]byte(cookie.Value), []byte(state)) != 1 {
+		http.Redirect(w, r, "/login?oauth_error=1", http.StatusFound)
+		return
+	}
 	var currentAccountID *uuid.UUID
 	if session, err := h.service.Authenticate(r.Context(), r); err == nil {
 		accountID := session.Session.Account.ID
@@ -495,11 +537,16 @@ func (h *Handler) oauthCallback(w http.ResponseWriter, r *http.Request) {
 			"error", err,
 			"has_session", currentAccountID != nil,
 		)
-		h.writeOAuthError(w, err)
+		http.Redirect(w, r, "/login?oauth_error=1", http.StatusFound)
 		return
 	}
 	if result.Session != nil {
 		h.service.SetSessionCookiesForRequest(w, *result.Session, r)
+	}
+	if result.Registration != "" {
+		http.SetCookie(w, &http.Cookie{Name: oauthRegistrationCookie, Value: result.Registration, Path: "/api/v1/auth/oauth/", HttpOnly: true, Secure: h.service.cookieSecure, SameSite: http.SameSiteLaxMode, MaxAge: 900})
+		http.Redirect(w, r, "/register?oauth=1", http.StatusFound)
+		return
 	}
 	target := result.ReturnTo
 	if target == "" {

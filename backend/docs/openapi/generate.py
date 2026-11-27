@@ -129,14 +129,16 @@ SCHEMAS: dict[str, dict] = {
                           inquiry_count=INT),
 
     # verification ------------------------------------------------------
-    "VerificationRequest": S(id=UUID, academic_year=INT, school_code=STR, program_code=STR, method=STR,
-                             status=STR, document_count=INT, created_at=DT, reviewed_at=DT),
+    "VerificationRequest": S(id=UUID, applicant_username=STR, academic_year=INT, school_code=STR,
+                             school_name=STR, school_directory_id=UUID, program_code=STR, program_name=STR,
+                             method=STR, status=STR, identity_type=STR, document_type=STR,
+                             academic_fields=ARR(STR), document_count=INT, created_at=DT, reviewed_at=DT),
     "VerificationDocument": S(id=UUID, request_id=UUID, original_file_name=STR, mime_type=STR,
                               file_size_bytes={"type": "integer", "format": "int64"}, sha256=STR, status=STR,
                               rejection_reason=STR, reviewed_at=DT, created_at=DT),
     "VerificationDomain": S(id=UUID, school_code=STR, domain=STR, is_active=BOOL, created_at=DT),
-    "Verification": S(id=UUID, academic_year=INT, school_code=STR, program_code=STR, method=STR, status=STR,
-                      verified_at=DT, expires_at=DT),
+    "Verification": S(id=UUID, academic_year=INT, school_code=STR, school_directory_id=UUID,
+                      program_code=STR, method=STR, status=STR, verified_at=DT, expires_at=DT),
 
     # support ---------------------------------------------------------
     "SupportTicket": S(id=UUID, ticket_number=STR, category=STR, subject=STR, status=STR, assigned_to=UUID,
@@ -156,10 +158,25 @@ SCHEMAS: dict[str, dict] = {
     "ExamItem": S(name=STR, sort_order=INT, weight_percent=NUM, multiplier=NUM, description=STR, source_page=STR),
     "AdmissionProgram": S(academic_year=INT, program_identifier=STR, school_code=STR, school_name=STR,
                           program_code=STR, admission_program_name=STR, admission_quota=INT,
+                          admission_quota_display=STR,
                           willingness_values=ARR(INT), exam_items=ARR(REF("ExamItem")),
                           brochure_is_tentative=BOOL, consultation_phone=STR, brochure_url=STR,
+                          school_official_url=STR, department_official_url=STR, collego_url=STR,
                           special_talent_target=STR, notes=STR, source_locator=STR, review_status=STR,
                           created_at=DT, updated_at=DT),
+    "AdminProgramLinkReview": S(
+        academic_year=INT, program_identifier=STR, school_code=STR, school_name=STR,
+        program_code=STR, program_name=STR, current_school_url=STR, current_department_url=STR,
+        current_collego_url=STR, candidate_school_url=STR, candidate_school_source_url=STR,
+        candidate_department_url=STR, candidate_department_source_url=STR,
+        candidate_collego_url=STR, candidate_collego_source_url=STR,
+        collego_match_status={"type": "string", "enum": ["", "exact_normalized_name", "needs_manual_review", "ambiguous_candidates", "unmatched"]},
+        status={"type": "string", "enum": ["", "draft", "published", "rejected"]}, unpublished=BOOL, updated_at=STR,
+    ),
+    "AdminProgramLinkCandidateInput": S(
+        school_url=STR, school_source_url=STR, department_url=STR, department_source_url=STR,
+        collego_url=STR, collego_source_url=STR,
+    ),
     "BrochureDocument": S(academic_year=INT, school_code=STR, original_file_name=STR, mime_type=STR,
                           file_size_bytes={"type": "integer", "format": "int64"}, sha256=STR, source_url=STR,
                           review_status=STR, published_at=DT, created_at=DT),
@@ -205,6 +222,10 @@ SCHEMAS: dict[str, dict] = {
                     visibility={"type": "string", "enum": ["hidden", "published", "unpublished"]},
                     current_revision_id=UUID, title=STR, body=STR, revision_number=INT,
                     created_at=DT, updated_at=DT, reactions=ARR(REF("ReactionTally"))),
+    "AdminExperienceRevision": S(
+        id=UUID, experience_id=UUID, account_id=UUID, author_username=STR, visibility=STR,
+        review_status=STR, rejection_reason=STR, title=STR, body_preview=STR, body=STR,
+        author_type=STR, admission_outcome=STR, revision_number=INT, created_at=DT, updated_at=DT),
 
     # brochure discovery -------------------------------------------
     "DiscoveryCycle": S(academic_year=INT, status=STR, created_by=UUID, started_by=UUID, closed_by=UUID,
@@ -270,6 +291,7 @@ KEYSET: dict[tuple[str, str], str | None] = {
     ("get", "/api/v1/forum/spaces/{spaceID}/threads"): "ForumThread",
     ("get", "/api/v1/forum/threads/{threadID}/posts"): "ForumPost",
     ("get", "/api/v1/admin/users"): "AdminUser",
+    ("get", "/api/v1/admin/experience-revisions"): "AdminExperienceRevision",
     ("get", "/api/v1/admin/audit-log"): "AuditRow",
 }
 
@@ -288,18 +310,27 @@ QUERY: dict[tuple[str, str], list[dict]] = {
     ("get", "/api/v1/search"): [_q("q", description="search term"),
                                 _q("types", description="comma list: schools,programs,experiences")],
     ("get", "/api/v1/schools"): [_q("q", description="name/code prefix")],
-    ("get", "/api/v1/admissions/programs"): [_q("academic_year", "integer"), _q("school_code"), _q("q")],
+    ("get", "/api/v1/admissions/programs"): [
+        _q("academic_year", "integer"), _q("school_code"), _q("program_code"), _q("q"),
+        _q("all_years", "boolean", description="true returns every published year from 104 through the display year; cannot be combined with academic_year or program_code"),
+        _q("limit", "integer", minimum=1, maximum=500, default=50), _q("offset", "integer", minimum=0, maximum=10000),
+    ],
     ("get", "/api/v1/admissions/schools"): [_q("academic_year", "integer")],
     ("get", "/api/v1/events"): [_q("channel", description="comma list of chat channel keys (default lounge, max 10)")],
     ("get", "/api/v1/admin/users"): [_q("status", description="active|suspended|deleted"),
                                      _q("identity", description="temporary|student|senior"),
                                      _q("role", description="admin"), _q("q", description="username prefix")],
+    ("get", "/api/v1/admin/experience-revisions"): [
+        _q("review_status", description="draft|pending_review|approved|rejected")],
     ("get", "/api/v1/admin/audit-log"): [_q("entity_type"), _q("entity_key"), _q("action"),
                                          _q("actor", description="actor account UUID"),
                                          _q("since", description="RFC3339"), _q("until", description="RFC3339")],
     ("get", "/api/v1/admin/support/tickets"): [_LIMIT, _OFFSET, _q("status"), _q("category"), _q("assigned_to")],
     ("get", "/api/v1/admin/admissions/programs"): [_LIMIT, _OFFSET, _q("academic_year", "integer"),
                                                    _q("school_code"), _q("review_status")],
+    ("get", "/api/v1/admin/admissions/program-links"): [
+        _q("status", description="all|draft|published|unpublished|rejected"), _q("q"), _LIMIT, _OFFSET,
+    ],
     ("get", "/api/v1/admin/admission-sources"): [_LIMIT, _OFFSET, _q("academic_year", "integer"),
                                                  _q("school_code"), _q("status")],
     ("get", "/api/v1/admin/ingestion/brochure-runs"): [_LIMIT, _OFFSET, _q("status"), _q("academic_year", "integer")],
@@ -461,13 +492,24 @@ ROUTES: dict[tuple[str, str], dict] = {
 
     # ---- verification -------------------------------------
     ("get", "/api/v1/verification/requests"): {"response": data(ARR(REF("VerificationRequest")))},
+    ("delete", "/api/v1/verification/requests/{requestID}"): {
+        "summary": "Withdraw your own pending verification request", "status": "204"},
+    ("post", "/api/v1/verification/requests/{requestID}/revoke"): {
+        "summary": "Revoke your own approved verification", "status": "204", "noRequestBody": True},
     ("post", "/api/v1/verification/requests/school-email"): {
         "request": S(academic_year=INT, school_code=STR, program_code=STR, school_email={"type": "string", "format": "email"}),
         "response": S(request=REF("VerificationRequest"), code_expires_at=DT), "status": "201"},
     ("post", "/api/v1/verification/requests/{requestID}/verify-email"): {"request": S(code=STR),
                                                                         "response": data(REF("VerificationRequest"))},
     ("post", "/api/v1/verification/requests/document"): {"summary": "Create a document-upload verification request",
-                                                        "request": S(academic_year=INT, school_code=STR, program_code=STR),
+                                                        "request": S(
+                                                            academic_year=INT,
+                                                            school_code={"type": "string", "description": "Three-digit university code for non-current-student requests."},
+                                                            school_directory_id={"type": "string", "format": "uuid", "description": "Selected senior-high-school directory ID for current-student requests."},
+                                                            program_code={"type": "string", "description": "Optional three-digit program code for university-based requests."},
+                                                            identity_type={"type": "string", "enum": ["student", "senior", "parent", "educator"]},
+                                                            document_type={"type": "string", "enum": ["student_id", "admission_letter", "alumni_proof", "parent_relationship", "educator_credential", "other"]},
+                                                            academic_fields=ARR(STR)),
                                                         "response": data(REF("VerificationRequest")), "status": "201"},
     ("post", "/api/v1/verification/requests/{requestID}/documents"): {
         "summary": "Attach a document (multipart `file`)",
@@ -505,6 +547,10 @@ ROUTES: dict[tuple[str, str], dict] = {
     # ---- schools / admissions (public) --------------
     ("get", "/api/v1/schools"): {"response": data(ARR(REF("School")))},
     ("get", "/api/v1/admissions/schools"): {"response": data(ARR(S(school_code=STR, school_name=STR)))},
+    ("get", "/api/v1/admissions/display-latest-year"): {
+        "summary": "Get the current public admissions display year",
+        "response": data(S(academic_year=INT)),
+    },
     ("get", "/api/v1/admissions/programs"): {"response": data(ARR(REF("AdmissionProgram")))},
     ("get", "/api/v1/admissions/programs/{identifier}"): {"response": data(REF("AdmissionProgram"))},
     ("get", "/api/v1/admissions/brochures/{academicYear}/{schoolCode}/download"): {"summary": "Signed URL for a published brochure PDF", "response": download_of(REF("BrochureDocument"))},
@@ -597,6 +643,27 @@ ROUTES: dict[tuple[str, str], dict] = {
                                                               "response": data(REF("AdmissionProgram"))},
     ("post", "/api/v1/admin/admissions/programs/{identifier}/review"): {"request": _APPROVE,
                                                                        "response": data(REF("AdmissionProgram"))},
+    ("get", "/api/v1/admin/admissions/program-links"): {
+        "summary": "List school, department, and ColleGo! link candidates for review",
+        "response": data(ARR(REF("AdminProgramLinkReview"))),
+    },
+    ("put", "/api/v1/admin/admissions/program-links/{schoolCode}/{programCode}"): {
+        "summary": "Save unpublished school and program link candidates",
+        "request": REF("AdminProgramLinkCandidateInput"),
+        "response": data(REF("AdminProgramLinkReview")),
+    },
+    ("post", "/api/v1/admin/admissions/program-links/{schoolCode}/{programCode}/publish"): {
+        "summary": "Publish reviewed school and program links",
+        "request": S(reason=STR), "response": data(S(status={"type": "string", "enum": ["published"]})),
+    },
+    ("post", "/api/v1/admin/admissions/program-links/{schoolCode}/{programCode}/unpublish"): {
+        "summary": "Unpublish school and program links",
+        "response": data(S(status={"type": "string", "enum": ["unpublished"]})),
+    },
+    ("post", "/api/v1/admin/admissions/program-links/{schoolCode}/{programCode}/reject"): {
+        "summary": "Reject school and program link candidates",
+        "request": S(reason=STR), "response": data(S(status={"type": "string", "enum": ["rejected"]})),
+    },
     ("get", "/api/v1/admin/admissions/brochures"): {"response": data(ARR(REF("BrochureDocument")))},
     ("post", "/api/v1/admin/admissions/brochures"): {"summary": "Upload an official brochure PDF (multipart)",
                                                     "requestContent": {"multipart/form-data": {"schema": S(
@@ -641,6 +708,8 @@ ROUTES: dict[tuple[str, str], dict] = {
                                                           "response": S(corrected=BOOL)},
 
     # ---- admin: misc ------------------------------
+    ("get", "/api/v1/admin/experience-revisions/{revisionID}"): {
+        "response": data(REF("AdminExperienceRevision"))},
     ("post", "/api/v1/admin/experience-revisions/{revisionID}/review"): {"request": _APPROVE, "response": data(REF("Experience"))},
     ("get", "/api/v1/admin/applications/service-tickets"): {"response": data(ARR(REF("ServiceTicket")))},
     ("post", "/api/v1/admin/applications/service-tickets/{ticketID}/review"): {"request": _APPROVE,
@@ -725,6 +794,7 @@ _PUBLIC_AUTH = {
     "/api/v1/auth/password-reset/request", "/api/v1/auth/password-reset/confirm",
     "/api/v1/auth/email-verification/confirm",
     "/api/v1/auth/oauth/{provider}/start", "/api/v1/auth/oauth/{provider}/callback",
+    "/api/v1/admissions/display-latest-year",
 }
 
 
@@ -802,7 +872,7 @@ def build_op(method: str, path: str) -> dict:
 
     if "requestContent" in ov:
         op["requestBody"] = {"required": True, "content": ov["requestContent"]}
-    elif method in ("post", "put", "patch"):
+    elif method in ("post", "put", "patch") and not ov.get("noRequestBody"):
         op["requestBody"] = json_body(ov.get("request", {"type": "object"}))
 
     status = ov.get("status", "200")

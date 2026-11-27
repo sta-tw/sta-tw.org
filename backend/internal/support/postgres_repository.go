@@ -1025,7 +1025,22 @@ func (r *PostgresRepository) enqueueOfficialEmailTx(ctx context.Context, tx pgx.
 
 func (r *PostgresRepository) enqueueUserNoticeTx(ctx context.Context, tx pgx.Tx, ticket Ticket, suffix, title, body string, accountID *uuid.UUID) error {
 	var recipient []byte
+	emailEnabled := true
 	if accountID != nil {
+		var kindEnabled bool
+		err := tx.QueryRow(ctx, `
+			SELECT COALESCE(kinds -> 'support' <> 'false'::jsonb, TRUE), email_enabled
+			FROM notification_preferences WHERE account_id = $1
+		`, *accountID).Scan(&kindEnabled, &emailEnabled)
+		if errors.Is(err, pgx.ErrNoRows) {
+			kindEnabled = true
+			emailEnabled = true
+		} else if err != nil {
+			return err
+		}
+		if !kindEnabled {
+			return nil
+		}
 		if err := tx.QueryRow(ctx, `SELECT email_ciphertext FROM accounts WHERE id = $1 AND account_status = 'active'`, *accountID).Scan(&recipient); err != nil {
 			return err
 		}
@@ -1051,6 +1066,9 @@ func (r *PostgresRepository) enqueueUserNoticeTx(ctx context.Context, tx pgx.Tx,
 			ON CONFLICT (account_id, dedup_key) DO NOTHING
 		`, *accountID, "support:"+ticket.ID.String()+":"+suffix, titleCiphertext, bodyCiphertext); err != nil {
 			return err
+		}
+		if !emailEnabled {
+			return nil
 		}
 	}
 	return enqueueEmailTx(ctx, tx, r.cipher, accountID, recipient, "support:"+ticket.ID.String()+":"+suffix, title, body+"\n\n查看連結："+r.ticketURL(ticket.ID))

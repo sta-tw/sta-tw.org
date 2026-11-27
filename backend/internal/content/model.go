@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/google/uuid"
 	"sta-backend/internal/pagination"
@@ -134,21 +135,81 @@ type Experience struct {
 	RevisionNumber    int             `json:"revision_number"`
 	CreatedAt         time.Time       `json:"created_at"`
 	UpdatedAt         time.Time       `json:"updated_at"`
+	Tags              []string        `json:"tags"`
 	Reactions         []ReactionTally `json:"reactions,omitempty"`
 }
 
+// AdminExperienceRevision is the moderation view of one submitted article
+// revision. It includes the private body and author identity, so it is only
+// returned by the MFA-protected admin API.
+type AdminExperienceRevision struct {
+	ID               uuid.UUID `json:"id"`
+	ExperienceID     uuid.UUID `json:"experience_id"`
+	AccountID        uuid.UUID `json:"account_id"`
+	AuthorUsername   string    `json:"author_username"`
+	Visibility       string    `json:"visibility"`
+	ReviewStatus     string    `json:"review_status"`
+	RejectionReason  string    `json:"rejection_reason,omitempty"`
+	Title            string    `json:"title"`
+	BodyPreview      string    `json:"body_preview,omitempty"`
+	Body             string    `json:"body,omitempty"`
+	AuthorType       string    `json:"author_type"`
+	AdmissionOutcome string    `json:"admission_outcome"`
+	RevisionNumber   int       `json:"revision_number"`
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
+}
+
 type CreateExperienceInput struct {
-	Title            string `json:"title"`
-	Body             string `json:"body"`
-	AuthorType       string `json:"author_type"`
-	AdmissionOutcome string `json:"admission_outcome"`
+	Title            string   `json:"title"`
+	Body             string   `json:"body"`
+	AuthorType       string   `json:"author_type"`
+	AdmissionOutcome string   `json:"admission_outcome"`
+	Tags             []string `json:"tags"`
 }
 
 type CreateRevisionInput struct {
-	Title            string `json:"title"`
-	Body             string `json:"body"`
-	AuthorType       string `json:"author_type"`
-	AdmissionOutcome string `json:"admission_outcome"`
+	Title            string   `json:"title"`
+	Body             string   `json:"body"`
+	AuthorType       string   `json:"author_type"`
+	AdmissionOutcome string   `json:"admission_outcome"`
+	Tags             []string `json:"tags"`
+}
+
+const experienceTagLimit = 8
+
+func normalizeExperienceTags(tags *[]string) error {
+	if len(*tags) > experienceTagLimit {
+		return ErrInvalidStatus
+	}
+	seen := make(map[string]struct{}, len(*tags))
+	cleaned := make([]string, 0, len(*tags))
+	for _, raw := range *tags {
+		tag := strings.ToLower(strings.TrimSpace(raw))
+		tag = strings.TrimLeft(tag, "#")
+		tag = strings.TrimSpace(tag)
+		if tag == "" {
+			continue
+		}
+		if len([]rune(tag)) > 32 {
+			return ErrInvalidStatus
+		}
+		for _, r := range tag {
+			if unicode.IsControl(r) {
+				return ErrInvalidStatus
+			}
+		}
+		if _, ok := seen[tag]; ok {
+			continue
+		}
+		seen[tag] = struct{}{}
+		cleaned = append(cleaned, tag)
+	}
+	if len(cleaned) > experienceTagLimit {
+		return ErrInvalidStatus
+	}
+	*tags = cleaned
+	return nil
 }
 
 type ReviewInput struct {
@@ -169,6 +230,8 @@ type Repository interface {
 	SubmitRevision(context.Context, uuid.UUID, uuid.UUID) (Experience, error)
 	UnpublishExperience(context.Context, uuid.UUID, uuid.UUID) error
 	ListPublishedExperiences(context.Context, int, pagination.Cursor) ([]Experience, string, error)
+	AdminListExperienceRevisions(context.Context, string, int, pagination.Cursor) ([]AdminExperienceRevision, string, error)
+	AdminGetExperienceRevision(context.Context, uuid.UUID) (AdminExperienceRevision, error)
 	GetExperience(context.Context, *uuid.UUID, uuid.UUID) (Experience, error)
 	ReviewExperience(context.Context, uuid.UUID, uuid.UUID, ReviewInput) (Experience, error)
 	SetReaction(ctx context.Context, targetType string, targetID, accountID uuid.UUID, emoji string) error

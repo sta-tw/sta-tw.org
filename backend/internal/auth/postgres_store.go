@@ -231,7 +231,7 @@ func (s *PostgresStore) FindAccountByOAuthSubjectHashes(ctx context.Context, pro
 		return Account{}, nil, fmt.Errorf("parse OAuth account id: %w", err)
 	}
 	if account.AccountStatus != "active" {
-		return Account{}, nil, ErrNotFound
+		return Account{}, nil, ErrInvalidSession
 	}
 	return account, matched, nil
 }
@@ -462,7 +462,8 @@ func (s *PostgresStore) ConsumePasswordResetChallenge(ctx context.Context, token
 	var tag pgconn.CommandTag
 	if activatesAccount {
 		tag, err = tx.Exec(ctx, `
-			UPDATE accounts SET password_hash = $2, account_status = 'active', identity_status = 'student', updated_at = CURRENT_TIMESTAMP
+			UPDATE accounts SET password_hash = $2, account_status = 'active', identity_status = 'student',
+				school_identity_verified = true, identity_type = 'student', updated_at = CURRENT_TIMESTAMP
 			WHERE id = $1 AND account_status = 'pending_verification'
 		`, accountID, newPasswordHash)
 	} else {
@@ -537,6 +538,9 @@ func (s *PostgresStore) PurgeExpiredPendingAccounts(ctx context.Context, now tim
 	}
 	if _, err := tx.Exec(ctx, `DELETE FROM email_outbox WHERE account_id = ANY($1)`, ids); err != nil {
 		return 0, fmt.Errorf("delete pending account outbox rows: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM oauth_identities WHERE account_id = ANY($1)`, ids); err != nil {
+		return 0, fmt.Errorf("delete pending account OAuth identities: %w", err)
 	}
 	tag, err := tx.Exec(ctx, `DELETE FROM accounts WHERE id = ANY($1) AND account_status = 'pending_verification'`, ids)
 	if err != nil {
@@ -831,6 +835,31 @@ func (s *PostgresStore) UpdateAccountSchoolEmail(ctx context.Context, accountID 
 		return mapStoreError(err)
 	}
 	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (s *PostgresStore) ClearAccountSchoolEmail(ctx context.Context, accountID uuid.UUID) error {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE accounts
+		SET school_email_ciphertext = NULL, school_email_lookup_hash = NULL, updated_at = CURRENT_TIMESTAMP
+		WHERE id = $1 AND account_status <> 'pending_verification'
+	`, accountID)
+	if err != nil {
+		return mapStoreError(err)
+	}
+	if tag.RowsAffected() == 0 {
+		var accountStatus string
+		if err := s.pool.QueryRow(ctx, `SELECT account_status FROM accounts WHERE id = $1`, accountID).Scan(&accountStatus); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return ErrNotFound
+			}
+			return err
+		}
+		if accountStatus == "pending_verification" {
+			return ErrSchoolEmailRequired
+		}
 		return ErrNotFound
 	}
 	return nil
